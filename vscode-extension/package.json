@@ -52,6 +52,14 @@
         "title": "Magpylib Studio: Load Scene from File..."
       },
       {
+        "command": "magpylib-studio.importScript",
+        "title": "Magpylib Studio: Import Python Script..."
+      },
+      {
+        "command": "magpylib-studio.openScriptInStudio",
+        "title": "Open in Magpylib Studio"
+      },
+      {
         "command": "magpylib-studio.undo",
         "title": "Magpylib Studio: Undo Scene Edit",
         "icon": "$(discard)"
@@ -111,7 +119,7 @@
     "viewsWelcome": [
       {
         "view": "magpylib-studio.sceneView",
-        "contents": "The scene is empty.\n[Load Example Scene](command:magpylib-studio.loadExample)\nTwo stacked Halbach rings and a sensor path along the bore.\n[Load Scene from File...](command:magpylib-studio.loadScene)\nOr ask Copilot chat to add objects with #magpyAdd."
+        "contents": "The scene is empty.\n[Load Example Scene](command:magpylib-studio.loadExample)\nTwo stacked Halbach rings and a sensor path along the bore.\n[Import Python Script...](command:magpylib-studio.importScript)\nRun an existing magpylib script and edit its scene here.\n[Load Scene from File...](command:magpylib-studio.loadScene)\nOr ask Copilot chat to add objects with #magpyAdd."
       }
     ],
     "menus": {
@@ -152,6 +160,19 @@
           "group": "scene@3"
         }
       ],
+      "explorer/context": [
+        {
+          "command": "magpylib-studio.openScriptInStudio",
+          "when": "resourceExtname == .py",
+          "group": "navigation"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "magpylib-studio.openScriptInStudio",
+          "when": "resourceExtname == .py"
+        }
+      ],
       "view/item/context": [
         {
           "command": "magpylib-studio.removeObject",
@@ -165,6 +186,10 @@
       "commandPalette": [
         {
           "command": "magpylib-studio.selectObject",
+          "when": "false"
+        },
+        {
+          "command": "magpylib-studio.openScriptInStudio",
           "when": "false"
         },
         {

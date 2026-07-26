@@ -20,6 +20,7 @@ Protocol surface (all JSON-serializable in/out):
   set_param(object_id, name, value)    -> {"ok": bool, "error"?: str}
   reset_style(object_id, path?)        -> {"ok": bool, "error"?: str}
   load_scene(scene | path)             -> {"ok": bool, "error"?: str}
+  load_script(path)                    -> {"ok": bool, "warnings"?: [...], ...}
   load_example()                       -> {"ok": bool, "error"?: str}
   clear_scene()                        -> {"ok": bool, "error"?: str}
   batch(operations)                    -> {"ok": bool, "results": [...]} (1 undo step)
@@ -432,6 +433,25 @@ class MagpylibStudioSession:
             self.doc = json.loads(json.dumps(scene))
 
         return self._mutate_doc(mutate, "load scene")
+
+    def load_script(self, path):
+        """Import an existing magpylib script by EXECUTING it (same trust as
+        the user running it) and introspecting the resulting objects into a
+        document. Parametric structure flattens; see importer.py."""
+        from magpylib_studio import importer
+
+        try:
+            namespace = importer.run_script(path)
+            doc, warnings = importer.document_from_namespace(namespace)
+        except Exception as e:  # noqa: BLE001 - report script errors, don't crash
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        result = self.load_scene(doc)
+        if result["ok"]:
+            if not self._history_paused and self._undo:
+                self._undo[-1]["label"] = "import script"
+            if warnings:
+                result["warnings"] = warnings
+        return result
 
     def load_example(self):
         """Load the built-in example scene (Halbach ring, coil pair, sensor)."""

@@ -407,6 +407,71 @@ def test_batch_is_one_undo_step(session):
     assert session.get_history()["undo"] == []
 
 
+HALBACH_SCRIPT = """
+import numpy as np
+import magpylib as magpy
+
+N = 10
+angles = np.linspace(0, 360, N, endpoint=False)
+
+halbach = magpy.Collection(style_label="Halbach")
+
+for a in angles:
+    cube = magpy.magnet.Cuboid(
+        dimension=(1, 1, 1),
+        polarization=(1, 0, 0),
+        position=(2.3, 0, 0),
+    )
+    cube.rotate_from_angax(a, 'z', anchor=0)
+    cube.rotate_from_angax(a, 'z')
+    halbach.add(cube)
+
+sensor = magpy.Sensor(position=[[0, 0, z] for z in (-1, 0, 1)])
+
+halbach.show(backend='plotly')
+"""
+
+
+def test_load_script_imports_live_objects(tmp_path):
+    import numpy as np
+
+    path = tmp_path / "halbach.py"
+    path.write_text(HALBACH_SCRIPT, encoding="utf-8")
+    s = MagpylibStudioSession()
+    res = s.load_script(str(path))
+    assert res["ok"] is True, res
+    parents = {o["id"]: o["parent"] for o in s.list_objects()}
+    assert parents["halbach"] is None and parents["sensor"] is None
+    assert sum(1 for p in parents.values() if p == "halbach") == 10
+    assert s._objs["sensor"].position.shape == (3, 3)
+    # geometry survives: third magnet sits at 72 deg on the r=2.3 ring,
+    # spun so its polarization points 144 deg from x
+    m = s._objs["halbach"].children[2]
+    a = np.deg2rad(72)
+    assert np.allclose(m.position, [2.3 * np.cos(a), 2.3 * np.sin(a), 0])
+    rotvec = m.orientation.as_rotvec(degrees=True)
+    assert round(np.linalg.norm(rotvec), 3) == 144.0
+    # import is one undoable step; scene renders; script round-trips
+    assert s.get_history()["undo"] == ["import script"]
+    assert len(s.get_figure()["data"]) > 0
+    ns = {}
+    exec(s.to_script().replace("scene.show(backend='plotly')", ""), ns)  # noqa: S102
+    assert np.allclose(ns["halbach"].children[2].position, m.position)
+
+
+def test_load_script_errors(tmp_path):
+    s = MagpylibStudioSession()
+    bad = tmp_path / "bad.py"
+    bad.write_text("this is not python", encoding="utf-8")
+    assert s.load_script(str(bad))["ok"] is False
+    empty = tmp_path / "empty.py"
+    empty.write_text("x = 1\n", encoding="utf-8")
+    res = s.load_script(str(empty))
+    assert res["ok"] is False and "no magpylib objects" in res["error"]
+    assert s.load_script(str(tmp_path / "missing.py"))["ok"] is False
+    assert s.list_objects() == []  # scene untouched by failed imports
+
+
 def test_jsonrpc_roundtrip():
     """Drive the stdio server end to end through pipes."""
     requests = [

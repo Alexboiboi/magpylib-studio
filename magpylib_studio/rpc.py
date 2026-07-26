@@ -31,6 +31,7 @@ _PUBLIC = {
     "set_param",
     "reset_style",
     "load_scene",
+    "load_script",
     "load_example",
     "clear_scene",
     "batch",

@@ -263,6 +263,30 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   };
 
+  /** Run a user script through the engine importer and show the result. */
+  const importScript = async (uri: vscode.Uri) => {
+    try {
+      const result = (await getEngine(context).request('load_script', {
+        path: uri.fsPath,
+      })) as { ok: boolean; error?: string; warnings?: string[] };
+      if (!result.ok) {
+        vscode.window.showErrorMessage(`Magpylib Studio import failed: ${result.error}`);
+        return;
+      }
+      if (result.warnings?.length) {
+        vscode.window.showWarningMessage(
+          `Magpylib Studio import: ${result.warnings.join('; ')}`,
+        );
+      }
+      broadcastMutation();
+      openStudioPanel(context);
+    } catch (err) {
+      vscode.window.showErrorMessage(
+        `Magpylib Studio: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  };
+
   /** Run a mutating engine call from the tree UI, surface failures, refresh. */
   const mutateFromTree = async (method: string, params: Record<string, unknown>) => {
     try {
@@ -329,6 +353,24 @@ export function activate(context: vscode.ExtensionContext): void {
       await mutateFromTree('load_scene', { scene: picks[0].fsPath });
       openStudioPanel(context);
     }),
+    vscode.commands.registerCommand('magpylib-studio.importScript', async () => {
+      const picks = await vscode.window.showOpenDialog({
+        filters: { 'Python script': ['py'] },
+        canSelectMany: false,
+      });
+      if (picks?.length) {
+        await importScript(picks[0]);
+      }
+    }),
+    vscode.commands.registerCommand(
+      'magpylib-studio.openScriptInStudio',
+      async (uri?: vscode.Uri) => {
+        const target = uri ?? vscode.window.activeTextEditor?.document.uri;
+        if (target) {
+          await importScript(target);
+        }
+      },
+    ),
     vscode.commands.registerCommand('magpylib-studio.openStudio', () =>
       openStudioPanel(context),
     ),

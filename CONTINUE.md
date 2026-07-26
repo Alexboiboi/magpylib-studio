@@ -38,6 +38,11 @@ and drives it.
   paths, animatable. Shown in a dedicated on-demand **Field panel**
   ($(graph-line) icon / "Open Field View") with an output selector, not
   embedded in the 3D view.
+- **Script import**: `magpylib_studio/importer.py` + `load_script(path)` —
+  run an existing magpylib script, introspect the namespace into a document
+  (undoable, one step, warnings for e.g. orientation paths). Extension:
+  "Import Python Script…" command, right-click a `.py` in the explorer or
+  editor tab → "Open in Magpylib Studio", link on the empty-scene welcome.
 - `magpylib_studio/rpc.py` — JSON-RPC stdio loop (`serve`), method allow-list.
 - `magpylib_studio/__main__.py` — `python -m magpylib_studio`.
 - `tests/test_session.py` — 29 tests, **all green**, ruff clean (`uvx ruff check`).
@@ -117,8 +122,12 @@ check that `../magpylib` is on `feat/improve-style` and installed `-e`.
 3. **Shared validation** — every edit goes through `style.set`, validated by the
    property tree; bad edits are reported so a GUI shows an error and an LLM
    self-corrects. No second validation layer.
-4. **Document canonical, script generated** (not AST-parsed). The hard future
-   piece is the reverse (script → document); deferred on purpose.
+4. **Document canonical, script generated** (not AST-parsed). The reverse now
+   exists as a pragmatic bridge: `load_script(path)` **executes** the user's
+   script (show() patched out) and introspects the live objects into a
+   document (`importer.py`) — variable names → ids, Collections keep nesting,
+   orientation → one `rotations` entry. Parametric structure flattens (loops
+   arrive as concrete objects). True AST parsing stays deferred on purpose.
 
 ## Reference material (in ../magpylib, branch feat/improve-style)
 
