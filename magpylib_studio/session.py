@@ -18,6 +18,11 @@ Protocol surface (all JSON-serializable in/out):
   remove_object(object_id)             -> {"ok": bool, ...} (subtree if Collection)
   move_object(object_id, parent?)      -> {"ok": bool, "error"?: str}
   set_param(object_id, name, value)    -> {"ok": bool, "error"?: str}
+  move(object_id, displacement, start?)          -> {"ok": bool, ...} (list = path)
+  rotate(object_id, angle, axis?, anchor?, start?) -> {"ok": bool, ...} (list = path)
+  set_transform(object_id, position?, orientation?) -> {"ok": bool, ...} (absolute)
+  clear_path(object_id, index?)        -> {"ok": bool, "error"?: str}
+  get_transform(object_id)             -> {position, orientation, path_length, ...}
   reset_style(object_id, path?)        -> {"ok": bool, "error"?: str}
   load_scene(scene | path)             -> {"ok": bool, "error"?: str}
   load_script(path, scene?)            -> {"ok", "scene", "scenes": [labels], ...}
@@ -40,6 +45,7 @@ import magpylib as magpy
 import numpy as np
 from magpylib._src.defaults.defaults_classes import default_settings
 from magpylib._src.style import get_style
+from scipy.spatial.transform import Rotation as R
 
 
 def example_scene():
@@ -104,6 +110,10 @@ _BATCHABLE = {
     "remove_object",
     "move_object",
     "set_param",
+    "move",
+    "rotate",
+    "set_transform",
+    "clear_path",
     "reset_style",
     "clear_scene",
 }
@@ -248,6 +258,20 @@ class MagpylibStudioSession:
 
     def get_schema(self, object_id):
         return type(self._objs[object_id].style).schema()
+
+    def get_transform(self, object_id):
+        """World pose of an object, for the inspector's transform widgets."""
+        obj = self._objs[object_id]
+        position = np.atleast_2d(np.array(obj.position, dtype=float))
+        rotvec = np.atleast_2d(obj.orientation.as_rotvec(degrees=True))
+        euler = np.atleast_2d(obj.orientation.as_euler("xyz", degrees=True))
+        return {
+            "position": position[-1].round(9).tolist(),
+            "orientation": rotvec[-1].round(9).tolist(),
+            "euler": euler[-1].round(9).tolist(),
+            "path_length": len(position),
+            "path": position.round(9).tolist() if len(position) > 1 else None,
+        }
 
     def get_values(self, object_id):
         obj = self._objs[object_id]
@@ -412,6 +436,61 @@ class MagpylibStudioSession:
             if rotvec.ndim > 1:
                 entry["start"] = 0
             spec["rotations"] = [entry]
+
+    # --- transforms --------------------------------------------------------
+    def _transform(self, object_id, apply, label):
+        """Run a magpylib transform on the live object, then rebase its spec
+        to the resulting pose — magpylib's own semantics (paths, anchors,
+        `start`) for free, with the document staying canonical."""
+        obj = self._objs[object_id]
+        spec = self._spec(object_id)
+
+        def mutate(doc):
+            apply(obj)
+            self._rebase(
+                spec, np.array(obj.position, dtype=float), obj.orientation
+            )
+
+        return self._mutate_doc(mutate, label)
+
+    def move(self, object_id, displacement, start="auto"):
+        """Move by `displacement` (relative). A list of displacements
+        [[dx,dy,dz], ...] creates/extends a position path."""
+        return self._transform(
+            object_id,
+            lambda o: o.move(displacement, start=start),
+            f"move {object_id}",
+        )
+
+    def rotate(self, object_id, angle, axis="z", anchor=None, start="auto"):
+        """Rotate by `angle` degrees about `axis` (relative). `anchor` orbits
+        that point (0 = origin); a list of angles creates/extends a path."""
+        return self._transform(
+            object_id,
+            lambda o: o.rotate_from_angax(angle, axis, anchor=anchor, start=start),
+            f"rotate {object_id}",
+        )
+
+    def set_transform(self, object_id, position=None, orientation=None):
+        """Set the absolute pose in world coordinates. `position` is [x,y,z]
+        or a path [[x,y,z], ...]; `orientation` is a rotation vector in
+        degrees [rx,ry,rz] (or a list of them)."""
+        def apply(o):
+            if position is not None:
+                o.position = position
+            if orientation is not None:
+                o.orientation = R.from_rotvec(orientation, degrees=True)
+
+        return self._transform(object_id, apply, f"set transform {object_id}")
+
+    def clear_path(self, object_id, index=-1):
+        """Reduce a path to a single step (default: its last)."""
+        def apply(o):
+            o.position = np.atleast_2d(o.position)[index]
+            rot = o.orientation
+            o.orientation = rot[index] if len(np.atleast_2d(rot.as_rotvec())) > 1 else rot
+
+        return self._transform(object_id, apply, f"clear path {object_id}")
 
     def move_object(self, object_id, parent=None):
         """Reparent an object: into a Collection, or to the root

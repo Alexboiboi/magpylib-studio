@@ -1,5 +1,14 @@
 import * as vscode from 'vscode';
 
+const MUTATING = new Set([
+  'apply_edit',
+  'reset_style',
+  'move',
+  'rotate',
+  'set_transform',
+  'clear_path',
+]);
+
 /**
  * Sidebar style inspector: schema-driven widgets for the selected object.
  * Widgets are generated in the webview from `get_schema` (enum -> dropdown,
@@ -42,7 +51,7 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
       try {
         const result = await this.request(method, params);
         webviewView.webview.postMessage({ type: 'rpcResult', reqId, method, result });
-        if (method === 'apply_edit' || method === 'reset_style') {
+        if (MUTATING.has(method)) {
           this.onMutation();
         }
       } catch (err) {
@@ -98,11 +107,21 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
     .row.set .reset { visibility: visible; }
     #status { color: var(--vscode-errorForeground); white-space: pre-wrap; margin-top: 6px; }
     #empty { opacity: 0.7; margin-top: 10px; }
+    .vec { display: grid; grid-template-columns: 14px 1fr 14px 1fr 14px 1fr; gap: 3px; align-items: center; padding: 1px 0 1px 8px; }
+    .vec span { opacity: 0.7; text-align: right; }
+    .vec input { width: 100%; box-sizing: border-box; }
+    .trow { display: flex; gap: 4px; align-items: center; padding: 2px 0 2px 8px; flex-wrap: wrap; }
+    .trow input[type=number] { width: 52px; }
+    .trow select { width: auto; }
+    .trow button { background: var(--vscode-button-secondaryBackground, #3a3d41); color: var(--vscode-button-secondaryForeground, inherit); border: none; padding: 2px 8px; cursor: pointer; border-radius: 2px; }
+    .trow button:hover { background: var(--vscode-button-secondaryHoverBackground, #45494e); }
+    .hint { opacity: 0.65; padding: 0 0 2px 8px; }
   </style>
 </head>
 <body>
   <div id="header"></div>
   <input id="filter" type="text" placeholder="Filter properties…" />
+  <div id="transform"></div>
   <div id="props"></div>
   <div id="empty">Select an object in the Scene view.</div>
   <div id="status"></div>
@@ -110,6 +129,7 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
     const vscodeApi = acquireVsCodeApi();
     const headerEl = document.getElementById('header');
     const propsEl = document.getElementById('props');
+    const transformEl = document.getElementById('transform');
     const emptyEl = document.getElementById('empty');
     const statusEl = document.getElementById('status');
     const filterEl = document.getElementById('filter');
@@ -264,22 +284,150 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
       }
     }
 
+    // --- transform section: absolute pose, relative ops, path tools -------
+    function vecRow(labels, values, onCommit) {
+      const row = document.createElement('div');
+      row.className = 'vec';
+      const inputs = [];
+      labels.forEach((name, i) => {
+        const tag = document.createElement('span');
+        tag.textContent = name;
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.step = 'any';
+        input.value = Number(values[i]).toFixed(4).replace(/\\.?0+$/, '');
+        input.addEventListener('change', () =>
+          onCommit(inputs.map((el) => parseFloat(el.value) || 0)),
+        );
+        inputs.push(input);
+        row.append(tag, input);
+      });
+      return row;
+    }
+
+    function transformOp(method, params) {
+      statusEl.textContent = '';
+      return rpc(method, Object.assign({ object_id: objectId }, params))
+        .then((res) => {
+          if (res && res.ok === false) statusEl.textContent = res.error;
+          return loadTransform();
+        })
+        .catch((err) => { statusEl.textContent = String(err); });
+    }
+
+    async function loadTransform() {
+      const t = await rpc('get_transform', { object_id: objectId });
+      transformEl.innerHTML = '';
+      const box = document.createElement('details');
+      box.open = true;
+      const summary = document.createElement('summary');
+      summary.textContent = 'transform';
+      box.appendChild(summary);
+
+      if (t.path_length > 1) {
+        const hint = document.createElement('div');
+        hint.className = 'hint';
+        hint.textContent = 'path: ' + t.path_length + ' steps (values show the last)';
+        box.appendChild(hint);
+      }
+      box.appendChild(vecRow(['x', 'y', 'z'], t.position, (v) =>
+        transformOp('set_transform', { position: v }),
+      ));
+      box.appendChild(vecRow(['rx', 'ry', 'rz'], t.orientation, (v) =>
+        transformOp('set_transform', { orientation: v }),
+      ));
+
+      // relative rotate, optionally orbiting the origin, optionally a path
+      const row = document.createElement('div');
+      row.className = 'trow';
+      const angle = document.createElement('input');
+      angle.type = 'number'; angle.step = 'any'; angle.value = '45';
+      const axis = document.createElement('select');
+      for (const a of ['z', 'x', 'y']) axis.append(new Option(a, a));
+      const orbit = document.createElement('label');
+      const orbitBox = document.createElement('input');
+      orbitBox.type = 'checkbox';
+      orbit.append(orbitBox, document.createTextNode(' orbit origin'));
+      const steps = document.createElement('input');
+      steps.type = 'number'; steps.min = '1'; steps.value = '1'; steps.title = 'path steps';
+      const go = document.createElement('button');
+      go.textContent = 'Rotate';
+      go.addEventListener('click', () => {
+        const n = Math.max(1, parseInt(steps.value, 10) || 1);
+        const total = parseFloat(angle.value) || 0;
+        const value = n === 1
+          ? total
+          : Array.from({ length: n }, (_, i) => (total * (i + 1)) / n);
+        const params = { angle: value, axis: axis.value };
+        if (orbitBox.checked) params.anchor = 0;
+        if (n > 1) params.start = -1;
+        transformOp('rotate', params);
+      });
+      row.append(document.createTextNode('rotate'), angle, axis, orbit,
+                 document.createTextNode('steps'), steps, go);
+      box.appendChild(row);
+
+      // relative move, optionally as a path
+      const mrow = document.createElement('div');
+      mrow.className = 'trow';
+      const dxyz = ['0', '0', '1'].map((d) => {
+        const el = document.createElement('input');
+        el.type = 'number'; el.step = 'any'; el.value = d; el.style.width = '46px';
+        return el;
+      });
+      const msteps = document.createElement('input');
+      msteps.type = 'number'; msteps.min = '1'; msteps.value = '1'; msteps.title = 'path steps';
+      const mgo = document.createElement('button');
+      mgo.textContent = 'Move';
+      mgo.addEventListener('click', () => {
+        const d = dxyz.map((el) => parseFloat(el.value) || 0);
+        const n = Math.max(1, parseInt(msteps.value, 10) || 1);
+        const value = n === 1
+          ? d
+          : Array.from({ length: n }, (_, i) => d.map((c) => (c * (i + 1)) / n));
+        const params = { displacement: value };
+        if (n > 1) params.start = -1;
+        transformOp('move', params);
+      });
+      mrow.append(document.createTextNode('move'), ...dxyz,
+                  document.createTextNode('steps'), msteps, mgo);
+      box.appendChild(mrow);
+
+      if (t.path_length > 1) {
+        const prow = document.createElement('div');
+        prow.className = 'trow';
+        const clear = document.createElement('button');
+        clear.textContent = 'Clear path';
+        clear.addEventListener('click', () => transformOp('clear_path', {}));
+        prow.append(clear);
+        box.appendChild(prow);
+      }
+      transformEl.appendChild(box);
+    }
+
     async function reloadValues() {
       values = await rpc('get_values', { object_id: objectId });
       render();
+      await loadTransform();
     }
 
     async function loadObject(id) {
       objectId = id;
       emptyEl.style.display = id ? 'none' : '';
       statusEl.textContent = '';
-      if (!id) { headerEl.textContent = ''; propsEl.innerHTML = ''; return; }
+      if (!id) {
+        headerEl.textContent = '';
+        propsEl.innerHTML = '';
+        transformEl.innerHTML = '';
+        return;
+      }
       headerEl.textContent = id;
       [schema, values] = await Promise.all([
         rpc('get_schema', { object_id: id }),
         rpc('get_values', { object_id: id }),
       ]);
       render();
+      await loadTransform();
     }
 
     filterEl.addEventListener('input', render);

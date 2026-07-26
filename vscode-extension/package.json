@@ -465,6 +465,88 @@
         }
       },
       {
+        "name": "magpylib-studio_rotate",
+        "displayName": "Rotate magpylib object",
+        "toolReferenceName": "magpyRotate",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "Rotate a scene object by 'angle' degrees about 'axis'. Pass anchor 0 (or [x,y,z]) to ORBIT that point instead of spinning in place - Halbach-style arrangements orbit and spin by the same angle. A list of angles creates an animation path (use start: -1 to append to the existing path). Works on Collections too, rotating the whole group. Prefer the batch tool for many objects.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "object_id": {
+              "type": "string"
+            },
+            "angle": {
+              "description": "Degrees; a list of degrees creates a path."
+            },
+            "axis": {
+              "type": "string",
+              "description": "'x', 'y' or 'z' (default 'z')."
+            },
+            "anchor": {
+              "description": "Orbit this point: 0 for the origin, or [x,y,z]. Omit to spin in place."
+            },
+            "start": {
+              "description": "Path index to apply from; -1 appends to the current path."
+            }
+          },
+          "required": [
+            "object_id",
+            "angle"
+          ]
+        }
+      },
+      {
+        "name": "magpylib-studio_move",
+        "displayName": "Move magpylib object",
+        "toolReferenceName": "magpyMove",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "Move a scene object by a RELATIVE displacement [dx,dy,dz] in meters. A list of displacements creates an animation path (use start: -1 to append). To set an absolute position instead, use the set position tool. Works on Collections, moving the whole group.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "object_id": {
+              "type": "string"
+            },
+            "displacement": {
+              "type": "array",
+              "description": "[dx,dy,dz], or [[dx,dy,dz], ...] for a path."
+            },
+            "start": {
+              "description": "Path index to apply from; -1 appends to the current path."
+            }
+          },
+          "required": [
+            "object_id",
+            "displacement"
+          ]
+        }
+      },
+      {
+        "name": "magpylib-studio_setTransform",
+        "displayName": "Set magpylib object pose",
+        "toolReferenceName": "magpyPose",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "Set an object's ABSOLUTE position and/or orientation in world coordinates (meters, degrees). 'position' is [x,y,z] or a path [[x,y,z],...]; 'orientation' is a rotation vector [rx,ry,rz] in degrees. Use the move/rotate tools for relative changes.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "object_id": {
+              "type": "string"
+            },
+            "position": {
+              "type": "array"
+            },
+            "orientation": {
+              "type": "array"
+            }
+          },
+          "required": [
+            "object_id"
+          ]
+        }
+      },
+      {
         "name": "magpylib-studio_clearScene",
         "displayName": "Clear magpylib scene",
         "toolReferenceName": "magpyClear",
@@ -480,7 +562,7 @@
         "displayName": "Batch magpylib operations",
         "toolReferenceName": "magpyBatch",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "Apply several Magpylib Studio scene operations in ONE call - always prefer this over chaining single tool calls when creating, editing, or removing multiple objects (e.g. building an array of magnets). Operations run in order; failures don't stop the rest. The result lists per-operation outcomes ({ok, error?}) - fix failed ones and retry only those. Batchable methods: add_object, remove_object, move_object (reparent into/out of Collections: {object_id, parent?}), apply_edit, set_param, reset_style, clear_scene (their params match the corresponding single tools).",
+        "modelDescription": "Apply several Magpylib Studio scene operations in ONE call - always prefer this over chaining single tool calls when creating, editing, or removing multiple objects (e.g. building an array of magnets). Operations run in order; failures don't stop the rest. The result lists per-operation outcomes ({ok, error?}) - fix failed ones and retry only those. Batchable methods: add_object, remove_object, move_object (reparent into/out of Collections: {object_id, parent?}), apply_edit, set_param, move, rotate, set_transform, clear_path, reset_style, clear_scene (their params match the corresponding single tools).",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -498,6 +580,10 @@
                       "move_object",
                       "apply_edit",
                       "set_param",
+                      "move",
+                      "rotate",
+                      "set_transform",
+                      "clear_path",
                       "reset_style",
                       "clear_scene"
                     ]

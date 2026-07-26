@@ -213,6 +213,62 @@ def test_load_example():
     assert ns["r2m01"].position.round(3).tolist() != [2.3, 0, 1.5]
 
 
+def test_transforms(session):
+    import numpy as np
+
+    assert session.move("cube", [0, 0, 2]) == {"ok": True}
+    assert np.allclose(session._objs["cube"].position, [0, 0, 2])
+    # orbit about the origin
+    assert session.rotate("cube", 90, "z", anchor=[0, 0, 0]) == {"ok": True}
+    assert np.allclose(session._objs["cube"].position, [0, 0, 2])  # on the axis
+    assert session.move("cube", [1, 0, 0]) == {"ok": True}
+    assert session.rotate("cube", 90, "z", anchor=0) == {"ok": True}
+    assert np.allclose(session._objs["cube"].position, [0, 1, 2])
+    # absolute pose
+    assert session.set_transform("cube", position=[3, 0, 0],
+                                 orientation=[0, 0, 45]) == {"ok": True}
+    t = session.get_transform("cube")
+    assert np.allclose(t["position"], [3, 0, 0])
+    assert round(t["euler"][2], 6) == 45.0 and t["path_length"] == 1
+    # transforms are undoable like any other edit
+    assert session.undo() == {"ok": True}
+    assert np.allclose(session._objs["cube"].position, [0, 1, 2])
+
+
+def test_transform_paths(session):
+    import numpy as np
+
+    steps = [[0, 0, z] for z in np.linspace(0, 3, 5)]
+    assert session.move("cube", steps, start=0) == {"ok": True}
+    assert session.get_transform("cube")["path_length"] == 5
+
+    assert session.rotate("cube", list(np.linspace(0, 90, 5)), "z",
+                          anchor=0, start=0) == {"ok": True}
+    obj = session._objs["cube"]
+    assert len(obj.position) == 5 and len(obj.orientation) == 5
+
+    # both paths survive export
+    ns = {}
+    exec(session.to_script().replace("scene.show(backend='plotly')", ""), ns)  # noqa: S102
+    assert np.allclose(ns["cube"].position, obj.position)
+    assert np.allclose(ns["cube"].orientation.as_matrix(), obj.orientation.as_matrix())
+
+    assert session.clear_path("cube") == {"ok": True}
+    assert session.get_transform("cube")["path_length"] == 1
+
+
+def test_transform_respects_parent_frame():
+    """A transform inside a rotated Collection stays in world coordinates."""
+    import numpy as np
+
+    s = MagpylibStudioSession()
+    s.load_example()  # ring2 carries an 18 deg group rotation
+    assert s.set_transform("r2m01", position=[5, 0, 0]) == {"ok": True}
+    assert np.allclose(s._objs["r2m01"].position, [5, 0, 0])
+    assert s.move("r2m01", [0, 0, 1]) == {"ok": True}
+    assert np.allclose(s._objs["r2m01"].position, [5, 0, 1])
+
+
 def test_move_preserves_world_pose():
     """Reparenting must not teleport: a Collection's group rotation would
     otherwise be applied on top of already-transformed coordinates."""

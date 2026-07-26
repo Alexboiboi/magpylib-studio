@@ -22,6 +22,11 @@ newline-delimited JSON-RPC over stdio.
   entry to jump the scene there, both backwards and forwards; the timeline
   itself stays put. Undo/redo icons sit on the Scene and History view
   titles (Cmd+Z / Cmd+Shift+Z still work inside the panels).
+- **Transforms** — the Inspector's `transform` section: absolute position and
+  rotation-vector fields, relative *rotate* (with "orbit origin" for
+  Halbach-style arrangements) and *move*, each with a step count that turns
+  the operation into an animation **path**, plus *Clear path*. Same
+  operations in chat: `#magpyMove`, `#magpyRotate`, `#magpyPose`.
 - **Inspector view** — below the tree: schema-driven widgets generated from
   `get_schema()` (enum → dropdown, `format: color` → color picker + text,
   bounded number → slider, boolean → tri-state with "(default)"), prefilled
