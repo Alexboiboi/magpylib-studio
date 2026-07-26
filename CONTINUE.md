@@ -38,11 +38,15 @@ and drives it.
   paths, animatable. Shown in a dedicated on-demand **Field panel**
   ($(graph-line) icon / "Open Field View") with an output selector, not
   embedded in the 3D view.
-- **Script import**: `magpylib_studio/importer.py` + `load_script(path)` —
-  run an existing magpylib script, introspect the namespace into a document
-  (undoable, one step, warnings for e.g. orientation paths). Extension:
-  "Import Python Script…" command, right-click a `.py` in the explorer or
-  editor tab → "Open in Magpylib Studio", link on the empty-scene welcome.
+- **Script import**: `magpylib_studio/importer.py` + `load_script(path,
+  scene?)` — run an existing magpylib script with **show() intercepted**:
+  each show() call the script makes is captured as a scene candidate (what
+  its author considered "the scene"), plus an "all script objects" fallback
+  when that differs; candidates cached, `load_captured(scene)` switches
+  (each load one undoable step; warnings for e.g. orientation paths).
+  Extension: "Import Python Script…" command, right-click a `.py` → "Open in
+  Magpylib Studio", welcome link, and a post-import "Switch Scene…" prompt +
+  "Switch Imported Scene…" palette command when several candidates exist.
 - `magpylib_studio/rpc.py` — JSON-RPC stdio loop (`serve`), method allow-list.
 - `magpylib_studio/__main__.py` — `python -m magpylib_studio`.
 - `tests/test_session.py` — 29 tests, **all green**, ruff clean (`uvx ruff check`).

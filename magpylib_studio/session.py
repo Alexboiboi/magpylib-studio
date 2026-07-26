@@ -20,7 +20,8 @@ Protocol surface (all JSON-serializable in/out):
   set_param(object_id, name, value)    -> {"ok": bool, "error"?: str}
   reset_style(object_id, path?)        -> {"ok": bool, "error"?: str}
   load_scene(scene | path)             -> {"ok": bool, "error"?: str}
-  load_script(path)                    -> {"ok": bool, "warnings"?: [...], ...}
+  load_script(path, scene?)            -> {"ok", "scene", "scenes": [labels], ...}
+  load_captured(scene)                 -> same (switch between captured scenes)
   load_example()                       -> {"ok": bool, "error"?: str}
   clear_scene()                        -> {"ok": bool, "error"?: str}
   batch(operations)                    -> {"ok": bool, "results": [...]} (1 undo step)
@@ -138,6 +139,7 @@ class MagpylibStudioSession:
         self._undo: list[dict] = []
         self._redo: list[dict] = []
         self._history_paused = False
+        self._captured_scenes: list[dict] = []  # from the last load_script
         self._build()
 
     def _record_state(self, label, doc_before):
@@ -434,23 +436,61 @@ class MagpylibStudioSession:
 
         return self._mutate_doc(mutate, "load scene")
 
-    def load_script(self, path):
+    def load_script(self, path, scene=0):
         """Import an existing magpylib script by EXECUTING it (same trust as
-        the user running it) and introspecting the resulting objects into a
-        document. Parametric structure flattens; see importer.py."""
+        the user running it). Every show() call the script makes is captured
+        as a scene candidate (that is what its author considered "the
+        scene"), plus an "all script objects" fallback when it differs.
+        Loads candidate `scene` (default: the first show() call); the rest
+        stay cached for load_captured(). Parametric structure flattens."""
         from magpylib_studio import importer
 
+        candidates = []
         try:
-            namespace = importer.run_script(path)
-            doc, warnings = importer.document_from_namespace(namespace)
+            namespace, captured = importer.run_script(path)
+            for i, objects in enumerate(captured):
+                try:
+                    doc, warnings = importer.document_from_objects(objects, namespace)
+                except ValueError:
+                    continue
+                candidates.append({
+                    "label": f"show() call {i + 1} ({len(doc['objects'])} top-level)",
+                    "doc": doc,
+                    "warnings": warnings,
+                })
+            try:
+                doc, warnings = importer.document_from_namespace(namespace)
+                if all(c["doc"] != doc for c in candidates):
+                    candidates.append({
+                        "label": f"all script objects ({len(doc['objects'])} top-level)",
+                        "doc": doc,
+                        "warnings": warnings,
+                    })
+            except ValueError:
+                pass
         except Exception as e:  # noqa: BLE001 - report script errors, don't crash
             return {"ok": False, "error": f"{type(e).__name__}: {e}"}
-        result = self.load_scene(doc)
+        if not candidates:
+            return {"ok": False, "error": "script produced no magpylib objects"}
+        self._captured_scenes = candidates
+        return self.load_captured(scene)
+
+    def load_captured(self, scene=0):
+        """Load one of the scene candidates cached by the last load_script."""
+        if not self._captured_scenes:
+            return {"ok": False, "error": "no imported scenes; run load_script first"}
+        if not 0 <= scene < len(self._captured_scenes):
+            return {"ok": False,
+                    "error": f"scene must be 0..{len(self._captured_scenes) - 1}"}
+        entry = self._captured_scenes[scene]
+        result = self.load_scene(json.loads(json.dumps(entry["doc"])))
         if result["ok"]:
             if not self._history_paused and self._undo:
-                self._undo[-1]["label"] = "import script"
-            if warnings:
-                result["warnings"] = warnings
+                self._undo[-1]["label"] = f"import {entry['label']}"
+            result["scene"] = scene
+            result["scenes"] = [c["label"] for c in self._captured_scenes]
+            if entry["warnings"]:
+                result["warnings"] = entry["warnings"]
         return result
 
     def load_example(self):

@@ -432,7 +432,7 @@ halbach.show(backend='plotly')
 """
 
 
-def test_load_script_imports_live_objects(tmp_path):
+def test_load_script_captures_show_call(tmp_path):
     import numpy as np
 
     path = tmp_path / "halbach.py"
@@ -440,10 +440,11 @@ def test_load_script_imports_live_objects(tmp_path):
     s = MagpylibStudioSession()
     res = s.load_script(str(path))
     assert res["ok"] is True, res
+    # default scene = what the script showed: the halbach ring, no sensor
+    assert res["scene"] == 0 and len(res["scenes"]) == 2
     parents = {o["id"]: o["parent"] for o in s.list_objects()}
-    assert parents["halbach"] is None and parents["sensor"] is None
+    assert parents["halbach"] is None and "sensor" not in parents
     assert sum(1 for p in parents.values() if p == "halbach") == 10
-    assert s._objs["sensor"].position.shape == (3, 3)
     # geometry survives: third magnet sits at 72 deg on the r=2.3 ring,
     # spun so its polarization points 144 deg from x
     m = s._objs["halbach"].children[2]
@@ -451,12 +452,39 @@ def test_load_script_imports_live_objects(tmp_path):
     assert np.allclose(m.position, [2.3 * np.cos(a), 2.3 * np.sin(a), 0])
     rotvec = m.orientation.as_rotvec(degrees=True)
     assert round(np.linalg.norm(rotvec), 3) == 144.0
-    # import is one undoable step; scene renders; script round-trips
-    assert s.get_history()["undo"] == ["import script"]
+
+    # switch to the "all script objects" candidate: sensor included
+    res2 = s.load_captured(1)
+    assert res2["ok"] is True
+    assert s._objs["sensor"].position.shape == (3, 3)
+    # each import is one undoable step; scene renders; script round-trips
+    assert [h.startswith("import ") for h in s.get_history()["undo"]] == [True, True]
     assert len(s.get_figure()["data"]) > 0
     ns = {}
     exec(s.to_script().replace("scene.show(backend='plotly')", ""), ns)  # noqa: S102
     assert np.allclose(ns["halbach"].children[2].position, m.position)
+
+    assert s.load_captured(5)["ok"] is False  # out of range
+
+
+def test_load_script_multiple_shows(tmp_path):
+    script = """
+import magpylib as magpy
+a = magpy.magnet.Sphere(polarization=(0, 0, 1), diameter=1)
+b = magpy.magnet.Sphere(polarization=(0, 0, 1), diameter=1, position=(2, 0, 0))
+magpy.show(a)
+magpy.show(a, b)
+"""
+    path = tmp_path / "two_shows.py"
+    path.write_text(script, encoding="utf-8")
+    s = MagpylibStudioSession()
+    res = s.load_script(str(path))
+    assert res["ok"] is True
+    # two show calls; the second equals "all objects" so no extra candidate
+    assert len(res["scenes"]) == 2
+    assert [o["id"] for o in s.list_objects()] == ["a"]  # first show
+    s.load_captured(1)
+    assert [o["id"] for o in s.list_objects()] == ["a", "b"]
 
 
 def test_load_script_errors(tmp_path):

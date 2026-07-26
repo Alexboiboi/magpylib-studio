@@ -96,14 +96,9 @@ def _spec_from(obj, object_id, used_ids, warnings):
     return spec
 
 
-def document_from_namespace(namespace):
-    """Introspect executed-script namespace into a studio document."""
-    named = [
-        (name, obj)
-        for name, obj in namespace.items()
-        if not name.startswith("_") and _is_scene_object(obj)
-    ]
-    # Objects reachable inside a named Collection are emitted there, not twice.
+def _document_from_named(named):
+    """[(name, obj), ...] -> (document, warnings)."""
+    # Objects reachable inside a listed Collection are emitted there, not twice.
     contained = set()
     for _, obj in named:
         if isinstance(obj, magpy.Collection):
@@ -126,6 +121,35 @@ def document_from_namespace(namespace):
     return {"objects": objects}, warnings
 
 
+def _name_map(namespace):
+    """id(obj) -> first variable name bound to it in the script."""
+    mapping = {}
+    for name, obj in namespace.items():
+        if not name.startswith("_") and _is_scene_object(obj):
+            mapping.setdefault(id(obj), name)
+    return mapping
+
+
+def document_from_namespace(namespace):
+    """Every magpylib object the script left behind, as one document."""
+    named = [
+        (name, obj)
+        for name, obj in namespace.items()
+        if not name.startswith("_") and _is_scene_object(obj)
+    ]
+    return _document_from_named(named)
+
+
+def document_from_objects(objects, namespace):
+    """The objects of one captured show() call, named from the namespace
+    where possible (falling back to style labels / generated ids)."""
+    names = _name_map(namespace)
+    named = [
+        (names.get(id(obj)) or obj.style.label or "obj", obj) for obj in objects
+    ]
+    return _document_from_named(named)
+
+
 def _show_patch_targets():
     """Everywhere a script can reach show(): the magpy/module functions plus
     the base classes whose `show` attribute obj.show() binds."""
@@ -137,22 +161,41 @@ def _show_patch_targets():
     return targets
 
 
+def _flatten_show_args(args):
+    objects = []
+    for arg in args:
+        if isinstance(arg, list | tuple):
+            objects.extend(a for a in arg if _is_scene_object(a))
+        elif _is_scene_object(arg):
+            objects.append(arg)
+    return objects
+
+
 def run_script(path):
-    """Execute a magpylib script (show() suppressed) and return its namespace."""
+    """Execute a magpylib script with show() intercepted.
+
+    Returns (namespace, captured) where captured holds the objects of each
+    show() call — every call the script makes is a scene candidate. Note:
+    docs are built AFTER execution, so objects shown mid-script import with
+    their final state.
+    """
     with open(path, encoding="utf-8") as f:
         source = f.read()
     namespace = {"__name__": "__main__", "__file__": str(path)}
+    captured: list[list] = []
 
-    def _noop_show(*args, **kwargs):
-        return None
+    def _capture_show(*args, **kwargs):
+        objects = _flatten_show_args(args)
+        if objects:
+            captured.append(objects)
 
     targets = _show_patch_targets()
     originals = [getattr(owner, name) for owner, name in targets]
     for owner, name in targets:
-        setattr(owner, name, _noop_show)
+        setattr(owner, name, _capture_show)
     try:
         exec(compile(source, str(path), "exec"), namespace)  # noqa: S102 - the point
     finally:
         for (owner, name), original in zip(targets, originals):
             setattr(owner, name, original)
-    return namespace
+    return namespace, captured

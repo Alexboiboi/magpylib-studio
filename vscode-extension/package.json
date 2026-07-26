@@ -60,6 +60,10 @@
         "title": "Open in Magpylib Studio"
       },
       {
+        "command": "magpylib-studio.switchScene",
+        "title": "Magpylib Studio: Switch Imported Scene..."
+      },
+      {
         "command": "magpylib-studio.undo",
         "title": "Magpylib Studio: Undo Scene Edit",
         "icon": "$(discard)"

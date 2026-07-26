@@ -263,16 +263,38 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   };
 
+  /** Scene candidates captured by the last script import (one per show()
+   *  call in the script, plus "all script objects" when that differs). */
+  let importedScenes: string[] = [];
+
+  const switchImportedScene = async () => {
+    if (importedScenes.length < 2) {
+      vscode.window.showInformationMessage(
+        'Magpylib Studio: no alternative scenes from the last script import.',
+      );
+      return;
+    }
+    const pick = await vscode.window.showQuickPick(importedScenes, {
+      placeHolder: 'Scene to load (one per show() call in the script)',
+    });
+    if (pick === undefined) {
+      return;
+    }
+    await mutateFromTree('load_captured', { scene: importedScenes.indexOf(pick) });
+    openStudioPanel(context);
+  };
+
   /** Run a user script through the engine importer and show the result. */
   const importScript = async (uri: vscode.Uri) => {
     try {
       const result = (await getEngine(context).request('load_script', {
         path: uri.fsPath,
-      })) as { ok: boolean; error?: string; warnings?: string[] };
+      })) as { ok: boolean; error?: string; warnings?: string[]; scenes?: string[] };
       if (!result.ok) {
         vscode.window.showErrorMessage(`Magpylib Studio import failed: ${result.error}`);
         return;
       }
+      importedScenes = result.scenes ?? [];
       if (result.warnings?.length) {
         vscode.window.showWarningMessage(
           `Magpylib Studio import: ${result.warnings.join('; ')}`,
@@ -280,6 +302,15 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       broadcastMutation();
       openStudioPanel(context);
+      if (importedScenes.length > 1) {
+        const choice = await vscode.window.showInformationMessage(
+          `Magpylib Studio: imported "${importedScenes[0]}" — the script has ${importedScenes.length} scene candidates.`,
+          'Switch Scene…',
+        );
+        if (choice) {
+          await switchImportedScene();
+        }
+      }
     } catch (err) {
       vscode.window.showErrorMessage(
         `Magpylib Studio: ${err instanceof Error ? err.message : err}`,
@@ -371,6 +402,7 @@ export function activate(context: vscode.ExtensionContext): void {
         }
       },
     ),
+    vscode.commands.registerCommand('magpylib-studio.switchScene', switchImportedScene),
     vscode.commands.registerCommand('magpylib-studio.openStudio', () =>
       openStudioPanel(context),
     ),
