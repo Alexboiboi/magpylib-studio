@@ -28,6 +28,7 @@ _PUBLIC = {
     "set_param",
     "reset_style",
     "load_scene",
+    "load_example",
     "to_dict",
     "to_script",
 }

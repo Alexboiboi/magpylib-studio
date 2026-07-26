@@ -30,6 +30,10 @@
         "title": "magpylib Studio: Select Object in Studio"
       },
       {
+        "command": "magpylib-studio.loadExample",
+        "title": "magpylib Studio: Load Example Scene"
+      },
+      {
         "command": "magpylib-studio.removeObject",
         "title": "Remove Object"
       },
@@ -62,6 +66,12 @@
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "magpylib-studio.sceneView",
+        "contents": "The scene is empty.\n[Load Example Scene](command:magpylib-studio.loadExample)\nA Halbach ring with a coil pair and a sensor.\nOr ask Copilot chat to add objects with #magpyAdd."
+      }
+    ],
     "menus": {
       "view/title": [
         {

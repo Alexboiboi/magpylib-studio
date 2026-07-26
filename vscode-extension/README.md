@@ -10,9 +10,12 @@ newline-delimited JSON-RPC over stdio.
   (camera held across edits via `uirevision`). Just the plot: selection and
   editing live in the sidebar.
 - **Scene view** — the magpylib-logo icon in the activity bar opens a sidebar
-  tree of the scene's objects. Clicking an object opens/reveals the plot and
-  loads it in the Inspector; right-click offers *Remove Object* and *Reset
-  Style*. Flat for now — it mirrors the engine's single-collection document.
+  tree of the scene's objects, one icon per type (magnets red, currents blue,
+  sensors green). Clicking an object opens/reveals the plot and loads it in
+  the Inspector; right-click offers *Remove Object* and *Reset Style*. The
+  scene starts **empty**: the view shows a **Load Example Scene** button
+  (Halbach ring + coil pair + sensor). Flat for now — it mirrors the engine's
+  single-collection document.
 - **Inspector view** — below the tree: schema-driven widgets generated from
   `get_schema()` (enum → dropdown, `format: color` → color picker + text,
   bounded number → slider, boolean → tri-state with "(default)"), prefilled

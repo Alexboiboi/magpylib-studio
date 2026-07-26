@@ -17,6 +17,7 @@ Protocol surface (all JSON-serializable in/out):
   set_param(object_id, name, value)    -> {"ok": bool, "error"?: str}
   reset_style(object_id, path?)        -> {"ok": bool, "error"?: str}
   load_scene(scene | path)             -> {"ok": bool, "error"?: str}
+  load_example()                       -> {"ok": bool, "error"?: str}
   to_dict()                            -> the scene document
   to_script()                          -> equivalent magpylib Python code
 """
@@ -24,35 +25,58 @@ Protocol surface (all JSON-serializable in/out):
 from __future__ import annotations
 
 import json
+import math
 
 import magpylib as magpy
 from magpylib._src.defaults.defaults_classes import default_settings
 from magpylib._src.style import get_style
 
-DEFAULT_SCENE = {
-    "objects": [
+
+def example_scene():
+    """The built-in showcase scene: a Halbach-style ring of 12 cuboids
+    (polarization rotating at twice the ring angle, after the magpylib docs
+    Halbach examples), a coil pair, and a central sensor."""
+    objects = []
+    for i in range(12):
+        a = 2 * math.pi * i / 12
+        objects.append(
+            {
+                "id": f"mag{i + 1:02d}",
+                "type": "magnet.Cuboid",
+                "params": {
+                    "polarization": [
+                        round(math.cos(2 * a), 4),
+                        round(math.sin(2 * a), 4),
+                        0,
+                    ],
+                    "dimension": [1, 1, 1],
+                    "position": [
+                        round(3 * math.cos(a), 4),
+                        round(3 * math.sin(a), 4),
+                        0,
+                    ],
+                },
+                "style": {"label": f"Halbach {i + 1:02d}"},
+            }
+        )
+    for sign, name in ((1, "top"), (-1, "bottom")):
+        objects.append(
+            {
+                "id": f"coil_{name}",
+                "type": "current.Circle",
+                "params": {"current": 200, "diameter": 9, "position": [0, 0, 2 * sign]},
+                "style": {"label": f"Coil {name}"},
+            }
+        )
+    objects.append(
         {
-            "id": "cube",
-            "type": "magnet.Cuboid",
-            "params": {
-                "polarization": [0, 0, 1],
-                "dimension": [1, 1, 1],
-                "position": [0, 0, 0],
-            },
-            "style": {"label": "Cube"},
-        },
-        {
-            "id": "cyl",
-            "type": "magnet.Cylinder",
-            "params": {
-                "polarization": [1, 0, 0],
-                "dimension": [1, 1],
-                "position": [2.5, 0, 0],
-            },
-            "style": {"label": "Cyl"},
-        },
-    ]
-}
+            "id": "sensor",
+            "type": "Sensor",
+            "params": {"position": [0, 0, 0]},
+            "style": {"label": "Sensor"},
+        }
+    )
+    return {"objects": objects}
 
 
 def _resolve_type(type_str):
@@ -79,7 +103,7 @@ class MagpylibStudioSession:
     """A live magpylib scene plus the document it was built from."""
 
     def __init__(self, scene: dict | None = None):
-        self.doc = scene if scene is not None else json.loads(json.dumps(DEFAULT_SCENE))
+        self.doc = scene if scene is not None else {"objects": []}  # start empty
         self._objs: dict[str, object] = {}
         self._build()
 
@@ -217,6 +241,10 @@ class MagpylibStudioSession:
             self.doc = json.loads(json.dumps(scene))
 
         return self._mutate_doc(mutate)
+
+    def load_example(self):
+        """Load the built-in example scene (Halbach ring, coil pair, sensor)."""
+        return self.load_scene(example_scene())
 
     # --- serialization / round-trip ---------------------------------------
     def to_dict(self):

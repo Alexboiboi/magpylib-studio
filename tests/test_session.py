@@ -8,10 +8,40 @@ import pytest
 from magpylib_studio.rpc import serve
 from magpylib_studio.session import MagpylibStudioSession
 
+# Small fixed scene for tests (sessions start empty by default).
+TEST_SCENE = {
+    "objects": [
+        {
+            "id": "cube",
+            "type": "magnet.Cuboid",
+            "params": {
+                "polarization": [0, 0, 1],
+                "dimension": [1, 1, 1],
+                "position": [0, 0, 0],
+            },
+            "style": {"label": "Cube"},
+        },
+        {
+            "id": "cyl",
+            "type": "magnet.Cylinder",
+            "params": {
+                "polarization": [1, 0, 0],
+                "dimension": [1, 1],
+                "position": [2.5, 0, 0],
+            },
+            "style": {"label": "Cyl"},
+        },
+    ]
+}
+
+
+def make_scene():
+    return json.loads(json.dumps(TEST_SCENE))
+
 
 @pytest.fixture
 def session():
-    return MagpylibStudioSession()
+    return MagpylibStudioSession(make_scene())
 
 
 def test_list_objects(session):
@@ -152,6 +182,29 @@ def test_load_scene_from_dict_and_file(session, tmp_path):
     assert session.list_objects() == []
 
 
+def test_default_scene_is_empty_and_renders():
+    s = MagpylibStudioSession()
+    assert s.list_objects() == []
+    fig = s.get_figure()
+    assert fig["data"] == []
+    json.dumps(fig)
+    assert "magpy.Collection()" in s.to_script()
+
+
+def test_load_example():
+    s = MagpylibStudioSession()
+    assert s.load_example() == {"ok": True}
+    objs = s.list_objects()
+    types = {o["type"] for o in objs}
+    assert {"magnet.Cuboid", "current.Circle", "Sensor"} <= types
+    assert len(objs) == 15  # 12 ring magnets + 2 coils + sensor
+    assert len(s.get_figure()["data"]) > 0
+    # the example round-trips through the generated script
+    ns = {}
+    exec(s.to_script().replace("scene.show(backend='plotly')", ""), ns)  # noqa: S102
+    assert ns["sensor"].position.tolist() == [0, 0, 0]
+
+
 def test_jsonrpc_roundtrip():
     """Drive the stdio server end to end through pipes."""
     requests = [
@@ -163,7 +216,7 @@ def test_jsonrpc_roundtrip():
     ]
     inp = io.StringIO("\n".join(json.dumps(r) for r in requests) + "\n")
     out = io.StringIO()
-    serve(inp=inp, out=out)
+    serve(session=MagpylibStudioSession(make_scene()), inp=inp, out=out)
     responses = [json.loads(line) for line in out.getvalue().splitlines()]
 
     assert [r["id"] for r in responses] == [1, 2, 3, 4]

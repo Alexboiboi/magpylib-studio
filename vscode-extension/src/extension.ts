@@ -221,6 +221,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('magpylib-studio.refreshScene', () =>
       broadcastMutation(),
     ),
+    vscode.commands.registerCommand('magpylib-studio.loadExample', () =>
+      mutateFromTree('load_example', {}),
+    ),
     vscode.commands.registerCommand('magpylib-studio.selectObject', (objectId: string) =>
       selectObjectInStudio(context, objectId),
     ),

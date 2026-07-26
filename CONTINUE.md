@@ -16,12 +16,14 @@ and drives it.
   `get_values` (set vs resolved), `get_figure` (plotly JSON), `apply_edit`,
   `add_object`, `remove_object`, `set_param` (move/resize/repolarize),
   `reset_style` (drop from doc + rebuild; the property tree has no unset),
-  `load_scene` (dict or JSON file path), `to_dict`, `to_script`. Structural
+  `load_scene` (dict or JSON file path), `load_example`, `to_dict`,
+  `to_script`. **Sessions start empty**; `example_scene()` builds the
+  showcase doc (Halbach ring of 12 cuboids + coil pair + sensor). Structural
   edits go through `_mutate_doc`: mutate doc → rebuild scene; on failure the
   old doc is restored and the error reported (`{"ok": false, ...}`).
 - `magpylib_studio/rpc.py` — JSON-RPC stdio loop (`serve`), method allow-list.
 - `magpylib_studio/__main__.py` — `python -m magpylib_studio`.
-- `tests/test_session.py` — 16 tests, **all green**, ruff clean (`uvx ruff check`).
+- `tests/test_session.py` — 18 tests, **all green**, ruff clean (`uvx ruff check`).
 - Verified: real subprocess driven through pipes; scene document round-trips
   through rebuild; `to_script()` emits code that executes and reproduces edits;
   invalid edits are reported (`{"ok": false, "error": ...}`) not raised.
