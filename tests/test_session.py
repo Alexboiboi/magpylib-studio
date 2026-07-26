@@ -257,6 +257,45 @@ def test_transform_paths(session):
     assert session.get_transform("cube")["path_length"] == 1
 
 
+def test_collection_transforms_carry_children():
+    """Transforming a Collection must transform its whole subtree — magpylib's
+    own semantics, which the doc gets by replaying recorded ops."""
+    import numpy as np
+
+    s = MagpylibStudioSession()
+    s.load_example()
+    child = np.array(s._objs["r1m01"].position)
+
+    assert s.move("ring1", [0, 0, 5]) == {"ok": True}
+    assert np.allclose(s._objs["ring1"].position, [0, 0, 5])
+    assert np.allclose(s._objs["r1m01"].position, child + [0, 0, 5])
+
+    assert s.rotate("ring1", 90, "z", anchor=0) == {"ok": True}
+    assert np.allclose(s._objs["r1m01"].position, [0, 2.3, 5])
+
+    # a transform on the outer stack moves the nested rings too
+    assert s.move("halbach", [10, 0, 0]) == {"ok": True}
+    assert np.allclose(s._objs["r1m01"].position, [10, 2.3, 5])
+
+    ns = {}
+    exec(s.to_script().replace("scene.show(backend='plotly')", ""), ns)  # noqa: S102
+    assert np.allclose(ns["r1m01"].position, s._objs["r1m01"].position)
+    json.dumps(s.to_dict())  # recorded ops stay JSON-safe
+
+
+def test_reparenting_a_collection_keeps_its_subtree():
+    import numpy as np
+
+    s = MagpylibStudioSession()
+    s.load_example()
+    kids = np.array([s._objs[f"r2m{i:02d}"].position for i in range(1, 11)])
+    assert s.move_object("ring2", None) == {"ok": True}  # out of "halbach"
+    assert {o["id"]: o["parent"] for o in s.list_objects()}["ring2"] is None
+    assert np.allclose(
+        kids, [s._objs[f"r2m{i:02d}"].position for i in range(1, 11)]
+    )
+
+
 def test_transform_respects_parent_frame():
     """A transform inside a rotated Collection stays in world coordinates."""
     import numpy as np

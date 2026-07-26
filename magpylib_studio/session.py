@@ -119,6 +119,77 @@ _BATCHABLE = {
 }
 
 
+def _plain(value):
+    """numpy scalars/arrays -> plain Python, so the document stays JSON-safe
+    (and generated scripts contain literals, not np.float64 reprs)."""
+    if isinstance(value, np.generic | np.ndarray):
+        return value.tolist()
+    if isinstance(value, dict):
+        return {k: _plain(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [_plain(v) for v in value]
+    return value
+
+
+def _spec_ops(spec):
+    """Transform ops to replay on a freshly built object: the spec's
+    `transforms` list, plus legacy `rotations` entries (same semantics)."""
+    ops = []
+    for rot in spec.get("rotations", []):
+        kind = "rotate_from_rotvec" if "rotvec" in rot else "rotate_from_angax"
+        ops.append({"op": kind, **rot})
+    return ops + list(spec.get("transforms", []))
+
+
+def _replay(obj, ops):
+    """Replay recorded magpylib transform calls on a live object.
+
+    Transforms are stored as the magpylib calls themselves rather than as a
+    derived pose — magpylib owns the semantics (paths, anchors, `start`, and
+    Collections transforming their children), we only record and replay.
+    """
+    for op in ops:
+        kind = op.get("op", "rotate_from_angax")
+        kwargs = {"start": op["start"]} if "start" in op else {}
+        if kind == "move":
+            obj.move(op["displacement"], **kwargs)
+        elif kind == "rotate_from_angax":
+            obj.rotate_from_angax(
+                op["angle"], op["axis"], anchor=op.get("anchor"), **kwargs
+            )
+        elif kind == "rotate_from_rotvec":
+            obj.rotate_from_rotvec(
+                op["rotvec"], degrees=True, anchor=op.get("anchor"), **kwargs
+            )
+        elif kind == "position":
+            obj.position = op["value"]
+        elif kind == "orientation":
+            obj.orientation = R.from_rotvec(op["rotvec"], degrees=True)
+        else:
+            raise ValueError(f"unknown transform op {kind!r}")
+
+
+def _op_source(op):
+    """One recorded transform op -> the magpylib call that produced it."""
+    kind = op.get("op", "rotate_from_angax")
+    if kind == "position":
+        return f"position = {op['value']!r}"
+    if kind == "orientation":
+        return f"orientation = R.from_rotvec({op['rotvec']!r}, degrees=True)"
+    if kind == "move":
+        args = f"{op['displacement']!r}"
+    elif kind == "rotate_from_angax":
+        args = f"{op['angle']!r}, {op['axis']!r}"
+    else:  # rotate_from_rotvec
+        args = f"{op['rotvec']!r}, degrees=True"
+    anchor = op.get("anchor")
+    if anchor is not None:
+        args += f", anchor={tuple(anchor) if isinstance(anchor, list) else anchor!r}"
+    if "start" in op:
+        args += f", start={op['start']!r}"
+    return f"{kind}({args})"
+
+
 def _resolve_type(type_str):
     """'magnet.Cuboid' -> magpylib.magnet.Cuboid."""
     obj = magpy
@@ -175,21 +246,10 @@ class MagpylibStudioSession:
         else:
             cls = _resolve_type(spec["type"])
             obj = cls(**dict(spec.get("params", {})))
-        # optional post-construction rotations, applied in order. Two forms:
-        # {"angle": deg|[deg,...], "axis": "z"|[x,y,z], "anchor"?, "start"?}
-        #   -> rotate_from_angax (no anchor rotates in place; on a Collection
-        #      rotates the whole group; an angle list builds a path)
-        # {"rotvec": [[x,y,z],...], "anchor"?, "start"?}
-        #   -> rotate_from_rotvec, elementwise over the path (how imported
-        #      orientation paths are reproduced exactly)
-        for rot in spec.get("rotations", []):
-            kwargs = {"anchor": rot.get("anchor")}
-            if "start" in rot:
-                kwargs["start"] = rot["start"]
-            if "rotvec" in rot:
-                obj.rotate_from_rotvec(rot["rotvec"], degrees=True, **kwargs)
-            else:
-                obj.rotate_from_angax(rot["angle"], rot["axis"], **kwargs)
+        # Recorded magpylib transform calls, replayed in order. For a
+        # Collection this happens after its children exist, so magpylib moves
+        # and rotates the whole group exactly as it would in a script.
+        _replay(obj, _spec_ops(spec))
         for path, value in spec.get("style", {}).items():
             obj.style.set(path, value)  # dotted-path set (same as the GUI/LLM)
         if spec["id"] in self._objs:
@@ -411,86 +471,121 @@ class MagpylibStudioSession:
 
         return self._mutate_doc(mutate, f"remove {object_id}")
 
-    def _rebase(self, spec, world_pos, world_rot):
-        """Rewrite a spec's position/rotations so that, after its (new)
-        ancestors' build-time transforms, the object lands back on the given
-        world pose. Reparenting must not teleport an object — a Collection's
-        group rotation would otherwise be applied on top of coordinates that
-        already included the old parent's."""
-        params = spec.setdefault("params", {})
-        # Probe: build the object at the origin with identity orientation, so
-        # its resulting pose IS the transform its ancestors apply.
-        params["position"] = [0.0, 0.0, 0.0]
+    def _parent_frame(self, spec):
+        """The rigid transform the ancestors apply to this spec at build time,
+        as (t, R) with world = t + R·local. Measured by probing: build the
+        object with no transforms at the origin and read where it lands."""
+        saved_ops = spec.get("transforms")
+        saved_rot = spec.get("rotations")
+        saved_pos = spec.get("params", {}).get("position")
+        spec["transforms"] = []
         spec.pop("rotations", None)
-        self._build()
-        probe = self._objs[spec["id"]]
-        frame_pos = np.array(probe.position, dtype=float)
-        frame_rot = probe.orientation
+        spec.setdefault("params", {})["position"] = [0.0, 0.0, 0.0]
+        try:
+            self._build()
+            probe = self._objs[spec["id"]]
+            frame_pos = np.array(probe.position, dtype=float)
+            frame_rot = R.from_rotvec(
+                np.atleast_2d(probe.orientation.as_rotvec())[-1]
+            )
+        finally:
+            spec["transforms"] = saved_ops if saved_ops is not None else []
+            if saved_rot is not None:
+                spec["rotations"] = saved_rot
+            if saved_pos is None:
+                spec["params"].pop("position", None)
+            else:
+                spec["params"]["position"] = saved_pos
+        return np.atleast_2d(frame_pos)[-1], frame_rot
 
-        local_pos = frame_rot.inv().apply(world_pos - frame_pos)
+    def _set_world_pose(self, spec, world_pos, world_rot):
+        """Append magpylib pose assignments that land the object (and, for a
+        Collection, its whole subtree) on the given WORLD pose, expressed in
+        the frame its ancestors will apply on rebuild."""
+        frame_pos, frame_rot = self._parent_frame(spec)
+        local_pos = frame_rot.inv().apply(np.array(world_pos, dtype=float) - frame_pos)
         local_rot = frame_rot.inv() * world_rot
-        params["position"] = np.round(local_pos, 9).tolist()
-        rotvec = np.round(local_rot.as_rotvec(degrees=True), 9)
-        if np.linalg.norm(rotvec) > 1e-9:
-            entry = {"rotvec": rotvec.tolist()}
-            if rotvec.ndim > 1:
-                entry["start"] = 0
-            spec["rotations"] = [entry]
+        ops = spec.setdefault("transforms", [])
+        ops.append({"op": "position", "value": np.round(local_pos, 9).tolist()})
+        ops.append({
+            "op": "orientation",
+            "rotvec": np.round(local_rot.as_rotvec(degrees=True), 9).tolist(),
+        })
 
     # --- transforms --------------------------------------------------------
-    def _transform(self, object_id, apply, label):
-        """Run a magpylib transform on the live object, then rebase its spec
-        to the resulting pose — magpylib's own semantics (paths, anchors,
-        `start`) for free, with the document staying canonical."""
-        obj = self._objs[object_id]
+    def _append_ops(self, object_id, ops, label):
+        """Record magpylib transform calls on an object's spec and rebuild."""
         spec = self._spec(object_id)
 
         def mutate(doc):
-            apply(obj)
-            self._rebase(
-                spec, np.array(obj.position, dtype=float), obj.orientation
-            )
+            spec.setdefault("transforms", []).extend(_plain(ops))
 
         return self._mutate_doc(mutate, label)
 
     def move(self, object_id, displacement, start="auto"):
-        """Move by `displacement` (relative). A list of displacements
-        [[dx,dy,dz], ...] creates/extends a position path."""
-        return self._transform(
-            object_id,
-            lambda o: o.move(displacement, start=start),
-            f"move {object_id}",
-        )
+        """Move by `displacement` (relative), magpylib semantics: a list of
+        displacements creates/extends a path, and a Collection carries its
+        children along."""
+        op = {"op": "move", "displacement": displacement}
+        if start != "auto":
+            op["start"] = start
+        return self._append_ops(object_id, [op], f"move {object_id}")
 
     def rotate(self, object_id, angle, axis="z", anchor=None, start="auto"):
         """Rotate by `angle` degrees about `axis` (relative). `anchor` orbits
-        that point (0 = origin); a list of angles creates/extends a path."""
-        return self._transform(
-            object_id,
-            lambda o: o.rotate_from_angax(angle, axis, anchor=anchor, start=start),
-            f"rotate {object_id}",
-        )
+        that point (0 = origin); a list of angles creates/extends a path; on a
+        Collection the whole group rotates."""
+        op = {"op": "rotate_from_angax", "angle": angle, "axis": axis}
+        if anchor is not None:
+            op["anchor"] = anchor
+        if start != "auto":
+            op["start"] = start
+        return self._append_ops(object_id, [op], f"rotate {object_id}")
 
     def set_transform(self, object_id, position=None, orientation=None):
-        """Set the absolute pose in world coordinates. `position` is [x,y,z]
-        or a path [[x,y,z], ...]; `orientation` is a rotation vector in
-        degrees [rx,ry,rz] (or a list of them)."""
-        def apply(o):
-            if position is not None:
-                o.position = position
-            if orientation is not None:
-                o.orientation = R.from_rotvec(orientation, degrees=True)
+        """Set the absolute pose in WORLD coordinates: `position` [x,y,z] and/
+        or `orientation` as a rotation vector in degrees. Path-valued targets
+        are applied in the object's own frame (they are only meaningful for
+        objects that are not inside a transformed Collection)."""
+        if position is None and orientation is None:
+            return {"ok": False, "error": "nothing to set"}
+        obj = self._objs[object_id]
+        spec = self._spec(object_id)
+        target_pos = np.array(
+            obj.position if position is None else position, dtype=float
+        )
+        target_rot = (
+            obj.orientation
+            if orientation is None
+            else R.from_rotvec(orientation, degrees=True)
+        )
+        is_path = target_pos.ndim > 1 or len(np.atleast_2d(target_rot.as_rotvec())) > 1
 
-        return self._transform(object_id, apply, f"set transform {object_id}")
+        def mutate(doc):
+            if is_path:
+                ops = spec.setdefault("transforms", [])
+                if position is not None:
+                    ops.append(_plain({"op": "position", "value": position}))
+                if orientation is not None:
+                    ops.append(_plain({"op": "orientation", "rotvec": orientation}))
+            else:
+                self._set_world_pose(spec, target_pos, target_rot)
+
+        return self._mutate_doc(mutate, f"set transform {object_id}")
 
     def clear_path(self, object_id, index=-1):
         """Reduce a path to a single step (default: its last)."""
-        def apply(o):
-            o.position = np.atleast_2d(o.position)[index]
-            rot = o.orientation
-            o.orientation = rot[index] if len(np.atleast_2d(rot.as_rotvec())) > 1 else rot
-
-        return self._transform(object_id, apply, f"clear path {object_id}")
+        obj = self._objs[object_id]
+        position = np.atleast_2d(np.array(obj.position, dtype=float))[index]
+        rotvec = np.atleast_2d(obj.orientation.as_rotvec(degrees=True))[index]
+        return self._append_ops(
+            object_id,
+            [
+                {"op": "position", "value": position.round(9).tolist()},
+                {"op": "orientation", "rotvec": rotvec.round(9).tolist()},
+            ],
+            f"clear path {object_id}",
+        )
 
     def move_object(self, object_id, parent=None):
         """Reparent an object: into a Collection, or to the root
@@ -515,9 +610,9 @@ class MagpylibStudioSession:
                 else self._spec(parent).setdefault("children", [])
             )
             target.append(spec)
-            self._rebase(spec, world_pos, world_rot)
+            self._set_world_pose(spec, world_pos, world_rot)
 
-        return self._mutate_doc(mutate, f"move {object_id}")
+        return self._mutate_doc(mutate, f"reparent {object_id}")
 
     def set_param(self, object_id, name, value):
         """Set a constructor parameter (position, dimension, polarization, ...)."""
@@ -714,7 +809,15 @@ class MagpylibStudioSession:
         return self.doc
 
     def to_script(self):
-        lines = ["import magpylib as magpy", ""]
+        needs_scipy = any(
+            op.get("op") == "orientation"
+            for spec, _ in self._iter_specs()
+            for op in _spec_ops(spec)
+        )
+        lines = ["import magpylib as magpy"]
+        if needs_scipy:
+            lines.append("from scipy.spatial.transform import Rotation as R")
+        lines.append("")
 
         def emit(spec):
             """Emit child definitions first, then this object; return its name."""
@@ -728,19 +831,8 @@ class MagpylibStudioSession:
                 parts.append(f"style={_nest(spec['style'])!r}")
             ctor = "Collection" if spec["type"] == "Collection" else spec["type"]
             lines.append(f"{name} = magpy.{ctor}({', '.join(parts)})")
-            for rot in spec.get("rotations", []):
-                if "rotvec" in rot:
-                    method = "rotate_from_rotvec"
-                    args = f"{rot['rotvec']!r}, degrees=True"
-                else:
-                    method = "rotate_from_angax"
-                    args = f"{rot['angle']!r}, {rot['axis']!r}"
-                anchor = rot.get("anchor")
-                if anchor is not None:
-                    args += f", anchor={tuple(anchor) if isinstance(anchor, list) else anchor!r}"
-                if "start" in rot:
-                    args += f", start={rot['start']!r}"
-                lines.append(f"{name}.{method}({args})")
+            for op in _spec_ops(spec):
+                lines.append(f"{name}.{_op_source(op)}")
             return name
 
         names = [emit(s) for s in self.doc["objects"]]

@@ -105,11 +105,13 @@
       },
       {
         "command": "magpylib-studio.moveBy",
-        "title": "Move By..."
+        "title": "Move By...",
+        "icon": "$(move)"
       },
       {
         "command": "magpylib-studio.rotateBy",
-        "title": "Rotate..."
+        "title": "Rotate...",
+        "icon": "$(sync)"
       },
       {
         "command": "magpylib-studio.clearPath",
@@ -272,6 +274,21 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "magpylib-studio.moveBy",
+          "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpy/",
+          "group": "inline@1"
+        },
+        {
+          "command": "magpylib-studio.rotateBy",
+          "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpy/",
+          "group": "inline@2"
+        },
+        {
+          "command": "magpylib-studio.addObject",
+          "when": "view == magpylib-studio.sceneView && viewItem == magpyCollection",
+          "group": "inline@3"
+        },
         {
           "submenu": "magpylib-studio.transformSubmenu",
           "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpy/",

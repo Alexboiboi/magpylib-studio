@@ -30,15 +30,18 @@ and drives it.
   anchor = spin in place; on a Collection rotates the whole group).
   Structural edits go through `_mutate_doc`: mutate doc → rebuild scene; on
   failure the old doc is restored and the error reported (`{"ok": false}`).
-- **Transforms**: `move(displacement, start?)`, `rotate(angle, axis, anchor?,
-  start?)` (anchor orbits; angle/displacement **lists build paths**),
-  `set_transform(position?, orientation?)` (absolute, world frame),
-  `clear_path`, `get_transform`. All run the real magpylib op on the live
-  object then `_rebase` the spec to the resulting pose — magpylib semantics
-  (paths, anchors, `start`) for free, parent frames respected, undoable,
-  batchable. UI: a **transform** section at the top of the Inspector
-  (position/rotation vectors, relative rotate with orbit + step count,
-  relative move with step count, clear path); LM tools `#magpyMove`,
+- **Transforms — the doc records magpylib CALLS, not derived poses.** Each
+  spec has `transforms`: an ordered op log (`move`, `rotate_from_angax`,
+  `rotate_from_rotvec`, `position`, `orientation`) replayed by `_replay`
+  after the object (and, for a Collection, its children) is built — so
+  magpylib owns all semantics: paths, anchors, `start`, and **a Collection
+  transform carrying its whole subtree**. Legacy `rotations` entries are read
+  as the same ops. Session API: `move`, `rotate`, `set_transform` (absolute
+  WORLD pose — converted into the parent frame via a `_parent_frame` probe),
+  `clear_path`, `get_transform`. Undoable, batchable, exported verbatim by
+  `to_script`. UI: Inspector **transform** section, Scene-tree **inline hover
+  icons** (move, rotate, + on collections) and a **Transform** submenu; move
+  and rotate first ask *single step or N-step path*. LM tools `#magpyMove`,
   `#magpyRotate`, `#magpyPose`.
 - **Field evaluation**: `get_field(sensor_id?, points?, field?)` — summed
   B/H of all leaf sources (SI units) along a sensor path or explicit points

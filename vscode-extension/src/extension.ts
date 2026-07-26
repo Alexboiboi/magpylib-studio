@@ -96,6 +96,43 @@ const OBJECT_TEMPLATES: {
   { label: 'Collection', type: 'Collection', detail: 'empty group', params: {} },
 ];
 
+/**
+ * Ask whether a transform is a single step or an animation path, and how many
+ * steps. Common step counts are offered directly so the usual cases are one
+ * click; "Custom…" prompts for any number.
+ */
+async function askPathOrSingle(
+  title: string,
+  verb: 'move' | 'rotate',
+): Promise<{ steps: number } | undefined> {
+  const example = verb === 'rotate' ? '36 steps ≈ 10° each' : 'smooth sweep';
+  const pick = await vscode.window.showQuickPick(
+    [
+      { label: 'Single step', detail: 'Apply once — no path', steps: 1 },
+      { label: 'Path — 10 steps', detail: 'animation path', steps: 10 },
+      { label: 'Path — 24 steps', detail: 'animation path', steps: 24 },
+      { label: 'Path — 36 steps', detail: example, steps: 36 },
+      { label: 'Path — custom…', detail: 'choose the number of steps', steps: 0 },
+    ],
+    { placeHolder: `${title}: single step or animation path?` },
+  );
+  if (!pick) {
+    return undefined;
+  }
+  if (pick.steps > 0) {
+    return { steps: pick.steps };
+  }
+  const text = await vscode.window.showInputBox({
+    prompt: 'Number of path steps',
+    value: '20',
+    validateInput: (v) =>
+      Number.isInteger(Number(v)) && Number(v) >= 1
+        ? undefined
+        : 'A whole number of steps, 1 or more',
+  });
+  return text ? { steps: Number(text) } : undefined;
+}
+
 /** Parse "1, 2, 3" / "1 2 3" into numbers; undefined if not `count` values. */
 function parseVector(text: string, count: number): number[] | undefined {
   const parts = text
@@ -697,68 +734,83 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(
       'magpylib-studio.moveBy',
       async (obj: SceneObject) => {
-        const text = await vscode.window.showInputBox({
-          prompt: `Move "${obj.label}" by dx, dy, dz (m) — append " × N" for an N-step path`,
-          value: '0, 0, 1',
-          validateInput: (v) =>
-            parseVector(v.split('×')[0], 3) ? undefined : 'Three numbers, e.g. 0, 0, 1',
-        });
-        if (!text) {
+        const kind = await askPathOrSingle(`Move "${obj.label}"`, 'move');
+        if (!kind) {
           return;
         }
-        const [vecPart, stepPart] = text.split('×');
-        const d = parseVector(vecPart, 3)!;
-        const steps = Math.max(1, parseInt(stepPart ?? '1', 10) || 1);
+        const text = await vscode.window.showInputBox({
+          prompt:
+            kind.steps === 1
+              ? 'Displacement dx, dy, dz (m)'
+              : `Total displacement dx, dy, dz (m) — spread over ${kind.steps} steps`,
+          value: '0, 0, 1',
+          validateInput: (v) =>
+            parseVector(v, 3) ? undefined : 'Three numbers, e.g. 0, 0, 1',
+        });
+        const d = text && parseVector(text, 3);
+        if (!d) {
+          return;
+        }
         const displacement =
-          steps === 1
+          kind.steps === 1
             ? d
-            : Array.from({ length: steps }, (_, i) =>
-                d.map((c) => (c * (i + 1)) / steps),
+            : Array.from({ length: kind.steps }, (_, i) =>
+                d.map((c) => (c * (i + 1)) / kind.steps),
               );
         await mutateFromTree('move', {
           object_id: obj.id,
           displacement,
-          ...(steps > 1 ? { start: -1 } : {}),
+          ...(kind.steps > 1 ? { start: -1 } : {}),
         });
       },
     ),
     vscode.commands.registerCommand(
       'magpylib-studio.rotateBy',
       async (obj: SceneObject) => {
+        const kind = await askPathOrSingle(`Rotate "${obj.label}"`, 'rotate');
+        if (!kind) {
+          return;
+        }
         const axisPick = await vscode.window.showQuickPick(
           [
+            { label: 'z — orbit the origin', axis: 'z', anchor: 0 as number | undefined },
             { label: 'z — spin in place', axis: 'z', anchor: undefined },
-            { label: 'z — orbit the origin', axis: 'z', anchor: 0 },
+            { label: 'x — orbit the origin', axis: 'x', anchor: 0 },
             { label: 'x — spin in place', axis: 'x', anchor: undefined },
+            { label: 'y — orbit the origin', axis: 'y', anchor: 0 },
             { label: 'y — spin in place', axis: 'y', anchor: undefined },
           ],
-          { placeHolder: `Rotate "${obj.label}" about…` },
+          { placeHolder: 'Axis — orbit moves around the origin, spin turns in place' },
         );
         if (!axisPick) {
           return;
         }
         const text = await vscode.window.showInputBox({
-          prompt: 'Angle in degrees — append " × N" for an N-step path',
-          value: '45',
+          prompt:
+            kind.steps === 1
+              ? 'Angle in degrees'
+              : `Total angle in degrees — spread over ${kind.steps} steps (360 = full turn)`,
+          value: kind.steps === 1 ? '45' : '360',
           validateInput: (v) =>
-            Number.isFinite(Number(v.split('×')[0])) ? undefined : 'A number, e.g. 45',
+            Number.isFinite(Number(v)) && v.trim() ? undefined : 'A number, e.g. 45',
         });
-        if (!text) {
+        if (text === undefined || !text.trim()) {
           return;
         }
-        const [anglePart, stepPart] = text.split('×');
-        const total = Number(anglePart);
-        const steps = Math.max(1, parseInt(stepPart ?? '1', 10) || 1);
+        const total = Number(text);
         const angle =
-          steps === 1
+          kind.steps === 1
             ? total
-            : Array.from({ length: steps }, (_, i) => (total * (i + 1)) / steps);
+            : Array.from(
+                { length: kind.steps },
+                (_, i) => (total * (i + 1)) / kind.steps,
+              );
         await mutateFromTree('rotate', {
           object_id: obj.id,
           angle,
           axis: axisPick.axis,
           ...(axisPick.anchor !== undefined ? { anchor: axisPick.anchor } : {}),
-          ...(steps > 1 ? { start: -1 } : {}),
+          ...(kind.steps > 1 ? { start: -1 } : {}),
         });
       },
     ),
