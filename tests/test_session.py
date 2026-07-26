@@ -213,6 +213,15 @@ def test_load_example():
     assert ns["r2m01"].position.round(3).tolist() != [2.3, 0, 1.5]
 
 
+def test_get_figure_template(session):
+    dark = session.get_figure(template="plotly_dark")
+    assert dark["layout"]["template"]["layout"]["paper_bgcolor"] != "white"
+    json.dumps(dark)
+    # unknown template names are reported, not crashed (RPC would relay this)
+    with pytest.raises(Exception, match="emplate"):
+        session.get_figure(template="not_a_template")
+
+
 def test_get_figure_animation():
     s = MagpylibStudioSession()
     s.load_example()

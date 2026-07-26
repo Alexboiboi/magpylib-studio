@@ -10,7 +10,7 @@ Protocol surface (all JSON-serializable in/out):
   list_objects()                       -> [{id, type, label}]
   get_schema(object_id)                -> JSON Schema of the object's style
   get_values(object_id)                -> {"set": {...}, "resolved": {...}}
-  get_figure(animation?)               -> plotly figure JSON (frames if animated)
+  get_figure(animation?, template?)    -> plotly figure JSON (frames if animated)
   apply_edit(object_id, path, value)   -> {"ok": bool, "error"?: str}
   add_object(object_id, type, params?, style?, rotations?, parent?) -> {"ok": ...}
   remove_object(object_id)             -> {"ok": bool, ...} (subtree if Collection)
@@ -223,12 +223,16 @@ class MagpylibStudioSession:
             "resolved": resolved.as_dict(flatten=True),  # effective values
         }
 
-    def get_figure(self, animation=False):
+    def get_figure(self, animation=False, template=None):
         """Figure JSON; animation=True animates paths (plotly frames + play
-        button). magpylib falls back to a static plot if nothing has a path."""
+        button). magpylib falls back to a static plot if nothing has a path.
+        template is a plotly template name ('plotly_dark', 'plotly_white', …) —
+        resolved here because plotly.js has no named-template registry."""
         fig = magpy.show(
             self.scene, backend="plotly", animation=animation, return_fig=True
         )
+        if template:
+            fig.layout.template = template
         return json.loads(fig.to_json())  # to_json handles numpy/bdata
 
     # --- editing -----------------------------------------------------------

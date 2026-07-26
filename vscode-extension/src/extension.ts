@@ -309,13 +309,27 @@ function createWebviewHtml(
       });
     }
 
+    function plotTemplate() {
+      // VS Code stamps the theme kind on <body>; high-contrast-light is light.
+      const cls = document.body.className;
+      const dark = /vscode-dark|vscode-high-contrast/.test(cls)
+        && !cls.includes('vscode-high-contrast-light');
+      return dark ? 'plotly_dark' : 'plotly_white';
+    }
+
     async function refreshFigure() {
-      const figure = await rpc('get_figure', { animation: animateEl.checked });
+      const figure = await rpc('get_figure', {
+        animation: animateEl.checked,
+        template: plotTemplate(),
+      });
       const layout = figure.layout || {};
       layout.uirevision = 'magpylib-studio';  // hold camera across edits
       layout.autosize = true;
       layout.showlegend = false;  // the Scene tree is the legend
       layout.margin = { l: 0, r: 0, t: 0, b: 0 };
+      layout.paper_bgcolor = 'rgba(0,0,0,0)';  // blend into the editor
+      layout.scene = layout.scene || {};
+      layout.scene.bgcolor = 'rgba(0,0,0,0)';
       await Plotly.react(canvasEl, {
         data: figure.data,
         layout,
@@ -324,6 +338,11 @@ function createWebviewHtml(
       });
       statusEl.textContent = 'Ready';
     }
+
+    // Re-render when the user switches the VS Code color theme.
+    new MutationObserver(() => {
+      refreshFigure().catch((err) => { statusEl.textContent = String(err); });
+    }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
 
     animateEl.addEventListener('change', () => {
       statusEl.textContent = 'Loading…';
