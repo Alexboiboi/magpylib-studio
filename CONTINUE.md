@@ -155,7 +155,7 @@ check that `../magpylib` is on `feat/improve-style` and installed `-e`.
 ## Next steps (pick one)
 
 - **Try it live**: open `vscode-extension/` in VS Code, F5, run
-  "Magpylib Studio: Open Studio"; in Copilot chat try `make the cube green
+  "Magpylib Studio: Open Scene View"; in Copilot chat try `make the cube green
   #magpyEdit` or `add a green sphere at [0,2,0] #magpyAdd`.
 - **Field maps**: `get_field` covers points/paths; a 2D plane-slice heatmap /
   streamline figure would complete the analysis story.

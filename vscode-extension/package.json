@@ -17,7 +17,7 @@
     "commands": [
       {
         "command": "magpylib-studio.openStudio",
-        "title": "Magpylib Studio: Open Studio",
+        "title": "Magpylib Studio: Open Scene View",
         "icon": "$(open-preview)"
       },
       {

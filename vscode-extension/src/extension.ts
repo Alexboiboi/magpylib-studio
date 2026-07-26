@@ -159,8 +159,8 @@ function openStudioPanel(context: vscode.ExtensionContext): void {
     return;
   }
   const panel = vscode.window.createWebviewPanel(
-    'magpylibStudio',
-    'Magpylib Studio',
+    'magpylibStudio', // panel type id: keep, keybinding when-clauses match it
+    'Magpylib Scene',
     vscode.ViewColumn.One,
     {
       enableScripts: true,

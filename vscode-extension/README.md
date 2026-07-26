@@ -6,7 +6,8 @@ newline-delimited JSON-RPC over stdio.
 
 ## What it provides
 
-- **Command** `Magpylib Studio: Open Studio` — the live plotly 3D view
+- **Command** `Magpylib Studio: Open Scene View` — the "Magpylib Scene" tab:
+  the live plotly 3D view
   (camera held across edits via `uirevision`). Just the plot: selection and
   editing live in the sidebar.
 - **Scene view** — the magpylib-logo icon in the activity bar opens a sidebar
@@ -47,7 +48,7 @@ npm run compile     # or: npm run watch
 ```
 
 Then open **this folder** in VS Code and press `F5` (launch config included).
-In the Extension Development Host run the `Magpylib Studio: Open Studio`
+In the Extension Development Host run the `Magpylib Studio: Open Scene View`
 command, or ask Copilot chat e.g. `make the cube green #magpyEdit`.
 
 ## Python interpreter resolution
