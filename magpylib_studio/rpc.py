@@ -29,6 +29,7 @@ _PUBLIC = {
     "remove_object",
     "move_object",
     "set_param",
+    "get_params",
     "get_transform",
     "move",
     "rotate",

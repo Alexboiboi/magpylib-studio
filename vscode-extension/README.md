@@ -25,7 +25,9 @@ newline-delimited JSON-RPC over stdio.
 - **Add Object…** — the `+` icon on the Scene view (or right-click a
   collection to create inside it, or the empty-view welcome): pick a type
   (cuboid, cylinder, segment, sphere, tetrahedron, current loop/polyline,
-  dipole, sensor, collection) and it is created with sensible defaults.
+  dipole, sensor, collection), then set each of its properties — prefilled
+  with defaults and labelled with units — and it opens selected in the
+  Inspector.
 - **Right-click → Transform** — Set Position…, Move By…, Rotate… (spin or
   orbit the origin), Clear Path. Move/Rotate accept `× N` at the end of the
   value to spread the operation over an N-step animation path, e.g. `360 × 36`.
@@ -34,6 +36,11 @@ newline-delimited JSON-RPC over stdio.
   Halbach-style arrangements) and *move*, each with a step count that turns
   the operation into an animation **path**, plus *Clear path*. Same
   operations in chat: `#magpyMove`, `#magpyRotate`, `#magpyPose`.
+- **Properties** — the Inspector's `properties` section: the object's physics
+  parameters (polarization, dimension, diameter, current, moment, vertices,
+  pixels) as numeric widgets, with units in the tooltips; matrices like
+  polyline vertices are edited as JSON. Edits go through `set_param`, so
+  transforms and styles are preserved.
 - **Inspector view** — below the tree: schema-driven widgets generated from
   `get_schema()` (enum → dropdown, `format: color` → color picker + text,
   bounded number → slider, boolean → tri-state with "(default)"), prefilled

@@ -7,6 +7,7 @@ const MUTATING = new Set([
   'rotate',
   'set_transform',
   'clear_path',
+  'set_param',
 ]);
 
 /**
@@ -121,6 +122,7 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
 <body>
   <div id="header"></div>
   <input id="filter" type="text" placeholder="Filter properties…" />
+  <div id="params"></div>
   <div id="transform"></div>
   <div id="props"></div>
   <div id="empty">Select an object in the Scene view.</div>
@@ -130,6 +132,7 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
     const headerEl = document.getElementById('header');
     const propsEl = document.getElementById('props');
     const transformEl = document.getElementById('transform');
+    const paramsEl = document.getElementById('params');
     const emptyEl = document.getElementById('empty');
     const statusEl = document.getElementById('status');
     const filterEl = document.getElementById('filter');
@@ -284,6 +287,77 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
       }
     }
 
+    // --- properties section: the object's physics parameters --------------
+    async function loadParams() {
+      const params = await rpc('get_params', { object_id: objectId });
+      paramsEl.innerHTML = '';
+      if (!params.length) return;
+      const box = document.createElement('details');
+      box.open = true;
+      const summary = document.createElement('summary');
+      summary.textContent = 'properties';
+      box.appendChild(summary);
+
+      for (const p of params) {
+        const commit = (value) => {
+          statusEl.textContent = '';
+          rpc('set_param', { object_id: objectId, name: p.name, value })
+            .then((res) => {
+              if (res && res.ok === false) statusEl.textContent = res.error;
+              return Promise.all([loadParams(), loadTransform()]);
+            })
+            .catch((err) => { statusEl.textContent = String(err); });
+        };
+        if (p.kind === 'scalar') {
+          const row = document.createElement('div');
+          row.className = 'row';
+          const label = document.createElement('label');
+          label.textContent = p.name;
+          label.title = p.doc;
+          const input = document.createElement('input');
+          input.type = 'number';
+          input.step = 'any';
+          input.value = p.value;
+          input.addEventListener('change', () => commit(parseFloat(input.value)));
+          const wrap = document.createElement('div');
+          wrap.className = 'widget';
+          wrap.appendChild(input);
+          row.append(label, wrap, document.createElement('span'));
+          box.appendChild(row);
+        } else if (p.kind === 'vector') {
+          const head = document.createElement('div');
+          head.className = 'hint';
+          head.textContent = p.name;
+          head.title = p.doc;
+          box.appendChild(head);
+          box.appendChild(
+            vecRow(p.value.map((_, i) => String(i + 1)), p.value, commit),
+          );
+        } else {
+          // matrices (vertices, faces, sensor pixels): edit as JSON
+          const head = document.createElement('div');
+          head.className = 'hint';
+          head.textContent = p.name + ' (' + p.value.length + ' rows, JSON)';
+          head.title = p.doc;
+          const area = document.createElement('input');
+          area.type = 'text';
+          area.value = JSON.stringify(p.value);
+          area.addEventListener('change', () => {
+            try {
+              commit(JSON.parse(area.value));
+            } catch (err) {
+              statusEl.textContent = 'invalid JSON: ' + err;
+            }
+          });
+          const wrap = document.createElement('div');
+          wrap.className = 'trow';
+          wrap.appendChild(area);
+          box.append(head, wrap);
+        }
+      }
+      paramsEl.appendChild(box);
+    }
+
     // --- transform section: absolute pose, relative ops, path tools -------
     function vecRow(labels, values, onCommit) {
       const row = document.createElement('div');
@@ -408,7 +482,7 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
     async function reloadValues() {
       values = await rpc('get_values', { object_id: objectId });
       render();
-      await loadTransform();
+      await Promise.all([loadParams(), loadTransform()]);
     }
 
     async function loadObject(id) {
@@ -419,6 +493,7 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
         headerEl.textContent = '';
         propsEl.innerHTML = '';
         transformEl.innerHTML = '';
+        paramsEl.innerHTML = '';
         return;
       }
       headerEl.textContent = id;
@@ -427,7 +502,7 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
         rpc('get_values', { object_id: id }),
       ]);
       render();
-      await loadTransform();
+      await Promise.all([loadParams(), loadTransform()]);
     }
 
     filterEl.addEventListener('input', render);

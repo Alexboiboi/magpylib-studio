@@ -30,6 +30,13 @@ and drives it.
   anchor = spin in place; on a Collection rotates the whole group).
   Structural edits go through `_mutate_doc`: mutate doc → rebuild scene; on
   failure the old doc is restored and the error reported (`{"ok": false}`).
+- **Physics properties**: `get_params(object_id)` introspects the live object
+  for the editable constructor params (polarization, dimension, diameter,
+  current, moment, vertices, faces, pixel) with value, kind
+  (scalar/vector/matrix) and a doc string; written back via `set_param`.
+  Position/orientation are excluded — they are transform-managed. Shown as
+  the Inspector's **properties** section, and prompted (prefilled, with
+  units) when adding an object.
 - **Transforms — the doc records magpylib CALLS, not derived poses.** Each
   spec has `transforms`: an ordered op log (`move`, `rotate_from_angax`,
   `rotate_from_rotvec`, `position`, `orientation`) replayed by `_replay`

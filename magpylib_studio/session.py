@@ -9,7 +9,8 @@ the current state and can be versioned in git.
 Protocol surface (all JSON-serializable in/out):
   list_objects()                       -> [{id, type, label}]
   get_schema(object_id)                -> JSON Schema of the object's style
-  get_values(object_id)                -> {"set": {...}, "resolved": {...}}
+  get_values(object_id)                -> {"set": {...}, "resolved": {...}} (style)
+  get_params(object_id)                -> [{name, value, kind, doc}] (physics)
   get_figure(animation?, template?)    -> plotly figure JSON (frames if animated)
   get_field(sensor_id?, points?, field?) -> {field, unit, points, values, magnitude}
   get_field_figure(output?, animation?, template?) -> 2D plotly JSON (magpylib-rendered)
@@ -101,6 +102,34 @@ def example_scene():
             },
         ]
     }
+
+
+# Editable constructor parameters, introspected off the live object.
+# `magnetization` is absent on purpose: it is derived from polarization.
+_PARAM_ATTRS = (
+    "polarization",
+    "magnetization",
+    "dimension",
+    "diameter",
+    "vertices",
+    "faces",
+    "current",
+    "moment",
+    "pixel",
+)
+
+_PARAM_DOCS = {
+    "polarization": "magnetic polarization J (T), in object coordinates",
+    "magnetization": "magnetization M (A/m) — derived from polarization",
+    "dimension": "size; Cuboid (a,b,c) m · Cylinder (d,h) m · "
+                 "CylinderSegment (r1,r2,h,phi1,phi2) m/deg",
+    "diameter": "diameter (m)",
+    "vertices": "corner/path points (m)",
+    "faces": "triangle indices into vertices",
+    "current": "electrical current (A)",
+    "moment": "magnetic moment (A·m²)",
+    "pixel": "sensor pixel positions in local coordinates (m)",
+}
 
 
 # Operations allowed inside batch() — mutating, per-object (plus clear).
@@ -318,6 +347,29 @@ class MagpylibStudioSession:
 
     def get_schema(self, object_id):
         return type(self._objs[object_id].style).schema()
+
+    def get_params(self, object_id):
+        """The object's physics parameters (polarization, dimension, current,
+        …) with their current values and shape, for inspector widgets.
+        Position/orientation are excluded: those are transform-managed."""
+        obj = self._objs[object_id]
+        out = []
+        for name in _PARAM_ATTRS:
+            value = getattr(obj, name, None)
+            if value is None:
+                continue
+            plain = _plain(value)
+            if isinstance(plain, list):
+                kind = "matrix" if plain and isinstance(plain[0], list) else "vector"
+            else:
+                kind = "scalar"
+            out.append({
+                "name": name,
+                "value": plain,
+                "kind": kind,
+                "doc": _PARAM_DOCS.get(name, ""),
+            })
+        return out
 
     def get_transform(self, object_id):
         """World pose of an object, for the inspector's transform widgets."""

@@ -257,6 +257,33 @@ def test_transform_paths(session):
     assert session.get_transform("cube")["path_length"] == 1
 
 
+def test_get_params_exposes_physics_properties(session):
+    params = {p["name"]: p for p in session.get_params("cube")}
+    assert params["polarization"]["value"] == [0, 0, 1]
+    assert params["polarization"]["kind"] == "vector"
+    assert params["dimension"]["value"] == [1, 1, 1]
+    assert all(p["doc"] for p in params.values())
+    assert "position" not in params  # transform-managed, not a property
+    json.dumps(session.get_params("cube"))
+
+    # editing one goes through set_param and keeps everything else
+    assert session.set_param("cube", "dimension", [2, 1, 1]) == {"ok": True}
+    assert {p["name"]: p["value"] for p in session.get_params("cube")}["dimension"] == [
+        2, 1, 1,
+    ]
+
+    # scalar and matrix kinds
+    session.add_object("loop", "current.Circle", params={"current": 5, "diameter": 2})
+    loop = {p["name"]: p for p in session.get_params("loop")}
+    assert loop["current"]["kind"] == "scalar" and loop["current"]["value"] == 5
+    session.add_object("line", "current.Polyline",
+                       params={"current": 1, "vertices": [[0, 0, 0], [1, 0, 0]]})
+    assert {p["name"]: p["kind"] for p in session.get_params("line")}["vertices"] == (
+        "matrix"
+    )
+    assert session.get_params("cyl") != []  # every source type reports something
+
+
 def test_collection_transforms_carry_children():
     """Transforming a Collection must transform its whole subtree — magpylib's
     own semantics, which the doc gets by replaying recorded ops."""

@@ -122,15 +122,39 @@ async function askPathOrSingle(title: string): Promise<{ steps: number } | undef
   return text ? { steps: Number(text) } : undefined;
 }
 
-/** Parse "1, 2, 3" / "1 2 3" into numbers; undefined if not `count` values. */
-function parseVector(text: string, count: number): number[] | undefined {
+/** Units shown in the Add Object prompts. */
+const PARAM_UNITS: Record<string, string> = {
+  polarization: ' (T), as Jx, Jy, Jz',
+  dimension: ' (m) — Cuboid a,b,c · Cylinder d,h · Segment r1,r2,h,phi1,phi2',
+  diameter: ' (m)',
+  current: ' (A)',
+  moment: ' (A·m²), as mx, my, mz',
+  vertices: ' (m), x,y,z per point',
+};
+
+/** Parse a free-form list of numbers ("1, 2 3"); undefined if none/invalid. */
+function parseNumbers(text: string): number[] | undefined {
   const parts = text
+    .replace(/[[\]]/g, ' ')
     .split(/[\s,]+/)
     .filter(Boolean)
     .map(Number);
-  return parts.length === count && parts.every((n) => Number.isFinite(n))
-    ? parts
-    : undefined;
+  return parts.length && parts.every((n) => Number.isFinite(n)) ? parts : undefined;
+}
+
+/** Group a flat number list into rows of `width` (e.g. points into [x,y,z]). */
+function reshape(flat: number[], width: number): number[][] {
+  const rows: number[][] = [];
+  for (let i = 0; i + width <= flat.length; i += width) {
+    rows.push(flat.slice(i, i + width));
+  }
+  return rows;
+}
+
+/** Parse "1, 2, 3" / "1 2 3" into numbers; undefined if not `count` values. */
+function parseVector(text: string, count: number): number[] | undefined {
+  const parts = parseNumbers(text);
+  return parts?.length === count ? parts : undefined;
 }
 
 /** Repo root in the dev layout (vscode-extension/ inside the repo). */
@@ -689,17 +713,45 @@ export function activate(context: vscode.ExtensionContext): void {
         if (!id) {
           return;
         }
+        // Let the user set each parameter, prefilled with the default.
+        const values: Record<string, unknown> = { ...pick.t.params };
+        for (const [name, def] of Object.entries(pick.t.params)) {
+          const isScalar = typeof def === 'number';
+          const flat = isScalar ? String(def) : JSON.stringify(def);
+          const text = await vscode.window.showInputBox({
+            prompt: `${pick.label} — ${name}${PARAM_UNITS[name] ?? ''}`,
+            value: isScalar ? flat : flat.replace(/[[\]]/g, (m) => (m === '[' ? '' : '')),
+            validateInput: (v) => {
+              if (isScalar) {
+                return Number.isFinite(Number(v)) ? undefined : 'A number';
+              }
+              return parseNumbers(v) ? undefined : 'Numbers, e.g. 0, 0, 1';
+            },
+          });
+          if (text === undefined) {
+            return; // escaped: abandon the whole creation
+          }
+          if (isScalar) {
+            values[name] = Number(text);
+          } else {
+            const flatNums = parseNumbers(text)!;
+            const template = def as number[] | number[][];
+            values[name] = Array.isArray(template[0])
+              ? reshape(flatNums, (template[0] as number[]).length)
+              : flatNums;
+          }
+        }
         const params: Record<string, unknown> = {
           object_id: id,
           type: pick.t.type,
-          params: pick.t.params,
+          params: values,
           style: { label: pick.label },
         };
         if (obj?.type === 'Collection') {
           params.parent = obj.id; // right-clicked a group: create inside it
         }
         await mutateFromTree('add_object', params);
-        openStudioPanel(context);
+        selectObjectInStudio(context, id); // show it in the Inspector
       },
     ),
     vscode.commands.registerCommand(
