@@ -34,6 +34,11 @@
         "title": "Magpylib Studio: Load Example Scene"
       },
       {
+        "command": "magpylib-studio.openFieldView",
+        "title": "Magpylib Studio: Open Field View",
+        "icon": "$(graph-line)"
+      },
+      {
         "command": "magpylib-studio.viewScript",
         "title": "Magpylib Studio: View Python Script",
         "icon": "$(code)"
@@ -94,6 +99,11 @@
         },
         {
           "command": "magpylib-studio.openStudio",
+          "when": "view == magpylib-studio.sceneView",
+          "group": "navigation"
+        },
+        {
+          "command": "magpylib-studio.openFieldView",
           "when": "view == magpylib-studio.sceneView",
           "group": "navigation"
         },

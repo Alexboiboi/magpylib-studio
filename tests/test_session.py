@@ -256,11 +256,13 @@ def test_get_field_figure():
     s = MagpylibStudioSession()
     s.load_example()
     fig = s.get_field_figure(template="plotly_dark")
-    assert [t["name"] for t in fig["data"]] == ["Bx", "By", "Bz", "|B|"]
-    assert len(fig["data"][0]["x"]["bdata"] if isinstance(fig["data"][0]["x"], dict)
-               else fig["data"][0]["x"]) > 0
+    assert len(fig["data"]) == 1  # one trace per sensor (magpylib-rendered)
+    assert fig["data"][0]["type"] == "scatter"
+    assert fig["layout"]["yaxis"]["title"]["text"] == "B (T)"
     assert "template" in fig["layout"]
     json.dumps(fig)
+    assert s.get_field_figure(output="Hx")["layout"]["yaxis"]["title"]["text"] == "Hx (A/m)"
+    assert len(s.get_field_figure(animation=True).get("frames", [])) == 25
 
 
 def test_get_figure_template(session):

@@ -31,9 +31,13 @@ and drives it.
   Structural edits go through `_mutate_doc`: mutate doc → rebuild scene; on
   failure the old doc is restored and the error reported (`{"ok": false}`).
 - **Field evaluation**: `get_field(sensor_id?, points?, field?)` — summed
-  B/H of all leaf sources (SI units) along a sensor path or explicit points;
-  `get_field_figure` renders components + |B| vs arc length (2D plotly).
-  Surfaced as `#magpyField` and as an auto-shown plot under the 3D view.
+  B/H of all leaf sources (SI units) along a sensor path or explicit points
+  (numeric, for `#magpyField`). `get_field_figure(output?, animation?,
+  template?)` delegates to **magpylib's own 2D rendering**
+  (`show(output="B"|"Bx"|...)`) — field at the scene's sensors along their
+  paths, animatable. Shown in a dedicated on-demand **Field panel**
+  ($(graph-line) icon / "Open Field View") with an output selector, not
+  embedded in the 3D view.
 - `magpylib_studio/rpc.py` — JSON-RPC stdio loop (`serve`), method allow-list.
 - `magpylib_studio/__main__.py` — `python -m magpylib_studio`.
 - `tests/test_session.py` — 29 tests, **all green**, ruff clean (`uvx ruff check`).

@@ -12,7 +12,7 @@ Protocol surface (all JSON-serializable in/out):
   get_values(object_id)                -> {"set": {...}, "resolved": {...}}
   get_figure(animation?, template?)    -> plotly figure JSON (frames if animated)
   get_field(sensor_id?, points?, field?) -> {field, unit, points, values, magnitude}
-  get_field_figure(sensor_id?, points?, field?, template?) -> 2D plotly JSON
+  get_field_figure(output?, animation?, template?) -> 2D plotly JSON (magpylib-rendered)
   apply_edit(object_id, path, value)   -> {"ok": bool, "error"?: str}
   add_object(object_id, type, params?, style?, rotations?, parent?) -> {"ok": ...}
   remove_object(object_id)             -> {"ok": bool, ...} (subtree if Collection)
@@ -33,7 +33,6 @@ import json
 
 import magpylib as magpy
 import numpy as np
-import plotly.graph_objects as go
 from magpylib._src.defaults.defaults_classes import default_settings
 from magpylib._src.style import get_style
 
@@ -288,30 +287,23 @@ class MagpylibStudioSession:
             "magnitude": np.linalg.norm(values, axis=-1).tolist(),
         }
 
-    def get_field_figure(self, sensor_id=None, points=None, field="B",
-                         template=None):
-        """2D plotly figure: field components + magnitude along the observer
-        path (x-axis is arc length in m)."""
-        data = self.get_field(sensor_id=sensor_id, points=points, field=field)
-        pts = np.array(data["points"])
-        vals = np.array(data["values"])
-        if len(pts) > 1:
-            s = np.concatenate(
-                [[0.0], np.cumsum(np.linalg.norm(np.diff(pts, axis=0), axis=1))]
+    def get_field_figure(self, output="B", animation=False, template=None):
+        """2D field plot rendered by magpylib itself (`show(output=...)`):
+        field at the scene's sensors along their paths. `output` is e.g.
+        "B", "Bx", "Bxy", "H", or a list of those (magpylib semantics);
+        animation animates the path like the 3D view."""
+        fig = magpy.show(
+            self.scene,
+            backend="plotly",
+            output=output,
+            animation=animation,
+            return_fig=True,
+        )
+        if isinstance(output, str):  # magpylib leaves the axes untitled
+            unit = "T" if output.startswith("B") else "A/m"
+            fig.update_layout(
+                xaxis_title="path index", yaxis_title=f"{output} ({unit})"
             )
-        else:
-            s = np.zeros(1)
-        fig = go.Figure()
-        for i, comp in enumerate("xyz"):
-            fig.add_scatter(x=s, y=vals[:, i], mode="lines", name=f"{field}{comp}")
-        fig.add_scatter(
-            x=s, y=np.array(data["magnitude"]), mode="lines",
-            name=f"|{field}|", line={"dash": "dash"},
-        )
-        fig.update_layout(
-            xaxis_title="distance along path (m)",
-            yaxis_title=f"{field} ({data['unit']})",
-        )
         if template:
             fig.layout.template = template
         return json.loads(fig.to_json())

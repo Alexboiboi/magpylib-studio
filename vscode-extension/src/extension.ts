@@ -7,6 +7,7 @@ import { SceneObject, SceneTreeProvider } from './sceneTree';
 
 let engine: EngineClient | undefined;
 let currentPanel: vscode.WebviewPanel | undefined;
+let fieldPanel: vscode.WebviewPanel | undefined;
 let selectedObjectId: string | undefined;
 let sceneTree: SceneTreeProvider | undefined;
 let inspector: InspectorViewProvider | undefined;
@@ -75,6 +76,27 @@ function getNonce(): string {
   ).join('');
 }
 
+/** Route webview 'rpcRequest' messages through the shared engine. */
+function wireRpcRouter(context: vscode.ExtensionContext, webview: vscode.Webview): void {
+  webview.onDidReceiveMessage(async (message) => {
+    if (message.type !== 'rpcRequest') {
+      return;
+    }
+    const { reqId, method, params } = message;
+    try {
+      const result = await getEngine(context).request(method, params);
+      webview.postMessage({ type: 'rpcResult', reqId, method, result });
+    } catch (err) {
+      webview.postMessage({
+        type: 'rpcError',
+        reqId,
+        method,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+}
+
 function openStudioPanel(context: vscode.ExtensionContext): void {
   if (currentPanel) {
     currentPanel.reveal();
@@ -92,27 +114,32 @@ function openStudioPanel(context: vscode.ExtensionContext): void {
   );
   currentPanel = panel;
   panel.webview.html = createWebviewHtml(context, panel.webview);
-
-  panel.webview.onDidReceiveMessage(async (message) => {
-    if (message.type !== 'rpcRequest') {
-      return;
-    }
-    const { reqId, method, params } = message;
-    try {
-      const result = await getEngine(context).request(method, params);
-      panel.webview.postMessage({ type: 'rpcResult', reqId, method, result });
-    } catch (err) {
-      panel.webview.postMessage({
-        type: 'rpcError',
-        reqId,
-        method,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  });
-
+  wireRpcRouter(context, panel.webview);
   panel.onDidDispose(() => {
     currentPanel = undefined;
+  });
+}
+
+function openFieldPanel(context: vscode.ExtensionContext): void {
+  if (fieldPanel) {
+    fieldPanel.reveal(undefined, true);
+    return;
+  }
+  const panel = vscode.window.createWebviewPanel(
+    'magpylibField',
+    'Magpylib Field',
+    { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
+    {
+      enableScripts: true,
+      retainContextWhenHidden: true,
+      localResourceRoots: [context.extensionUri],
+    },
+  );
+  fieldPanel = panel;
+  panel.webview.html = createFieldViewHtml(context, panel.webview);
+  wireRpcRouter(context, panel.webview);
+  panel.onDidDispose(() => {
+    fieldPanel = undefined;
   });
 }
 
@@ -137,6 +164,7 @@ function broadcastMutation(): void {
   refreshTimer = setTimeout(() => {
     refreshTimer = undefined;
     currentPanel?.webview.postMessage({ type: 'refresh' });
+    fieldPanel?.webview.postMessage({ type: 'refresh' });
     sceneTree?.refresh();
     inspector?.refresh();
     sceneDocEmitter?.fire(SCRIPT_URI);
@@ -279,6 +307,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('magpylib-studio.openStudio', () =>
       openStudioPanel(context),
     ),
+    vscode.commands.registerCommand('magpylib-studio.openFieldView', () =>
+      openFieldPanel(context),
+    ),
     vscode.commands.registerCommand('magpylib-studio.refreshScene', () =>
       broadcastMutation(),
     ),
@@ -332,8 +363,6 @@ function createWebviewHtml(
     html, body { margin: 0; height: 100%; font-family: var(--vscode-font-family, sans-serif); color: var(--vscode-foreground); }
     body { display: flex; flex-direction: column; }
     #canvas { flex: 1; min-height: 0; }
-    #fieldCanvas { height: 32%; min-height: 0; border-top: 1px solid var(--vscode-panel-border, #444); }
-    #fieldCanvas[hidden] { display: none; }
     #statusbar { display: flex; gap: 12px; align-items: center; padding: 2px 10px; font-size: 11px; opacity: 0.8; border-top: 1px solid var(--vscode-panel-border, #444); }
     #statusbar label { display: flex; gap: 4px; align-items: center; cursor: pointer; }
   </style>
@@ -341,7 +370,6 @@ function createWebviewHtml(
 </head>
 <body>
   <div id="canvas"></div>
-  <div id="fieldCanvas" hidden></div>
   <div id="statusbar">
     <label><input type="checkbox" id="animate" /> Animate paths</label>
     <span id="status">Starting…</span>
@@ -352,7 +380,6 @@ function createWebviewHtml(
     const vscodeApi = acquireVsCodeApi();
     const statusEl = document.getElementById('status');
     const canvasEl = document.getElementById('canvas');
-    const fieldEl = document.getElementById('fieldCanvas');
     const animateEl = document.getElementById('animate');
     let nextReqId = 1;
     const pending = new Map();
@@ -395,36 +422,9 @@ function createWebviewHtml(
       statusEl.textContent = 'Ready';
     }
 
-    async function refreshField() {
-      try {
-        const fig = await rpc('get_field_figure', { template: plotTemplate() });
-        const layout = fig.layout || {};
-        layout.uirevision = 'magpylib-field';
-        layout.autosize = true;
-        layout.margin = { l: 50, r: 10, t: 10, b: 35 };
-        layout.paper_bgcolor = 'rgba(0,0,0,0)';
-        layout.plot_bgcolor = 'rgba(0,0,0,0)';
-        layout.legend = { orientation: 'h' };
-        const wasHidden = fieldEl.hidden;
-        fieldEl.hidden = false;
-        await Plotly.react(fieldEl, { data: fig.data, layout, config: { responsive: true } });
-        if (wasHidden && canvasEl.data) Plotly.Plots.resize(canvasEl);
-      } catch {
-        // No sources or no sensor in the scene - nothing to plot.
-        if (!fieldEl.hidden) {
-          fieldEl.hidden = true;
-          if (canvasEl.data) Plotly.Plots.resize(canvasEl);
-        }
-      }
-    }
-
-    function refreshAllPlots() {
-      return Promise.all([refreshFigure(), refreshField()]);
-    }
-
     // Re-render when the user switches the VS Code color theme.
     new MutationObserver(() => {
-      refreshAllPlots().catch((err) => { statusEl.textContent = String(err); });
+      refreshFigure().catch((err) => { statusEl.textContent = String(err); });
     }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
 
     animateEl.addEventListener('change', () => {
@@ -442,16 +442,138 @@ function createWebviewHtml(
         else entry.reject(new Error(message.method + ': ' + message.error));
       } else if (message.type === 'refresh') {
         // Pushed by the host after any edit (inspector, chat tool, tree).
-        refreshAllPlots().catch((err) => { statusEl.textContent = String(err); });
+        refreshFigure().catch((err) => { statusEl.textContent = String(err); });
       }
     });
 
     window.addEventListener('resize', () => {
       if (canvasEl.data) Plotly.Plots.resize(canvasEl);
-      if (!fieldEl.hidden && fieldEl.data) Plotly.Plots.resize(fieldEl);
     });
 
-    refreshAllPlots().catch((err) => { statusEl.textContent = 'Engine failed: ' + err; });
+    refreshFigure().catch((err) => { statusEl.textContent = 'Engine failed: ' + err; });
+  </script>
+</body>
+</html>`;
+}
+
+function createFieldViewHtml(
+  context: vscode.ExtensionContext,
+  webview: vscode.Webview,
+): string {
+  const nonce = getNonce();
+  const plotlyUri = webview.asWebviewUri(
+    vscode.Uri.joinPath(
+      context.extensionUri,
+      'node_modules',
+      'plotly.js-dist-min',
+      'plotly.min.js',
+    ),
+  );
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} data: blob:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' ${webview.cspSource}; font-src ${webview.cspSource};" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Magpylib Field</title>
+  <style>
+    html, body { margin: 0; height: 100%; font-family: var(--vscode-font-family, sans-serif); color: var(--vscode-foreground); }
+    body { display: flex; flex-direction: column; }
+    #canvas { flex: 1; min-height: 0; }
+    #statusbar { display: flex; gap: 12px; align-items: center; padding: 2px 10px; font-size: 11px; opacity: 0.8; border-top: 1px solid var(--vscode-panel-border, #444); }
+    #statusbar label { display: flex; gap: 4px; align-items: center; cursor: pointer; }
+    select { background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, transparent); font-size: 11px; }
+  </style>
+  <script nonce="${nonce}" src="${plotlyUri}"></script>
+</head>
+<body>
+  <div id="canvas"></div>
+  <div id="statusbar">
+    <label>Output
+      <select id="output">
+        <option>B</option><option>Bx</option><option>By</option><option>Bz</option>
+        <option>Bxy</option>
+        <option>H</option><option>Hx</option><option>Hy</option><option>Hz</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="animate" /> Animate path</label>
+    <span id="status">Loading…</span>
+  </div>
+  <script nonce="${nonce}">
+    // Magpylib-rendered 2D field plot (show(output=...)): field at the
+    // scene's sensors along their paths. Opened on demand from the Studio.
+    const vscodeApi = acquireVsCodeApi();
+    const statusEl = document.getElementById('status');
+    const canvasEl = document.getElementById('canvas');
+    const outputEl = document.getElementById('output');
+    const animateEl = document.getElementById('animate');
+    let nextReqId = 1;
+    const pending = new Map();
+
+    function rpc(method, params) {
+      return new Promise((resolve, reject) => {
+        const reqId = nextReqId++;
+        pending.set(reqId, { resolve, reject });
+        vscodeApi.postMessage({ type: 'rpcRequest', reqId, method, params });
+      });
+    }
+
+    function plotTemplate() {
+      const cls = document.body.className;
+      const dark = /vscode-dark|vscode-high-contrast/.test(cls)
+        && !cls.includes('vscode-high-contrast-light');
+      return dark ? 'plotly_dark' : 'plotly_white';
+    }
+
+    async function refreshField() {
+      try {
+        const fig = await rpc('get_field_figure', {
+          output: outputEl.value,
+          animation: animateEl.checked,
+          template: plotTemplate(),
+        });
+        const layout = fig.layout || {};
+        layout.uirevision = 'magpylib-field';
+        layout.autosize = true;
+        layout.margin = { l: 55, r: 15, t: 15, b: 40 };
+        layout.paper_bgcolor = 'rgba(0,0,0,0)';
+        layout.plot_bgcolor = 'rgba(0,0,0,0)';
+        await Plotly.react(canvasEl, {
+          data: fig.data,
+          layout,
+          frames: fig.frames || [],
+          config: { responsive: true },
+        });
+        statusEl.textContent = 'Ready';
+      } catch (err) {
+        statusEl.textContent = 'No field to plot - the scene needs a source and a sensor. (' + err + ')';
+      }
+    }
+
+    outputEl.addEventListener('change', refreshField);
+    animateEl.addEventListener('change', refreshField);
+
+    new MutationObserver(refreshField)
+      .observe(document.body, { attributes: true, attributeFilter: ['class'] });
+
+    window.addEventListener('message', (event) => {
+      const message = event.data;
+      if (message.type === 'rpcResult' || message.type === 'rpcError') {
+        const entry = pending.get(message.reqId);
+        if (!entry) return;
+        pending.delete(message.reqId);
+        if (message.type === 'rpcResult') entry.resolve(message.result);
+        else entry.reject(new Error(message.method + ': ' + message.error));
+      } else if (message.type === 'refresh') {
+        refreshField();
+      }
+    });
+
+    window.addEventListener('resize', () => {
+      if (canvasEl.data) Plotly.Plots.resize(canvasEl);
+    });
+
+    refreshField();
   </script>
 </body>
 </html>`;
