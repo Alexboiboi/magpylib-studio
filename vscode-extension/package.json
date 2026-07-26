@@ -126,7 +126,7 @@
         "displayName": "List magpylib objects",
         "toolReferenceName": "magpyObjects",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "List the objects in the current Magpylib Studio scene, depth-first. Returns an array of {id, type, label, parent}; 'parent' is the id of the containing Collection (type 'Collection' groups other objects) or null at scene root. Call this first to discover object ids before editing.",
+        "modelDescription": "List the objects in the current Magpylib Studio scene, depth-first. Returns an array of {id, type, label, parent}; 'parent' is the id of the containing Collection (type 'Collection' groups other objects) or null at scene root. The Studio engine starts automatically - never ask the user whether it is running or what the object ids are; call this tool to find out (an empty array just means the scene is empty).",
         "inputSchema": {
           "type": "object",
           "properties": {}
@@ -313,7 +313,7 @@
         "displayName": "Edit magpylib style",
         "toolReferenceName": "magpyEdit",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "Set one style property on a magpylib scene object using a dotted path (e.g. 'color', 'magnetization.arrow.width'); for several style edits at once prefer the batch tool. The value is validated by magpylib; on failure the result contains the validation error - correct the path/value and retry. The Studio view refreshes automatically. Note: on magnets, magnetization coloring (a blue-white-red gradient) is shown by default and masks the base 'color' - when the user wants a visible solid color, also set 'magnetization.mode' to 'arrow' (or 'magnetization.show' to false).",
+        "modelDescription": "Set one style property on a magpylib scene object using a dotted path (e.g. 'color', 'magnetization.arrow.width'); for several style edits at once prefer the batch tool. The value is validated by magpylib; on failure the result contains the validation error - correct the path/value and retry. The Studio view refreshes automatically. Path visualization styles (the line/markers drawn along an object's movement path, e.g. a sensor sweep) live under 'path.*': 'path.line.color', 'path.marker.color', 'path.show'. Note: on magnets, magnetization coloring (a blue-white-red gradient) is shown by default and masks the base 'color' - when the user wants a visible solid color, also set 'magnetization.mode' to 'arrow' (or 'magnetization.show' to false).",
         "inputSchema": {
           "type": "object",
           "properties": {
