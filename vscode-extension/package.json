@@ -66,7 +66,7 @@
         "displayName": "Add magpylib object",
         "toolReferenceName": "magpyAdd",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "Add a new object to the magpylib Studio scene. 'type' is a dotted magpylib class path like 'magnet.Cuboid', 'magnet.Cylinder', 'magnet.Sphere', 'current.Circle' or 'Sensor'. 'params' are the constructor kwargs (e.g. polarization, dimension/diameter, position); 'style' maps dotted style paths to values. On failure the result contains the constructor/validation error - fix and retry.",
+        "modelDescription": "Add a new object to the magpylib Studio scene. 'type' is a dotted magpylib class path like 'magnet.Cuboid', 'magnet.Cylinder', 'magnet.Sphere', 'current.Circle' or 'Sensor'. 'params' are the constructor kwargs (e.g. polarization, dimension/diameter, position); 'style' maps dotted style paths to values. On failure the result contains the constructor/validation error - fix and retry. Note: on magnets the default magnetization coloring masks the base 'color' style - for a visible solid color also include 'magnetization.mode': 'arrow'.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -145,7 +145,7 @@
         "displayName": "Edit magpylib style",
         "toolReferenceName": "magpyEdit",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "Set one style property on a magpylib scene object using a dotted path (e.g. 'color', 'magnetization.arrow.width'). The value is validated by magpylib; on failure the result contains the validation error - correct the path/value and retry. The Studio view refreshes automatically.",
+        "modelDescription": "Set one style property on a magpylib scene object using a dotted path (e.g. 'color', 'magnetization.arrow.width'). The value is validated by magpylib; on failure the result contains the validation error - correct the path/value and retry. The Studio view refreshes automatically. Note: on magnets, magnetization coloring (a blue-white-red gradient) is shown by default and masks the base 'color' - when the user wants a visible solid color, also set 'magnetization.mode' to 'arrow' (or 'magnetization.show' to false).",
         "inputSchema": {
           "type": "object",
           "properties": {
