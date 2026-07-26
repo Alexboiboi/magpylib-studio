@@ -17,9 +17,83 @@
     "commands": [
       {
         "command": "magpylib-studio.openStudio",
-        "title": "magpylib Studio: Open Studio"
+        "title": "magpylib Studio: Open Studio",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "magpylib-studio.refreshScene",
+        "title": "magpylib Studio: Refresh Scene",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "magpylib-studio.selectObject",
+        "title": "magpylib Studio: Select Object in Studio"
+      },
+      {
+        "command": "magpylib-studio.removeObject",
+        "title": "Remove Object"
+      },
+      {
+        "command": "magpylib-studio.resetStyle",
+        "title": "Reset Style"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "magpylib-studio",
+          "title": "magpylib Studio",
+          "icon": "media/magnet.svg"
+        }
+      ]
+    },
+    "views": {
+      "magpylib-studio": [
+        {
+          "id": "magpylib-studio.sceneView",
+          "name": "Scene",
+          "contextualTitle": "magpylib Scene"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "magpylib-studio.refreshScene",
+          "when": "view == magpylib-studio.sceneView",
+          "group": "navigation"
+        },
+        {
+          "command": "magpylib-studio.openStudio",
+          "when": "view == magpylib-studio.sceneView",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "magpylib-studio.removeObject",
+          "when": "view == magpylib-studio.sceneView && viewItem == magpyObject"
+        },
+        {
+          "command": "magpylib-studio.resetStyle",
+          "when": "view == magpylib-studio.sceneView && viewItem == magpyObject"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "magpylib-studio.selectObject",
+          "when": "false"
+        },
+        {
+          "command": "magpylib-studio.removeObject",
+          "when": "false"
+        },
+        {
+          "command": "magpylib-studio.resetStyle",
+          "when": "false"
+        }
+      ]
+    },
     "configuration": {
       "title": "magpylib Studio",
       "properties": {

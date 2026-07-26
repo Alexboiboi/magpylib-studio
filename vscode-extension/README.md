@@ -10,6 +10,12 @@ newline-delimited JSON-RPC over stdio.
   scene (camera held across edits via `uirevision`), an object picker, the
   style JSON Schema, the currently set values, and a manual path/value edit
   form.
+- **Scene view** — a magnet icon in the activity bar opens a sidebar tree of
+  the scene's objects. Clicking an object selects it in the Studio panel
+  (opening the panel if needed); right-click offers *Remove Object* and
+  *Reset Style*. The tree refreshes automatically after any edit (panel,
+  chat tool, or context menu). Flat for now — it mirrors the engine's
+  single-collection document; nesting comes with engine support.
 - **Language Model Tools** (native Copilot chat, no API key):
   `#magpyObjects` (list scene objects), `#magpySchema` (style JSON Schema for
   an object), `#magpyEdit` (set one dotted style path, validated by magpylib),

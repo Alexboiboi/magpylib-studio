@@ -2,9 +2,22 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { EngineClient } from './engineClient';
+import { SceneObject, SceneTreeProvider } from './sceneTree';
+
+const MUTATING_METHODS = new Set([
+  'apply_edit',
+  'add_object',
+  'remove_object',
+  'set_param',
+  'reset_style',
+  'load_scene',
+]);
 
 let engine: EngineClient | undefined;
 let currentPanel: vscode.WebviewPanel | undefined;
+let panelReady = false;
+let pendingSelection: string | undefined;
+let sceneTree: SceneTreeProvider | undefined;
 let engineOutput: vscode.OutputChannel | undefined;
 
 /** Repo root in the dev layout (vscode-extension/ inside the repo). */
@@ -80,9 +93,18 @@ function openStudioPanel(context: vscode.ExtensionContext): void {
     },
   );
   currentPanel = panel;
+  panelReady = false;
   panel.webview.html = createWebviewHtml(context, panel.webview);
 
   panel.webview.onDidReceiveMessage(async (message) => {
+    if (message.type === 'ready') {
+      panelReady = true;
+      if (pendingSelection) {
+        panel.webview.postMessage({ type: 'select', objectId: pendingSelection });
+        pendingSelection = undefined;
+      }
+      return;
+    }
     if (message.type !== 'rpcRequest') {
       return;
     }
@@ -90,6 +112,9 @@ function openStudioPanel(context: vscode.ExtensionContext): void {
     try {
       const result = await getEngine(context).request(method, params);
       panel.webview.postMessage({ type: 'rpcResult', reqId, method, result });
+      if (MUTATING_METHODS.has(method)) {
+        sceneTree?.refresh(); // labels/structure may have changed
+      }
     } catch (err) {
       panel.webview.postMessage({
         type: 'rpcError',
@@ -102,7 +127,19 @@ function openStudioPanel(context: vscode.ExtensionContext): void {
 
   panel.onDidDispose(() => {
     currentPanel = undefined;
+    panelReady = false;
   });
+}
+
+function selectObjectInStudio(context: vscode.ExtensionContext, objectId: string): void {
+  if (currentPanel && panelReady) {
+    currentPanel.reveal(undefined, true);
+    currentPanel.webview.postMessage({ type: 'select', objectId });
+  } else {
+    // Panel not open (or still booting): remember the pick, deliver on 'ready'.
+    pendingSelection = objectId;
+    openStudioPanel(context);
+  }
 }
 
 /** Tell the open Studio panel (if any) to re-pull figure + values. */
@@ -139,6 +176,7 @@ function registerLmTools(context: vscode.ExtensionContext): void {
         )) as { ok: boolean; error?: string };
         if (result.ok) {
           refreshPanel();
+          sceneTree?.refresh();
         }
         return toolResult(result);
       },
@@ -154,9 +192,52 @@ function registerLmTools(context: vscode.ExtensionContext): void {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
+  const tree = new SceneTreeProvider(async () => {
+    try {
+      return await getEngine(context).request<SceneObject[]>('list_objects');
+    } catch (err) {
+      engineOutput?.appendLine(`scene view: ${err instanceof Error ? err.message : err}`);
+      return [];
+    }
+  });
+  sceneTree = tree;
+
+  /** Run a mutating engine call from the tree UI, surface failures, refresh. */
+  const mutateFromTree = async (method: string, params: Record<string, unknown>) => {
+    try {
+      const result = (await getEngine(context).request(method, params)) as {
+        ok: boolean;
+        error?: string;
+      };
+      if (!result.ok) {
+        vscode.window.showErrorMessage(`magpylib Studio: ${result.error}`);
+      }
+    } catch (err) {
+      vscode.window.showErrorMessage(
+        `magpylib Studio: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+    tree.refresh();
+    refreshPanel();
+  };
+
   context.subscriptions.push(
+    vscode.window.registerTreeDataProvider('magpylib-studio.sceneView', tree),
     vscode.commands.registerCommand('magpylib-studio.openStudio', () =>
       openStudioPanel(context),
+    ),
+    vscode.commands.registerCommand('magpylib-studio.refreshScene', () => {
+      tree.refresh();
+      refreshPanel();
+    }),
+    vscode.commands.registerCommand('magpylib-studio.selectObject', (objectId: string) =>
+      selectObjectInStudio(context, objectId),
+    ),
+    vscode.commands.registerCommand('magpylib-studio.removeObject', (obj: SceneObject) =>
+      mutateFromTree('remove_object', { object_id: obj.id }),
+    ),
+    vscode.commands.registerCommand('magpylib-studio.resetStyle', (obj: SceneObject) =>
+      mutateFromTree('reset_style', { object_id: obj.id }),
     ),
     new vscode.Disposable(() => {
       engine?.dispose();
@@ -333,8 +414,16 @@ function createWebviewHtml(
         if (message.type === 'rpcResult') entry.resolve(message.result);
         else entry.reject(new Error(message.method + ': ' + message.error));
       } else if (message.type === 'refresh') {
-        // Pushed by the host after a language-model tool edit.
+        // Pushed by the host after a language-model tool or tree edit.
         refreshAll().catch((err) => log(String(err)));
+      } else if (message.type === 'select') {
+        // Pushed by the host when an object is clicked in the scene tree.
+        selectedObjectId = message.objectId;
+        if (Array.from(objectSelect.options).some((o) => o.value === selectedObjectId)) {
+          objectSelect.value = selectedObjectId;
+          loadObjectDetails().catch((err) => log(String(err)));
+        }
+        // else: boot in progress; refreshAll keeps this selection once loaded
       }
     });
 
@@ -342,6 +431,7 @@ function createWebviewHtml(
       if (canvasEl.data) Plotly.Plots.resize(canvasEl);
     });
 
+    vscodeApi.postMessage({ type: 'ready' });
     refreshAll().catch((err) => { setStatus('Engine failed'); log(String(err)); });
   </script>
 </body>

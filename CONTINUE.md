@@ -35,6 +35,12 @@ and drives it.
     `#magpyAdd`, `#magpyRemove`, `#magpyParam` (successful edits auto-refresh
     the panel). One shared engine process. Tool names declared in package.json
     must exactly match those registered in `registerLmTools`.
+  - `src/sceneTree.ts` + activity-bar **Scene view** (`media/magnet.svg`):
+    clickable tree of scene objects → selects in the panel (ready-handshake
+    so selections made before the webview boots aren't dropped); context menu
+    Remove Object / Reset Style; auto-refreshes after every mutating call
+    (webview RPC router + LM tools + tree commands all trigger it). Flat tree
+    mirroring the flat document — `getChildren` is shaped for nesting later.
   - Python resolution: `magpylib-studio.pythonPath` setting → workspace/.venv →
     repo-root/.venv → `python3`. Engine stderr → output channel.
   - Verified via `node` smoke test driving compiled `EngineClient` against the
@@ -98,6 +104,9 @@ check that `../magpylib` is on `feat/improve-style` and installed `-e`.
   path/value form with real widgets generated from `get_schema()` (the Solara
   POC shows the mapping: enum → dropdown, number → slider/input, color → picker).
   Add scene load/save UI on top of `load_scene`/`to_dict`/`to_script`.
+- **Nested collections**: `children` in the doc format, recursive
+  `_build`/`to_script`, parent-aware add/remove/move; then the scene tree
+  (already a TreeDataProvider) shows real hierarchy.
 - **Chat Participant `@magpy`** if richer chat UX than plain tools is wanted.
 
 ## Gotchas
