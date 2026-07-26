@@ -1,0 +1,107 @@
+{
+  "name": "magpylib-studio-vscode",
+  "displayName": "magpylib Studio",
+  "description": "VS Code extension shell for the magpylib-studio headless engine.",
+  "version": "0.0.1",
+  "publisher": "magpylib",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Visualization",
+    "AI"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "magpylib-studio.openStudio",
+        "title": "magpylib Studio: Open Studio"
+      }
+    ],
+    "configuration": {
+      "title": "magpylib Studio",
+      "properties": {
+        "magpylib-studio.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Python interpreter used to run the magpylib-studio engine. Empty = auto-detect (.venv next to the workspace, then python3)."
+        }
+      }
+    },
+    "languageModelTools": [
+      {
+        "name": "magpylib-studio_listObjects",
+        "displayName": "List magpylib objects",
+        "toolReferenceName": "magpyObjects",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "List the objects in the current magpylib Studio scene. Returns an array of {id, type, label}. Call this first to discover object ids before editing styles.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "magpylib-studio_getSchema",
+        "displayName": "Get magpylib style schema",
+        "toolReferenceName": "magpySchema",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "Get the JSON Schema describing every editable style property of one magpylib scene object (valid dotted paths, types, allowed values). Use it to find the correct path/value before calling the apply edit tool.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "object_id": {
+              "type": "string",
+              "description": "Id of the scene object, as returned by the list objects tool."
+            }
+          },
+          "required": [
+            "object_id"
+          ]
+        }
+      },
+      {
+        "name": "magpylib-studio_applyEdit",
+        "displayName": "Edit magpylib style",
+        "toolReferenceName": "magpyEdit",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "Set one style property on a magpylib scene object using a dotted path (e.g. 'color', 'magnetization.arrow.width'). The value is validated by magpylib; on failure the result contains the validation error - correct the path/value and retry. The Studio view refreshes automatically.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "object_id": {
+              "type": "string",
+              "description": "Id of the scene object, as returned by the list objects tool."
+            },
+            "path": {
+              "type": "string",
+              "description": "Dotted style path, e.g. 'color' or 'magnetization.arrow.width'."
+            },
+            "value": {
+              "description": "New value for the property (string, number, boolean, or array as required by the schema)."
+            }
+          },
+          "required": [
+            "object_id",
+            "path",
+            "value"
+          ]
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "plotly.js-dist-min": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.95.0",
+    "typescript": "^5.5.0"
+  }
+}

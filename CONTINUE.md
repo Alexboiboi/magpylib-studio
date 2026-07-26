@@ -21,6 +21,20 @@ and drives it.
 - Verified: real subprocess driven through pipes; scene document round-trips
   through rebuild; `to_script()` emits code that executes and reproduces edits;
   invalid edits are reported (`{"ok": false, "error": ...}`) not raised.
+- `vscode-extension/` — the TS shell, **compiles clean, smoke-tested**:
+  - `src/engineClient.ts` — promise-based RPC client (spawns the engine, owns
+    the request-id space, line-buffered stdout, rejects on engine exit).
+  - `src/extension.ts` — `openStudio` command → webview (bundled plotly.js 3.x
+    via webview URI + CSP nonce, `uirevision` holds the camera, object picker,
+    schema + set-values panes, manual edit form) and three **`vscode.lm`
+    Language Model Tools**: `#magpyObjects`, `#magpySchema`, `#magpyEdit`
+    (successful edit auto-refreshes the panel). One shared engine process.
+  - Python resolution: `magpylib-studio.pythonPath` setting → workspace/.venv →
+    repo-root/.venv → `python3`. Engine stderr → output channel.
+  - Verified via `node` smoke test driving compiled `EngineClient` against the
+    real engine: all methods, invalid-edit rejection, unknown-method rejection.
+  - NOT yet done: run inside an actual Extension Development Host (F5) —
+    needs a human with VS Code; everything below the vscode API is tested.
 
 ## Setup (this folder)
 
@@ -31,8 +45,9 @@ VIRTUAL_ENV=$PWD/.venv uv pip install -e ".[dev]"
 .venv/bin/python -m pytest -q
 ```
 
-Already set up: `.venv/` exists with the above installed. No git yet — `git init`
-when ready.
+Already set up: `.venv/` exists with the above installed. Git repo on `main`.
+For the extension: `cd vscode-extension && npm install && npm run compile`
+(node installed via Homebrew).
 
 ## CRITICAL dependency
 
@@ -70,14 +85,15 @@ check that `../magpylib` is on `feat/improve-style` and installed `-e`.
 
 ## Next steps (pick one)
 
-- **TS extension shell** (the main goal): scaffold with `npm create @vscode/extension`,
-  spawn `python -m magpylib_studio`, render `get_figure()` in a webview via plotly.js
-  (`uirevision` to hold camera — see Solara POC for why), build a schema-driven
-  inspector from `get_schema()`, register `apply_edit` as a **`vscode.lm` Language
-  Model Tool** (native Copilot chat, no API key) and/or a Chat Participant `@magpy`.
-- **Extend the engine first**: `add_object` / `remove_object` / `move`,
+- **Try it live**: open `vscode-extension/` in VS Code, F5, run
+  "magpylib Studio: Open Studio"; in Copilot chat try `make the cube green #magpyEdit`.
+- **Schema-driven inspector**: replace the raw-JSON schema pane + free-text
+  path/value form with real widgets generated from `get_schema()` (the Solara
+  POC shows the mapping: enum → dropdown, number → slider/input, color → picker).
+- **Extend the engine**: `add_object` / `remove_object` / `move`,
   `load_scene(path)` from a `.py`/JSON file, `get_defaults`/reset. All pure
-  Python, testable now.
+  Python, testable now. Then surface as more LM tools.
+- **Chat Participant `@magpy`** if richer chat UX than plain tools is wanted.
 
 ## Gotchas
 
