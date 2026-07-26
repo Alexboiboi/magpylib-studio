@@ -386,8 +386,36 @@ class MagpylibStudioSession:
 
         return self._mutate_doc(mutate, f"remove {object_id}")
 
+    def _rebase(self, spec, world_pos, world_rot):
+        """Rewrite a spec's position/rotations so that, after its (new)
+        ancestors' build-time transforms, the object lands back on the given
+        world pose. Reparenting must not teleport an object — a Collection's
+        group rotation would otherwise be applied on top of coordinates that
+        already included the old parent's."""
+        params = spec.setdefault("params", {})
+        # Probe: build the object at the origin with identity orientation, so
+        # its resulting pose IS the transform its ancestors apply.
+        params["position"] = [0.0, 0.0, 0.0]
+        spec.pop("rotations", None)
+        self._build()
+        probe = self._objs[spec["id"]]
+        frame_pos = np.array(probe.position, dtype=float)
+        frame_rot = probe.orientation
+
+        local_pos = frame_rot.inv().apply(world_pos - frame_pos)
+        local_rot = frame_rot.inv() * world_rot
+        params["position"] = np.round(local_pos, 9).tolist()
+        rotvec = np.round(local_rot.as_rotvec(degrees=True), 9)
+        if np.linalg.norm(rotvec) > 1e-9:
+            entry = {"rotvec": rotvec.tolist()}
+            if rotvec.ndim > 1:
+                entry["start"] = 0
+            spec["rotations"] = [entry]
+
     def move_object(self, object_id, parent=None):
-        """Reparent an object: into a Collection, or to the root (parent=None)."""
+        """Reparent an object: into a Collection, or to the root
+        (parent=None). Position and orientation in world coordinates are
+        preserved across the move."""
         spec = self._spec(object_id)
         if parent is not None:
             subtree_ids = {s["id"] for s, _ in self._iter_specs([spec])}
@@ -396,6 +424,9 @@ class MagpylibStudioSession:
                         "error": f"cannot move {object_id!r} into its own subtree"}
             if self._spec(parent)["type"] != "Collection":
                 return {"ok": False, "error": f"parent {parent!r} is not a Collection"}
+        obj = self._objs[object_id]
+        world_pos = np.array(obj.position, dtype=float)
+        world_rot = obj.orientation
 
         def mutate(doc):
             self._container_of(object_id).remove(spec)
@@ -404,6 +435,7 @@ class MagpylibStudioSession:
                 else self._spec(parent).setdefault("children", [])
             )
             target.append(spec)
+            self._rebase(spec, world_pos, world_rot)
 
         return self._mutate_doc(mutate, f"move {object_id}")
 

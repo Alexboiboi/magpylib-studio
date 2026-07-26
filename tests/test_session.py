@@ -213,6 +213,38 @@ def test_load_example():
     assert ns["r2m01"].position.round(3).tolist() != [2.3, 0, 1.5]
 
 
+def test_move_preserves_world_pose():
+    """Reparenting must not teleport: a Collection's group rotation would
+    otherwise be applied on top of already-transformed coordinates."""
+    import numpy as np
+
+    s = MagpylibStudioSession()
+    s.load_example()  # ring2 carries an 18 deg group rotation
+    pos = np.array(s._objs["r1m01"].position)
+    rot = s._objs["r1m01"].orientation.as_matrix()
+
+    assert s.move_object("r1m01", "ring2") == {"ok": True}
+    assert {o["id"]: o["parent"] for o in s.list_objects()}["r1m01"] == "ring2"
+    assert np.allclose(s._objs["r1m01"].position, pos)
+    assert np.allclose(s._objs["r1m01"].orientation.as_matrix(), rot)
+
+    assert s.move_object("r1m01") == {"ok": True}  # back out to the root
+    assert np.allclose(s._objs["r1m01"].position, pos)
+    assert np.allclose(s._objs["r1m01"].orientation.as_matrix(), rot)
+
+    # objects with a position path keep it too, and the export agrees
+    sensor_path = np.array(s._objs["sensor"].position)
+    s.move_object("sensor", "ring2")
+    assert np.allclose(s._objs["sensor"].position, sensor_path)
+    ns = {}
+    exec(s.to_script().replace("scene.show(backend='plotly')", ""), ns)  # noqa: S102
+    assert np.allclose(ns["sensor"].position, sensor_path)
+
+    # the group rotation still applies to the ring as a whole afterwards
+    s.apply_edit("ring2", "label", "Ring 2")  # touching ring2 leaves poses put
+    assert np.allclose(s._objs["sensor"].position, sensor_path)
+
+
 def test_get_field_at_points_matches_direct_getB(session):
     import magpylib as magpy
     import numpy as np
