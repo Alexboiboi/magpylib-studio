@@ -26,7 +26,8 @@ Protocol surface (all JSON-serializable in/out):
   clear_scene()                        -> {"ok": bool, "error"?: str}
   batch(operations)                    -> {"ok": bool, "results": [...]} (1 undo step)
   undo(steps?) / redo(steps?)          -> {"ok": bool, "error"?: str}
-  get_history()                        -> {"undo": [labels], "redo": [labels]}
+  get_history()                        -> {"entries": [...], "current": int, ...}
+  goto_history(index)                  -> {"ok": bool, "error"?: str}
   to_dict()                            -> the scene document
   to_script()                          -> equivalent magpylib Python code
 """
@@ -604,11 +605,30 @@ class MagpylibStudioSession:
         return {"ok": True}
 
     def get_history(self):
-        """Labels of what undo/redo would revert, most recent last."""
+        """The session timeline: entry 0 is the initial state, entry i the
+        state after the i-th change; `current` is where the scene sits now
+        (entries after it are redoable)."""
+        labels = [e["label"] for e in self._undo]
+        labels += [e["label"] for e in reversed(self._redo)]
         return {
+            "entries": [{"index": 0, "label": "Initial state"}]
+            + [{"index": i + 1, "label": label} for i, label in enumerate(labels)],
+            "current": len(self._undo),
             "undo": [e["label"] for e in self._undo],
             "redo": [e["label"] for e in self._redo],
         }
+
+    def goto_history(self, index):
+        """Jump to any point on the timeline (undoing or redoing as needed)."""
+        total = len(self._undo) + len(self._redo)
+        if not 0 <= index <= total:
+            return {"ok": False, "error": f"index must be 0..{total}"}
+        current = len(self._undo)
+        if index < current:
+            return self.undo(current - index)
+        if index > current:
+            return self.redo(index - current)
+        return {"ok": True}
 
     # --- serialization / round-trip ---------------------------------------
     def to_dict(self):

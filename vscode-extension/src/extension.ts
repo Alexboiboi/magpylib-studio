@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { EngineClient } from './engineClient';
+import { HistoryEntry, HistoryTreeProvider } from './historyView';
 import { InspectorViewProvider } from './inspectorView';
 import { SceneObject, SceneTreeProvider } from './sceneTree';
 
@@ -11,6 +12,7 @@ let currentPanel: vscode.WebviewPanel | undefined;
 let fieldPanel: vscode.WebviewPanel | undefined;
 let selectedObjectId: string | undefined;
 let sceneTree: SceneTreeProvider | undefined;
+let historyTree: HistoryTreeProvider | undefined;
 let inspector: InspectorViewProvider | undefined;
 let engineOutput: vscode.OutputChannel | undefined;
 let sceneDocEmitter: vscode.EventEmitter<vscode.Uri> | undefined;
@@ -227,6 +229,7 @@ function broadcastMutation(): void {
     currentPanel?.webview.postMessage({ type: 'refresh' });
     fieldPanel?.webview.postMessage({ type: 'refresh' });
     sceneTree?.refresh();
+    historyTree?.refresh();
     inspector?.refresh();
     sceneDocEmitter?.fire(SCRIPT_URI);
     sceneDocEmitter?.fire(SCENE_JSON_URI);
@@ -293,6 +296,18 @@ export function activate(context: vscode.ExtensionContext): void {
     (id, parent) => mutateFromTree('move_object', { object_id: id, parent }),
   );
   sceneTree = tree;
+
+  const history = new HistoryTreeProvider(async () => {
+    try {
+      return await getEngine(context).request<{
+        entries: HistoryEntry[];
+        current: number;
+      }>('get_history');
+    } catch {
+      return { entries: [], current: 0 };
+    }
+  });
+  historyTree = history;
 
   inspector = new InspectorViewProvider(
     context.extensionUri,
@@ -413,6 +428,19 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.registerWebviewViewProvider(InspectorViewProvider.viewId, inspector, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
+    vscode.window.registerTreeDataProvider('magpylib-studio.historyView', history),
+    vscode.commands.registerCommand(
+      'magpylib-studio.gotoHistory',
+      async (entry: HistoryEntry) => {
+        const result = (await getEngine(context).request('goto_history', {
+          index: entry.index,
+        })) as { ok: boolean; error?: string };
+        if (!result.ok) {
+          vscode.window.showErrorMessage(`Magpylib Studio: ${result.error}`);
+        }
+        broadcastMutation();
+      },
+    ),
     vscode.workspace.registerTextDocumentContentProvider('magpylib-studio', sceneDocProvider),
     vscode.commands.registerCommand('magpylib-studio.viewScript', async () => {
       const doc = await vscode.workspace.openTextDocument(SCRIPT_URI);
@@ -593,16 +621,6 @@ function createWebviewHtml(
 <body>
   <div id="canvas"></div>
   <div id="statusbar">
-    <button id="undoBtn" title="Undo (Cmd/Ctrl+Z)" aria-label="Undo">
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M3 7h6.5a3.5 3.5 0 0 1 0 7H6"/><path d="M5.5 4.5 3 7l2.5 2.5"/>
-      </svg>
-    </button>
-    <button id="redoBtn" title="Redo (Cmd/Ctrl+Shift+Z)" aria-label="Redo">
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M13 7H6.5a3.5 3.5 0 0 0 0 7H10"/><path d="M10.5 4.5 13 7l-2.5 2.5"/>
-      </svg>
-    </button>
     <label><input type="checkbox" id="animate" /> Animate paths</label>
     <span id="status">Starting…</span>
   </div>
@@ -662,13 +680,6 @@ function createWebviewHtml(
     animateEl.addEventListener('change', () => {
       statusEl.textContent = 'Loading…';
       refreshFigure().catch((err) => { statusEl.textContent = String(err); });
-    });
-
-    document.getElementById('undoBtn').addEventListener('click', () => {
-      vscodeApi.postMessage({ type: 'uiCommand', command: 'undo' });
-    });
-    document.getElementById('redoBtn').addEventListener('click', () => {
-      vscodeApi.postMessage({ type: 'uiCommand', command: 'redo' });
     });
 
     window.addEventListener('message', (event) => {

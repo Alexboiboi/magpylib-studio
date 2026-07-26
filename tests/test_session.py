@@ -399,7 +399,12 @@ def test_batch_continues_past_failures(session):
 def test_undo_redo_style_and_structure(session):
     session.apply_edit("cube", "color", "red")
     session.remove_object("cyl")
-    assert session.get_history()["undo"] == ["edit cube color", "remove cyl"]
+    history = session.get_history()
+    assert history["undo"] == ["edit cube color", "remove cyl"]
+    assert [e["label"] for e in history["entries"]] == [
+        "Initial state", "edit cube color", "remove cyl",
+    ]
+    assert history["current"] == 2
 
     assert session.undo() == {"ok": True}  # cyl back
     assert [o["id"] for o in session.list_objects()] == ["cube", "cyl"]
@@ -410,8 +415,10 @@ def test_undo_redo_style_and_structure(session):
 
     assert session.redo() == {"ok": True}
     assert session._objs["cube"].style.color == "red"
-    assert session.get_history() == {"undo": ["edit cube color"],
-                                     "redo": ["remove cyl"]}
+    history = session.get_history()
+    assert history["undo"] == ["edit cube color"]
+    assert history["redo"] == ["remove cyl"]
+    assert history["current"] == 1  # timeline keeps the redoable change
 
     # a new edit clears the redo branch
     session.apply_edit("cube", "opacity", 0.5)
@@ -421,6 +428,28 @@ def test_undo_redo_style_and_structure(session):
     assert session.undo() == {"ok": False, "error": "nothing to undo"}
     assert session.redo(steps=2) == {"ok": True}
     assert session.redo()["ok"] is False
+
+
+def test_goto_history_jumps_anywhere(session):
+    session.apply_edit("cube", "color", "red")
+    session.apply_edit("cube", "opacity", 0.5)
+    session.remove_object("cyl")
+    assert session.get_history()["current"] == 3
+
+    assert session.goto_history(0) == {"ok": True}  # back to the start
+    assert session._objs["cube"].style.color is None
+    assert [o["id"] for o in session.list_objects()] == ["cube", "cyl"]
+    # the timeline is intact and everything ahead is redoable
+    history = session.get_history()
+    assert history["current"] == 0 and len(history["entries"]) == 4
+
+    assert session.goto_history(2) == {"ok": True}  # jump forward
+    assert session._objs["cube"].style.color == "red"
+    assert session._objs["cube"].style.opacity == 0.5
+    assert [o["id"] for o in session.list_objects()] == ["cube", "cyl"]
+
+    assert session.goto_history(2) == {"ok": True}  # no-op
+    assert session.goto_history(9)["ok"] is False
 
 
 def test_batch_is_one_undo_step(session):

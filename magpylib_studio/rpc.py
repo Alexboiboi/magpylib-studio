@@ -39,6 +39,7 @@ _PUBLIC = {
     "undo",
     "redo",
     "get_history",
+    "goto_history",
     "to_dict",
     "to_script",
 }

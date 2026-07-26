@@ -17,6 +17,11 @@ newline-delimited JSON-RPC over stdio.
   scene starts **empty**: the view shows a **Load Example Scene** button
   (Halbach ring + coil pair + sensor). Flat for now — it mirrors the engine's
   single-collection document.
+- **History view** — the session timeline, newest first: every scene change
+  as a checkpoint (the current one marked, future ones dimmed). Click any
+  entry to jump the scene there, both backwards and forwards; the timeline
+  itself stays put. Undo/redo icons sit on the Scene and History view
+  titles (Cmd+Z / Cmd+Shift+Z still work inside the panels).
 - **Inspector view** — below the tree: schema-driven widgets generated from
   `get_schema()` (enum → dropdown, `format: color` → color picker + text,
   bounded number → slider, boolean → tri-state with "(default)"), prefilled

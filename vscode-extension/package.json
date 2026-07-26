@@ -86,6 +86,10 @@
         "title": "Move to..."
       },
       {
+        "command": "magpylib-studio.gotoHistory",
+        "title": "Magpylib Studio: Jump to History Point"
+      },
+      {
         "command": "magpylib-studio.newCollection",
         "title": "New Collection...",
         "icon": "$(new-folder)"
@@ -126,6 +130,12 @@
           "name": "Inspector",
           "type": "webview",
           "contextualTitle": "magpylib Inspector"
+        },
+        {
+          "id": "magpylib-studio.historyView",
+          "name": "History",
+          "contextualTitle": "magpylib Scene History",
+          "visibility": "collapsed"
         }
       ]
     },
@@ -138,24 +148,44 @@
     "menus": {
       "view/title": [
         {
+          "command": "magpylib-studio.undo",
+          "when": "view == magpylib-studio.sceneView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "magpylib-studio.redo",
+          "when": "view == magpylib-studio.sceneView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "magpylib-studio.undo",
+          "when": "view == magpylib-studio.historyView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "magpylib-studio.redo",
+          "when": "view == magpylib-studio.historyView",
+          "group": "navigation@2"
+        },
+        {
           "command": "magpylib-studio.refreshScene",
           "when": "view == magpylib-studio.sceneView",
-          "group": "navigation"
+          "group": "navigation@3"
         },
         {
           "command": "magpylib-studio.openStudio",
           "when": "view == magpylib-studio.sceneView",
-          "group": "navigation"
+          "group": "navigation@4"
         },
         {
           "command": "magpylib-studio.openFieldView",
           "when": "view == magpylib-studio.sceneView",
-          "group": "navigation"
+          "group": "navigation@5"
         },
         {
           "command": "magpylib-studio.viewScript",
           "when": "view == magpylib-studio.sceneView",
-          "group": "navigation"
+          "group": "navigation@6"
         },
         {
           "command": "magpylib-studio.saveScene",
@@ -228,6 +258,10 @@
         },
         {
           "command": "magpylib-studio.moveTo",
+          "when": "false"
+        },
+        {
+          "command": "magpylib-studio.gotoHistory",
           "when": "false"
         },
         {
