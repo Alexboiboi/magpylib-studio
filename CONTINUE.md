@@ -43,7 +43,11 @@ and drives it.
   each show() call the script makes is captured as a scene candidate (what
   its author considered "the scene"), plus an "all script objects" fallback
   when that differs; candidates cached, `load_captured(scene)` switches
-  (each load one undoable step; warnings for e.g. orientation paths).
+  (each load one undoable step). **Orientation paths** import exactly via
+  the second rotations-entry form `{"rotvec": [[x,y,z],...], "start": 0}`
+  (rotate_from_rotvec, elementwise over the path); **path-valued
+  properties** (polarization/current/… — from the branch improve-style is
+  based on) round-trip through constructor params untouched.
   Extension: "Import Python Script…" command, right-click a `.py` → "Open in
   Magpylib Studio", welcome link, and a post-import "Switch Scene…" prompt +
   "Switch Imported Scene…" palette command when several candidates exist.
