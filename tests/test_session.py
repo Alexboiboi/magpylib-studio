@@ -195,14 +195,45 @@ def test_load_example():
     s = MagpylibStudioSession()
     assert s.load_example() == {"ok": True}
     objs = s.list_objects()
-    assert {o["type"] for o in objs} == {"magnet.Cuboid", "Sensor"}
-    assert len(objs) == 21  # 2 Halbach rings x 10 rotated cuboids + sensor
+    assert {o["type"] for o in objs} == {"Collection", "magnet.Cuboid", "Sensor"}
+    assert len(objs) == 24  # halbach + 2 rings + 20 cuboids + sensor
+    parents = {o["id"]: o["parent"] for o in objs}
+    assert parents["halbach"] is None
+    assert parents["ring1"] == "halbach"
+    assert parents["r1m01"] == "ring1"
+    assert parents["sensor"] is None
     assert len(s.get_figure()["data"]) > 0
     # the example round-trips through the generated script
     ns = {}
     exec(s.to_script().replace("scene.show(backend='plotly')", ""), ns)  # noqa: S102
     assert ns["sensor"].position.shape == (25, 3)  # path along the bore axis
-    assert ns["r2m01"].position.round(6).tolist() == [2.3, 0, 1.5]  # second ring above
+    assert len(ns["halbach"].children) == 2
+    assert len(ns["ring1"].children) == 10
+    # ring 2 is staggered by an 18 deg group rotation
+    assert ns["r2m01"].position.round(3).tolist() != [2.3, 0, 1.5]
+
+
+def test_nested_structure_ops(session):
+    assert session.add_object("grp", "Collection")["ok"] is True
+    assert session.add_object("ball", "magnet.Sphere",
+                              params={"polarization": [0, 0, 1], "diameter": 1},
+                              parent="grp")["ok"] is True
+    parents = {o["id"]: o["parent"] for o in session.list_objects()}
+    assert parents["ball"] == "grp" and parents["grp"] is None
+    # nesting into a non-collection is rejected
+    assert session.add_object("x", "magnet.Sphere", parent="cube")["ok"] is False
+    # duplicate ids are caught anywhere in the tree
+    assert session.add_object("ball", "magnet.Sphere")["ok"] is False
+    # move: root -> group, cycle rejected, back to root
+    assert session.move_object("cube", "grp")["ok"] is True
+    assert {o["id"]: o["parent"] for o in session.list_objects()}["cube"] == "grp"
+    assert session.move_object("grp", "grp")["ok"] is False
+    assert session.move_object("cube")["ok"] is True
+    # removing a collection removes its subtree
+    assert session.remove_object("grp")["ok"] is True
+    ids = [o["id"] for o in session.list_objects()]
+    assert "ball" not in ids and "grp" not in ids and "cube" in ids
+    session.get_figure()  # scene still renders
 
 
 def test_rotations_build_and_round_trip():

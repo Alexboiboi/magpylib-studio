@@ -25,6 +25,7 @@ _PUBLIC = {
     "apply_edit",
     "add_object",
     "remove_object",
+    "move_object",
     "set_param",
     "reset_style",
     "load_scene",

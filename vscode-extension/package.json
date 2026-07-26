@@ -126,7 +126,7 @@
         "displayName": "List magpylib objects",
         "toolReferenceName": "magpyObjects",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "List the objects in the current Magpylib Studio scene. Returns an array of {id, type, label}. Call this first to discover object ids before editing styles.",
+        "modelDescription": "List the objects in the current Magpylib Studio scene, depth-first. Returns an array of {id, type, label, parent}; 'parent' is the id of the containing Collection (type 'Collection' groups other objects) or null at scene root. Call this first to discover object ids before editing.",
         "inputSchema": {
           "type": "object",
           "properties": {}
@@ -156,7 +156,7 @@
         "displayName": "Add magpylib object",
         "toolReferenceName": "magpyAdd",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "Add ONE new object to the Magpylib Studio scene; to create several objects use the batch tool in a single call instead. 'type' is a dotted magpylib class path like 'magnet.Cuboid', 'magnet.Cylinder', 'magnet.Sphere', 'current.Circle' or 'Sensor'. 'params' are the constructor kwargs (e.g. polarization, dimension/diameter, position; a Sensor position may be a list of [x,y,z] points forming a path). 'rotations' optionally rotates the object after construction (e.g. Halbach arrangements: orbit with anchor 0, then spin in place). On failure the result contains the constructor/validation error - fix and retry. Note: on magnets the default magnetization coloring masks the base 'color' style - for a visible solid color also include 'magnetization.mode': 'arrow'.",
+        "modelDescription": "Add ONE new object to the Magpylib Studio scene; to create several objects use the batch tool in a single call instead. 'type' is a dotted magpylib class path like 'magnet.Cuboid', 'magnet.Cylinder', 'magnet.Sphere', 'current.Circle' or 'Sensor'. 'params' are the constructor kwargs (e.g. polarization, dimension/diameter, position; a Sensor position may be a list of [x,y,z] points forming a path). 'rotations' optionally rotates the object after construction (e.g. Halbach arrangements: orbit with anchor 0, then spin in place). Type 'Collection' creates a group; pass 'parent' (a Collection id) to nest an object inside a group - rotations on a Collection rotate the whole group. On failure the result contains the constructor/validation error - fix and retry. Note: on magnets the default magnetization coloring masks the base 'color' style - for a visible solid color also include 'magnetization.mode': 'arrow'.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -175,6 +175,10 @@
             "style": {
               "type": "object",
               "description": "Optional style, dotted paths to values, e.g. {\"label\": \"Ball\", \"color\": \"green\"}."
+            },
+            "parent": {
+              "type": "string",
+              "description": "Optional id of a Collection to nest this object inside; omit for scene root."
             },
             "rotations": {
               "type": "array",
@@ -266,7 +270,7 @@
         "displayName": "Batch magpylib operations",
         "toolReferenceName": "magpyBatch",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "Apply several Magpylib Studio scene operations in ONE call - always prefer this over chaining single tool calls when creating, editing, or removing multiple objects (e.g. building an array of magnets). Operations run in order; failures don't stop the rest. The result lists per-operation outcomes ({ok, error?}) - fix failed ones and retry only those. Batchable methods: add_object, remove_object, apply_edit, set_param, reset_style, clear_scene (their params match the corresponding single tools).",
+        "modelDescription": "Apply several Magpylib Studio scene operations in ONE call - always prefer this over chaining single tool calls when creating, editing, or removing multiple objects (e.g. building an array of magnets). Operations run in order; failures don't stop the rest. The result lists per-operation outcomes ({ok, error?}) - fix failed ones and retry only those. Batchable methods: add_object, remove_object, move_object (reparent into/out of Collections: {object_id, parent?}), apply_edit, set_param, reset_style, clear_scene (their params match the corresponding single tools).",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -281,6 +285,7 @@
                     "enum": [
                       "add_object",
                       "remove_object",
+                      "move_object",
                       "apply_edit",
                       "set_param",
                       "reset_style",

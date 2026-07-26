@@ -12,8 +12,9 @@ Protocol surface (all JSON-serializable in/out):
   get_values(object_id)                -> {"set": {...}, "resolved": {...}}
   get_figure()                         -> plotly figure JSON of the whole scene
   apply_edit(object_id, path, value)   -> {"ok": bool, "error"?: str}
-  add_object(object_id, type, params?, style?, rotations?) -> {"ok": bool, ...}
-  remove_object(object_id)             -> {"ok": bool, "error"?: str}
+  add_object(object_id, type, params?, style?, rotations?, parent?) -> {"ok": ...}
+  remove_object(object_id)             -> {"ok": bool, ...} (subtree if Collection)
+  move_object(object_id, parent?)      -> {"ok": bool, "error"?: str}
   set_param(object_id, name, value)    -> {"ok": bool, "error"?: str}
   reset_style(object_id, path?)        -> {"ok": bool, "error"?: str}
   load_scene(scene | path)             -> {"ok": bool, "error"?: str}
@@ -34,17 +35,20 @@ from magpylib._src.style import get_style
 
 
 def example_scene():
-    """The built-in showcase scene: two stacked Halbach rings of 10 rotated
-    cuboids each (each cuboid orbited AND spun by the ring angle, the classic
-    magpylib docs pattern), plus a sensor path along the bore axis."""
-    objects = []
+    """The built-in showcase scene: a nested Halbach stack — two rings of 10
+    rotated cuboids each (each cuboid orbited AND spun by the ring angle, the
+    classic magpylib docs pattern), ring 2 staggered by a group rotation —
+    plus a sensor path along the bore axis."""
     n = 10
-    for ring, z in ((1, 0.0), (2, 1.5)):
-        for i in range(n):
-            angle = 360 * i / n
-            objects.append(
+
+    def ring(number, z):
+        return {
+            "id": f"ring{number}",
+            "type": "Collection",
+            "style": {"label": f"Ring {number}"},
+            "children": [
                 {
-                    "id": f"r{ring}m{i + 1:02d}",
+                    "id": f"r{number}m{i + 1:02d}",
                     "type": "magnet.Cuboid",
                     "params": {
                         "dimension": [1, 1, 1],
@@ -52,23 +56,37 @@ def example_scene():
                         "position": [2.3, 0, z],
                     },
                     "rotations": [
-                        {"angle": angle, "axis": "z", "anchor": 0},
-                        {"angle": angle, "axis": "z"},
+                        {"angle": 360 * i / n, "axis": "z", "anchor": 0},
+                        {"angle": 360 * i / n, "axis": "z"},
                     ],
-                    "style": {"label": f"Ring{ring} {i + 1:02d}"},
+                    "style": {"label": f"Magnet {i + 1:02d}"},
                 }
-            )
-    objects.append(
-        {
-            "id": "sensor",
-            "type": "Sensor",
-            "params": {
-                "position": [[0, 0, round(-1.5 + 4.5 * i / 24, 3)] for i in range(25)]
-            },
-            "style": {"label": "Sensor"},
+                for i in range(n)
+            ],
         }
-    )
-    return {"objects": objects}
+
+    ring2 = ring(2, 1.5)
+    ring2["rotations"] = [{"angle": 18, "axis": "z", "anchor": 0}]  # stagger
+    return {
+        "objects": [
+            {
+                "id": "halbach",
+                "type": "Collection",
+                "style": {"label": "Halbach stack"},
+                "children": [ring(1, 0.0), ring2],
+            },
+            {
+                "id": "sensor",
+                "type": "Sensor",
+                "params": {
+                    "position": [
+                        [0, 0, round(-1.5 + 4.5 * i / 24, 3)] for i in range(25)
+                    ]
+                },
+                "style": {"label": "Sensor"},
+            },
+        ]
+    }
 
 
 # Operations allowed inside batch() — mutating, per-object (plus clear).
@@ -76,6 +94,7 @@ _BATCHABLE = {
     "apply_edit",
     "add_object",
     "remove_object",
+    "move_object",
     "set_param",
     "reset_style",
     "clear_scene",
@@ -112,20 +131,29 @@ class MagpylibStudioSession:
 
     def _build(self):
         self._objs = {}
-        objs = []
-        for spec in self.doc["objects"]:
+        self.scene = magpy.Collection(
+            *[self._build_spec(s) for s in self.doc["objects"]]
+        )
+
+    def _build_spec(self, spec):
+        """Build one spec (recursing into Collection children) into a live object."""
+        if spec["type"] == "Collection":
+            children = [self._build_spec(c) for c in spec.get("children", [])]
+            obj = magpy.Collection(*children, **dict(spec.get("params", {})))
+        else:
             cls = _resolve_type(spec["type"])
             obj = cls(**dict(spec.get("params", {})))
-            # optional post-construction rotations, applied in order:
-            # {"angle": deg, "axis": "z", "anchor": 0 | [x,y,z]}; no anchor
-            # rotates in place (how Halbach-style patterns are expressed)
-            for rot in spec.get("rotations", []):
-                obj.rotate_from_angax(rot["angle"], rot["axis"], anchor=rot.get("anchor"))
-            for path, value in spec.get("style", {}).items():
-                obj.style.set(path, value)  # dotted-path set (same as the GUI/LLM)
-            self._objs[spec["id"]] = obj
-            objs.append(obj)
-        self.scene = magpy.Collection(*objs)
+        # optional post-construction rotations, applied in order:
+        # {"angle": deg, "axis": "z", "anchor": 0 | [x,y,z]}; no anchor
+        # rotates in place; on a Collection this rotates the whole group
+        for rot in spec.get("rotations", []):
+            obj.rotate_from_angax(rot["angle"], rot["axis"], anchor=rot.get("anchor"))
+        for path, value in spec.get("style", {}).items():
+            obj.style.set(path, value)  # dotted-path set (same as the GUI/LLM)
+        if spec["id"] in self._objs:
+            raise ValueError(f"duplicate object id {spec['id']!r}")
+        self._objs[spec["id"]] = obj
+        return obj
 
     def _mutate_doc(self, mutate):
         """Apply `mutate(doc)` and rebuild; on any failure restore the old doc.
@@ -144,11 +172,33 @@ class MagpylibStudioSession:
             return {"ok": False, "error": str(e)}
         return {"ok": True}
 
+    def _iter_specs(self, specs=None, parent=None):
+        """Depth-first (spec, parent_spec) pairs over the whole document."""
+        for spec in self.doc["objects"] if specs is None else specs:
+            yield spec, parent
+            yield from self._iter_specs(spec.get("children") or [], spec)
+
     def _spec(self, object_id):
-        for spec in self.doc["objects"]:
+        for spec, _ in self._iter_specs():
             if spec["id"] == object_id:
                 return spec
         raise KeyError(f"unknown object id {object_id!r}")
+
+    def _container_of(self, object_id):
+        """The list (doc root or a Collection's children) holding this spec."""
+        def search(lst):
+            for s in lst:
+                if s["id"] == object_id:
+                    return lst
+                found = search(s.get("children") or [])
+                if found is not None:
+                    return found
+            return None
+
+        found = search(self.doc["objects"])
+        if found is None:
+            raise KeyError(f"unknown object id {object_id!r}")
+        return found
 
     # --- introspection -----------------------------------------------------
     def list_objects(self):
@@ -157,8 +207,9 @@ class MagpylibStudioSession:
                 "id": s["id"],
                 "type": s["type"],
                 "label": self._objs[s["id"]].style.label or s["type"],
+                "parent": p["id"] if p else None,
             }
-            for s in self.doc["objects"]
+            for s, p in self._iter_specs()
         ]
 
     def get_schema(self, object_id):
@@ -187,9 +238,12 @@ class MagpylibStudioSession:
         return {"ok": True}
 
     # --- scene structure ---------------------------------------------------
-    def add_object(self, object_id, type, params=None, style=None, rotations=None):
-        if any(s["id"] == object_id for s in self.doc["objects"]):
+    def add_object(self, object_id, type, params=None, style=None, rotations=None,
+                   parent=None):
+        if any(s["id"] == object_id for s, _ in self._iter_specs()):
             return {"ok": False, "error": f"object id {object_id!r} already exists"}
+        if parent is not None and self._spec(parent)["type"] != "Collection":
+            return {"ok": False, "error": f"parent {parent!r} is not a Collection"}
 
         def mutate(doc):
             spec = {
@@ -198,17 +252,45 @@ class MagpylibStudioSession:
                 "params": params or {},
                 "style": style or {},
             }
+            if type == "Collection":
+                spec["children"] = []
             if rotations:
                 spec["rotations"] = rotations
-            doc["objects"].append(spec)
+            target = (
+                doc["objects"] if parent is None
+                else self._spec(parent).setdefault("children", [])
+            )
+            target.append(spec)
 
         return self._mutate_doc(mutate)
 
     def remove_object(self, object_id):
-        self._spec(object_id)  # raise early on unknown id
+        """Remove an object; removing a Collection removes its whole subtree."""
+        spec = self._spec(object_id)  # raise early on unknown id
 
         def mutate(doc):
-            doc["objects"] = [s for s in doc["objects"] if s["id"] != object_id]
+            self._container_of(object_id).remove(spec)
+
+        return self._mutate_doc(mutate)
+
+    def move_object(self, object_id, parent=None):
+        """Reparent an object: into a Collection, or to the root (parent=None)."""
+        spec = self._spec(object_id)
+        if parent is not None:
+            subtree_ids = {s["id"] for s, _ in self._iter_specs([spec])}
+            if parent in subtree_ids:
+                return {"ok": False,
+                        "error": f"cannot move {object_id!r} into its own subtree"}
+            if self._spec(parent)["type"] != "Collection":
+                return {"ok": False, "error": f"parent {parent!r} is not a Collection"}
+
+        def mutate(doc):
+            self._container_of(object_id).remove(spec)
+            target = (
+                doc["objects"] if parent is None
+                else self._spec(parent).setdefault("children", [])
+            )
+            target.append(spec)
 
         return self._mutate_doc(mutate)
 
@@ -282,23 +364,28 @@ class MagpylibStudioSession:
 
     def to_script(self):
         lines = ["import magpylib as magpy", ""]
-        names = []
-        for s in self.doc["objects"]:
-            name = s["id"]
-            names.append(name)
-            parts = [
+
+        def emit(spec):
+            """Emit child definitions first, then this object; return its name."""
+            name = spec["id"]
+            parts = [emit(c) for c in spec.get("children") or []]
+            parts += [
                 f"{k}={tuple(v) if isinstance(v, list) else v!r}"
-                for k, v in s.get("params", {}).items()
+                for k, v in spec.get("params", {}).items()
             ]
-            if s.get("style"):
-                parts.append(f"style={_nest(s['style'])!r}")
-            lines.append(f"{name} = magpy.{s['type']}({', '.join(parts)})")
-            for rot in s.get("rotations", []):
+            if spec.get("style"):
+                parts.append(f"style={_nest(spec['style'])!r}")
+            ctor = "Collection" if spec["type"] == "Collection" else spec["type"]
+            lines.append(f"{name} = magpy.{ctor}({', '.join(parts)})")
+            for rot in spec.get("rotations", []):
                 args = f"{rot['angle']!r}, {rot['axis']!r}"
                 anchor = rot.get("anchor")
                 if anchor is not None:
                     args += f", anchor={tuple(anchor) if isinstance(anchor, list) else anchor!r}"
                 lines.append(f"{name}.rotate_from_angax({args})")
+            return name
+
+        names = [emit(s) for s in self.doc["objects"]]
         lines += ["", f"scene = magpy.Collection({', '.join(names)})",
                   "scene.show(backend='plotly')"]
         return "\n".join(lines)

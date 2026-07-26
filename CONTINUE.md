@@ -18,14 +18,18 @@ and drives it.
   `reset_style` (drop from doc + rebuild; the property tree has no unset),
   `load_scene` (dict or JSON file path), `load_example`, `clear_scene`,
   `batch` (list of mutating ops in one call, continues past failures,
-  per-op results), `to_dict`, `to_script`. **Sessions start empty**;
-  `example_scene()` builds the showcase doc: two stacked Halbach rings of 10
-  rotated cuboids + a sensor path along the bore. Object specs support an
-  optional `"rotations"` list ({angle, axis, anchor?}, applied in order via
-  `rotate_from_angax`; no anchor = spin in place) — how orientation is
-  expressed in the JSON doc; `to_script` replays them. Structural edits go
-  through `_mutate_doc`: mutate doc → rebuild scene; on failure the old doc
-  is restored and the error reported (`{"ok": false, ...}`).
+  per-op results), `to_dict`, `to_script`. **Sessions start empty**.
+  **Nested collections**: specs with `type: "Collection"` carry a recursive
+  `children` list; `add_object(parent=...)` nests, `move_object` reparents
+  (cycle-checked), removing a Collection removes its subtree; `list_objects`
+  is depth-first with a `parent` field; `to_script` emits children before
+  their collection. `example_scene()`: `halbach` → `ring1`/`ring2` (10
+  rotated cuboids each; ring2 staggered 18° by a *group* rotation) + sensor
+  path along the bore. Object specs support an optional `"rotations"` list
+  ({angle, axis, anchor?}, applied in order via `rotate_from_angax`; no
+  anchor = spin in place; on a Collection rotates the whole group).
+  Structural edits go through `_mutate_doc`: mutate doc → rebuild scene; on
+  failure the old doc is restored and the error reported (`{"ok": false}`).
 - `magpylib_studio/rpc.py` — JSON-RPC stdio loop (`serve`), method allow-list.
 - `magpylib_studio/__main__.py` — `python -m magpylib_studio`.
 - `tests/test_session.py` — 21 tests, **all green**, ruff clean (`uvx ruff check`).
@@ -118,9 +122,10 @@ check that `../magpylib` is on `feat/improve-style` and installed `-e`.
   #magpyEdit` or `add a green sphere at [0,2,0] #magpyAdd`.
 - **Scene load/save UI** on top of `load_scene`/`to_dict`/`to_script`
   (commands + file pickers; "export as Python script" is a one-liner).
-- **Nested collections**: `children` in the doc format, recursive
-  `_build`/`to_script`, parent-aware add/remove/move; then the scene tree
-  (already a TreeDataProvider) shows real hierarchy.
+- **Tree drag & drop** (`TreeDragAndDropController` → `move_object`) and a
+  "New Collection / move to..." context menu.
+- **Field evaluation tool** (`#magpyField` wrapping `getB` at the sensor) —
+  the sensor path in the example is begging for a B-field plot.
 - **Chat Participant `@magpy`** if richer chat UX than plain tools is wanted.
 
 ## Gotchas
