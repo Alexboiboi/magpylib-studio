@@ -179,6 +179,7 @@ function registerLmTools(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     queryTool('magpylib-studio_listObjects', 'list_objects'),
     queryTool('magpylib-studio_getSchema', 'get_schema'),
+    queryTool('magpylib-studio_getField', 'get_field'),
     editTool('magpylib-studio_applyEdit', 'apply_edit'),
     editTool('magpylib-studio_addObject', 'add_object'),
     editTool('magpylib-studio_removeObject', 'remove_object'),
@@ -331,6 +332,8 @@ function createWebviewHtml(
     html, body { margin: 0; height: 100%; font-family: var(--vscode-font-family, sans-serif); color: var(--vscode-foreground); }
     body { display: flex; flex-direction: column; }
     #canvas { flex: 1; min-height: 0; }
+    #fieldCanvas { height: 32%; min-height: 0; border-top: 1px solid var(--vscode-panel-border, #444); }
+    #fieldCanvas[hidden] { display: none; }
     #statusbar { display: flex; gap: 12px; align-items: center; padding: 2px 10px; font-size: 11px; opacity: 0.8; border-top: 1px solid var(--vscode-panel-border, #444); }
     #statusbar label { display: flex; gap: 4px; align-items: center; cursor: pointer; }
   </style>
@@ -338,6 +341,7 @@ function createWebviewHtml(
 </head>
 <body>
   <div id="canvas"></div>
+  <div id="fieldCanvas" hidden></div>
   <div id="statusbar">
     <label><input type="checkbox" id="animate" /> Animate paths</label>
     <span id="status">Starting…</span>
@@ -348,6 +352,7 @@ function createWebviewHtml(
     const vscodeApi = acquireVsCodeApi();
     const statusEl = document.getElementById('status');
     const canvasEl = document.getElementById('canvas');
+    const fieldEl = document.getElementById('fieldCanvas');
     const animateEl = document.getElementById('animate');
     let nextReqId = 1;
     const pending = new Map();
@@ -390,9 +395,36 @@ function createWebviewHtml(
       statusEl.textContent = 'Ready';
     }
 
+    async function refreshField() {
+      try {
+        const fig = await rpc('get_field_figure', { template: plotTemplate() });
+        const layout = fig.layout || {};
+        layout.uirevision = 'magpylib-field';
+        layout.autosize = true;
+        layout.margin = { l: 50, r: 10, t: 10, b: 35 };
+        layout.paper_bgcolor = 'rgba(0,0,0,0)';
+        layout.plot_bgcolor = 'rgba(0,0,0,0)';
+        layout.legend = { orientation: 'h' };
+        const wasHidden = fieldEl.hidden;
+        fieldEl.hidden = false;
+        await Plotly.react(fieldEl, { data: fig.data, layout, config: { responsive: true } });
+        if (wasHidden && canvasEl.data) Plotly.Plots.resize(canvasEl);
+      } catch {
+        // No sources or no sensor in the scene - nothing to plot.
+        if (!fieldEl.hidden) {
+          fieldEl.hidden = true;
+          if (canvasEl.data) Plotly.Plots.resize(canvasEl);
+        }
+      }
+    }
+
+    function refreshAllPlots() {
+      return Promise.all([refreshFigure(), refreshField()]);
+    }
+
     // Re-render when the user switches the VS Code color theme.
     new MutationObserver(() => {
-      refreshFigure().catch((err) => { statusEl.textContent = String(err); });
+      refreshAllPlots().catch((err) => { statusEl.textContent = String(err); });
     }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
 
     animateEl.addEventListener('change', () => {
@@ -410,15 +442,16 @@ function createWebviewHtml(
         else entry.reject(new Error(message.method + ': ' + message.error));
       } else if (message.type === 'refresh') {
         // Pushed by the host after any edit (inspector, chat tool, tree).
-        refreshFigure().catch((err) => { statusEl.textContent = String(err); });
+        refreshAllPlots().catch((err) => { statusEl.textContent = String(err); });
       }
     });
 
     window.addEventListener('resize', () => {
       if (canvasEl.data) Plotly.Plots.resize(canvasEl);
+      if (!fieldEl.hidden && fieldEl.data) Plotly.Plots.resize(fieldEl);
     });
 
-    refreshFigure().catch((err) => { statusEl.textContent = 'Engine failed: ' + err; });
+    refreshAllPlots().catch((err) => { statusEl.textContent = 'Engine failed: ' + err; });
   </script>
 </body>
 </html>`;

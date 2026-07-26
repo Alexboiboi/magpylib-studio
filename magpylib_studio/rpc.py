@@ -22,6 +22,8 @@ _PUBLIC = {
     "get_schema",
     "get_values",
     "get_figure",
+    "get_field",
+    "get_field_figure",
     "apply_edit",
     "add_object",
     "remove_object",

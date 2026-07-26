@@ -213,6 +213,56 @@ def test_load_example():
     assert ns["r2m01"].position.round(3).tolist() != [2.3, 0, 1.5]
 
 
+def test_get_field_at_points_matches_direct_getB(session):
+    import magpylib as magpy
+    import numpy as np
+
+    res = session.get_field(points=[[0, 0, 2], [0, 0, 3]])
+    direct = magpy.getB(
+        [session._objs["cube"], session._objs["cyl"]], [[0, 0, 2], [0, 0, 3]],
+        sumup=True,
+    )
+    assert res["field"] == "B" and res["unit"] == "T"
+    assert np.allclose(res["values"], direct)
+    assert len(res["magnitude"]) == 2
+    json.dumps(res)
+
+
+def test_get_field_from_example_sensor_path():
+    s = MagpylibStudioSession()
+    s.load_example()
+    res = s.get_field()  # defaults to the sensor, whole path
+    assert len(res["points"]) == 25 and len(res["values"]) == 25
+    assert all(m > 0 for m in res["magnitude"])  # Halbach bore field is nonzero
+    h = s.get_field(field="H")
+    assert h["unit"] == "A/m"
+
+
+def test_get_field_errors():
+    s = MagpylibStudioSession()
+    with pytest.raises(ValueError, match="no field sources"):
+        s.get_field(points=[[0, 0, 0]])
+    s.load_example()
+    with pytest.raises(ValueError, match="not a Sensor"):
+        s.get_field(sensor_id="r1m01")
+    with pytest.raises(ValueError, match="'B' or 'H'"):
+        s.get_field(field="X")
+    s.remove_object("sensor")
+    with pytest.raises(ValueError, match="no sensor"):
+        s.get_field()
+
+
+def test_get_field_figure():
+    s = MagpylibStudioSession()
+    s.load_example()
+    fig = s.get_field_figure(template="plotly_dark")
+    assert [t["name"] for t in fig["data"]] == ["Bx", "By", "Bz", "|B|"]
+    assert len(fig["data"][0]["x"]["bdata"] if isinstance(fig["data"][0]["x"], dict)
+               else fig["data"][0]["x"]) > 0
+    assert "template" in fig["layout"]
+    json.dumps(fig)
+
+
 def test_get_figure_template(session):
     dark = session.get_figure(template="plotly_dark")
     assert dark["layout"]["template"]["layout"]["paper_bgcolor"] != "white"

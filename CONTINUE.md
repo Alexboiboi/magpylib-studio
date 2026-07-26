@@ -30,9 +30,13 @@ and drives it.
   anchor = spin in place; on a Collection rotates the whole group).
   Structural edits go through `_mutate_doc`: mutate doc → rebuild scene; on
   failure the old doc is restored and the error reported (`{"ok": false}`).
+- **Field evaluation**: `get_field(sensor_id?, points?, field?)` — summed
+  B/H of all leaf sources (SI units) along a sensor path or explicit points;
+  `get_field_figure` renders components + |B| vs arc length (2D plotly).
+  Surfaced as `#magpyField` and as an auto-shown plot under the 3D view.
 - `magpylib_studio/rpc.py` — JSON-RPC stdio loop (`serve`), method allow-list.
 - `magpylib_studio/__main__.py` — `python -m magpylib_studio`.
-- `tests/test_session.py` — 21 tests, **all green**, ruff clean (`uvx ruff check`).
+- `tests/test_session.py` — 29 tests, **all green**, ruff clean (`uvx ruff check`).
 - Verified: real subprocess driven through pipes; scene document round-trips
   through rebuild; `to_script()` emits code that executes and reproduces edits;
   invalid edits are reported (`{"ok": false, "error": ...}`) not raised.
@@ -128,8 +132,9 @@ check that `../magpylib` is on `feat/improve-style` and installed `-e`.
   #magpyEdit` or `add a green sphere at [0,2,0] #magpyAdd`.
 - **Tree drag & drop** (`TreeDragAndDropController` → `move_object`) and a
   "New Collection / move to..." context menu.
-- **Field evaluation tool** (`#magpyField` wrapping `getB` at the sensor) —
-  the sensor path in the example is begging for a B-field plot.
+- **Field maps**: `get_field` covers points/paths; a 2D plane-slice heatmap /
+  streamline figure would complete the analysis story.
+- **Package a .vsix** (vsce) once features settle, for real installs.
 - **Chat Participant `@magpy`** if richer chat UX than plain tools is wanted.
 
 ## Gotchas

@@ -11,6 +11,8 @@ Protocol surface (all JSON-serializable in/out):
   get_schema(object_id)                -> JSON Schema of the object's style
   get_values(object_id)                -> {"set": {...}, "resolved": {...}}
   get_figure(animation?, template?)    -> plotly figure JSON (frames if animated)
+  get_field(sensor_id?, points?, field?) -> {field, unit, points, values, magnitude}
+  get_field_figure(sensor_id?, points?, field?, template?) -> 2D plotly JSON
   apply_edit(object_id, path, value)   -> {"ok": bool, "error"?: str}
   add_object(object_id, type, params?, style?, rotations?, parent?) -> {"ok": ...}
   remove_object(object_id)             -> {"ok": bool, ...} (subtree if Collection)
@@ -30,6 +32,8 @@ from __future__ import annotations
 import json
 
 import magpylib as magpy
+import numpy as np
+import plotly.graph_objects as go
 from magpylib._src.defaults.defaults_classes import default_settings
 from magpylib._src.style import get_style
 
@@ -234,6 +238,83 @@ class MagpylibStudioSession:
         if template:
             fig.layout.template = template
         return json.loads(fig.to_json())  # to_json handles numpy/bdata
+
+    # --- field evaluation --------------------------------------------------
+    def _leaf_sources(self):
+        """All field sources (excludes Sensors; Collections are just groups —
+        using leaves avoids counting an object twice)."""
+        return [
+            obj
+            for obj in self._objs.values()
+            if not isinstance(obj, magpy.Collection | magpy.Sensor)
+        ]
+
+    def get_field(self, sensor_id=None, points=None, field="B"):
+        """Total field of all sources, summed, at the given observers.
+
+        Observers: explicit `points` [[x,y,z], ...] (m), else the sensor with
+        `sensor_id`, else the first sensor in the scene (its whole path).
+        Returns {"field", "unit", "points", "values", "magnitude"} in SI.
+        """
+        if field not in ("B", "H"):
+            raise ValueError(f"field must be 'B' or 'H', got {field!r}")
+        sources = self._leaf_sources()
+        if not sources:
+            raise ValueError("scene has no field sources")
+        if points is not None:
+            observer = pts = np.atleast_2d(np.array(points, dtype=float))
+        else:
+            sensor = None
+            if sensor_id is not None:
+                sensor = self._objs[sensor_id]
+                if not isinstance(sensor, magpy.Sensor):
+                    raise ValueError(f"{sensor_id!r} is not a Sensor")
+            else:
+                sensor = next(
+                    (o for o in self._objs.values() if isinstance(o, magpy.Sensor)),
+                    None,
+                )
+                if sensor is None:
+                    raise ValueError("scene has no sensor; pass points instead")
+            observer = sensor
+            pts = np.atleast_2d(sensor.position)
+        func = magpy.getB if field == "B" else magpy.getH
+        values = np.atleast_2d(func(sources, observer, sumup=True))
+        return {
+            "field": field,
+            "unit": "T" if field == "B" else "A/m",
+            "points": pts.tolist(),
+            "values": values.tolist(),
+            "magnitude": np.linalg.norm(values, axis=-1).tolist(),
+        }
+
+    def get_field_figure(self, sensor_id=None, points=None, field="B",
+                         template=None):
+        """2D plotly figure: field components + magnitude along the observer
+        path (x-axis is arc length in m)."""
+        data = self.get_field(sensor_id=sensor_id, points=points, field=field)
+        pts = np.array(data["points"])
+        vals = np.array(data["values"])
+        if len(pts) > 1:
+            s = np.concatenate(
+                [[0.0], np.cumsum(np.linalg.norm(np.diff(pts, axis=0), axis=1))]
+            )
+        else:
+            s = np.zeros(1)
+        fig = go.Figure()
+        for i, comp in enumerate("xyz"):
+            fig.add_scatter(x=s, y=vals[:, i], mode="lines", name=f"{field}{comp}")
+        fig.add_scatter(
+            x=s, y=np.array(data["magnitude"]), mode="lines",
+            name=f"|{field}|", line={"dash": "dash"},
+        )
+        fig.update_layout(
+            xaxis_title="distance along path (m)",
+            yaxis_title=f"{field} ({data['unit']})",
+        )
+        if template:
+            fig.layout.template = template
+        return json.loads(fig.to_json())
 
     # --- editing -----------------------------------------------------------
     def apply_edit(self, object_id, path, value):
