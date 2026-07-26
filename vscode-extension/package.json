@@ -53,6 +53,12 @@
           "id": "magpylib-studio.sceneView",
           "name": "Scene",
           "contextualTitle": "magpylib Scene"
+        },
+        {
+          "id": "magpylib-studio.inspectorView",
+          "name": "Inspector",
+          "type": "webview",
+          "contextualTitle": "magpylib Inspector"
         }
       ]
     },

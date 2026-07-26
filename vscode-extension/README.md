@@ -6,16 +6,22 @@ newline-delimited JSON-RPC over stdio.
 
 ## What it provides
 
-- **Command** `magpylib Studio: Open Studio` — a webview with the live plotly
-  scene (camera held across edits via `uirevision`), an object picker, the
-  style JSON Schema, the currently set values, and a manual path/value edit
-  form.
-- **Scene view** — a magnet icon in the activity bar opens a sidebar tree of
-  the scene's objects. Clicking an object selects it in the Studio panel
-  (opening the panel if needed); right-click offers *Remove Object* and
-  *Reset Style*. The tree refreshes automatically after any edit (panel,
-  chat tool, or context menu). Flat for now — it mirrors the engine's
-  single-collection document; nesting comes with engine support.
+- **Command** `magpylib Studio: Open Studio` — the live plotly 3D view
+  (camera held across edits via `uirevision`). Just the plot: selection and
+  editing live in the sidebar.
+- **Scene view** — the magpylib-logo icon in the activity bar opens a sidebar
+  tree of the scene's objects. Clicking an object opens/reveals the plot and
+  loads it in the Inspector; right-click offers *Remove Object* and *Reset
+  Style*. Flat for now — it mirrors the engine's single-collection document.
+- **Inspector view** — below the tree: schema-driven widgets generated from
+  `get_schema()` (enum → dropdown, `format: color` → color picker + text,
+  bounded number → slider, boolean → tri-state with "(default)"), prefilled
+  with resolved values. Explicitly set paths are bold with a ↺ reset button;
+  a filter box narrows the property list. Edits go through `apply_edit` /
+  `reset_style`, so magpylib validation errors show inline.
+
+All three surfaces (plot, tree, inspector) refresh automatically after any
+edit, whatever its origin — inspector widget, chat tool, or tree context menu.
 - **Language Model Tools** (native Copilot chat, no API key):
   `#magpyObjects` (list scene objects), `#magpySchema` (style JSON Schema for
   an object), `#magpyEdit` (set one dotted style path, validated by magpylib),

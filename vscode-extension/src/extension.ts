@@ -2,22 +2,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { EngineClient } from './engineClient';
+import { InspectorViewProvider } from './inspectorView';
 import { SceneObject, SceneTreeProvider } from './sceneTree';
-
-const MUTATING_METHODS = new Set([
-  'apply_edit',
-  'add_object',
-  'remove_object',
-  'set_param',
-  'reset_style',
-  'load_scene',
-]);
 
 let engine: EngineClient | undefined;
 let currentPanel: vscode.WebviewPanel | undefined;
-let panelReady = false;
-let pendingSelection: string | undefined;
+let selectedObjectId: string | undefined;
 let sceneTree: SceneTreeProvider | undefined;
+let inspector: InspectorViewProvider | undefined;
 let engineOutput: vscode.OutputChannel | undefined;
 
 /** Repo root in the dev layout (vscode-extension/ inside the repo). */
@@ -93,18 +85,9 @@ function openStudioPanel(context: vscode.ExtensionContext): void {
     },
   );
   currentPanel = panel;
-  panelReady = false;
   panel.webview.html = createWebviewHtml(context, panel.webview);
 
   panel.webview.onDidReceiveMessage(async (message) => {
-    if (message.type === 'ready') {
-      panelReady = true;
-      if (pendingSelection) {
-        panel.webview.postMessage({ type: 'select', objectId: pendingSelection });
-        pendingSelection = undefined;
-      }
-      return;
-    }
     if (message.type !== 'rpcRequest') {
       return;
     }
@@ -112,9 +95,6 @@ function openStudioPanel(context: vscode.ExtensionContext): void {
     try {
       const result = await getEngine(context).request(method, params);
       panel.webview.postMessage({ type: 'rpcResult', reqId, method, result });
-      if (MUTATING_METHODS.has(method)) {
-        sceneTree?.refresh(); // labels/structure may have changed
-      }
     } catch (err) {
       panel.webview.postMessage({
         type: 'rpcError',
@@ -127,24 +107,25 @@ function openStudioPanel(context: vscode.ExtensionContext): void {
 
   panel.onDidDispose(() => {
     currentPanel = undefined;
-    panelReady = false;
   });
 }
 
 function selectObjectInStudio(context: vscode.ExtensionContext, objectId: string): void {
-  if (currentPanel && panelReady) {
-    currentPanel.reveal(undefined, true);
-    currentPanel.webview.postMessage({ type: 'select', objectId });
+  selectedObjectId = objectId;
+  inspector?.select(objectId);
+  if (currentPanel) {
+    currentPanel.reveal(undefined, true); // keep focus in the sidebar
   } else {
-    // Panel not open (or still booting): remember the pick, deliver on 'ready'.
-    pendingSelection = objectId;
     openStudioPanel(context);
   }
 }
 
-/** Tell the open Studio panel (if any) to re-pull figure + values. */
-function refreshPanel(): void {
+/** An edit happened somewhere (inspector, chat tool, tree action, panel):
+ *  bring every surface back in sync. */
+function broadcastMutation(): void {
   currentPanel?.webview.postMessage({ type: 'refresh' });
+  sceneTree?.refresh();
+  inspector?.refresh();
 }
 
 function toolResult(payload: unknown): vscode.LanguageModelToolResult {
@@ -175,8 +156,7 @@ function registerLmTools(context: vscode.ExtensionContext): void {
           options.input as Record<string, unknown>,
         )) as { ok: boolean; error?: string };
         if (result.ok) {
-          refreshPanel();
-          sceneTree?.refresh();
+          broadcastMutation();
         }
         return toolResult(result);
       },
@@ -202,6 +182,16 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   sceneTree = tree;
 
+  inspector = new InspectorViewProvider(
+    context.extensionUri,
+    (method, params) => getEngine(context).request(method, params),
+    () => {
+      currentPanel?.webview.postMessage({ type: 'refresh' });
+      tree.refresh(); // label edits change tree captions
+    },
+    () => selectedObjectId,
+  );
+
   /** Run a mutating engine call from the tree UI, surface failures, refresh. */
   const mutateFromTree = async (method: string, params: Record<string, unknown>) => {
     try {
@@ -217,19 +207,20 @@ export function activate(context: vscode.ExtensionContext): void {
         `magpylib Studio: ${err instanceof Error ? err.message : err}`,
       );
     }
-    tree.refresh();
-    refreshPanel();
+    broadcastMutation();
   };
 
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('magpylib-studio.sceneView', tree),
+    vscode.window.registerWebviewViewProvider(InspectorViewProvider.viewId, inspector, {
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
     vscode.commands.registerCommand('magpylib-studio.openStudio', () =>
       openStudioPanel(context),
     ),
-    vscode.commands.registerCommand('magpylib-studio.refreshScene', () => {
-      tree.refresh();
-      refreshPanel();
-    }),
+    vscode.commands.registerCommand('magpylib-studio.refreshScene', () =>
+      broadcastMutation(),
+    ),
     vscode.commands.registerCommand('magpylib-studio.selectObject', (objectId: string) =>
       selectObjectInStudio(context, objectId),
     ),
@@ -273,60 +264,24 @@ function createWebviewHtml(
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>magpylib Studio</title>
   <style>
-    body { margin: 0; font-family: var(--vscode-font-family, sans-serif); color: var(--vscode-foreground); }
-    #toolbar { padding: 8px 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; border-bottom: 1px solid var(--vscode-panel-border, #444); }
-    #toolbar select, #toolbar input { min-width: 160px; }
-    #canvas { width: 100%; height: 55vh; }
-    #inspector { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px; border-top: 1px solid var(--vscode-panel-border, #444); }
-    pre { white-space: pre-wrap; font-size: 12px; overflow: auto; max-height: 24vh; background: var(--vscode-textCodeBlock-background, #1e1e1e); border: 1px solid var(--vscode-panel-border, #444); padding: 8px; margin: 4px 0; }
-    #log { max-height: 10vh; }
-    input, select, button { background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, #555); padding: 3px 6px; }
-    button { cursor: pointer; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: 4px 10px; }
-    h3 { margin: 4px 0; font-size: 12px; text-transform: uppercase; opacity: 0.8; }
-    label { font-size: 12px; }
+    html, body { margin: 0; height: 100%; font-family: var(--vscode-font-family, sans-serif); color: var(--vscode-foreground); }
+    body { display: flex; flex-direction: column; }
+    #canvas { flex: 1; min-height: 0; }
+    #statusbar { padding: 2px 10px; font-size: 11px; opacity: 0.8; border-top: 1px solid var(--vscode-panel-border, #444); }
   </style>
   <script nonce="${nonce}" src="${plotlyUri}"></script>
 </head>
 <body>
-  <div id="toolbar">
-    <button id="refresh">Refresh</button>
-    <label for="objectSelect">Object:</label>
-    <select id="objectSelect"></select>
-    <input id="stylePath" type="text" placeholder="style path, e.g. color" />
-    <input id="styleValue" type="text" placeholder="value, e.g. red" />
-    <button id="applyEdit">Apply edit</button>
-    <span id="status">Starting…</span>
-  </div>
   <div id="canvas"></div>
-  <div id="inspector">
-    <div>
-      <h3>Style schema</h3>
-      <pre id="schema">–</pre>
-    </div>
-    <div>
-      <h3>Set values</h3>
-      <pre id="values">–</pre>
-      <h3>Log</h3>
-      <pre id="log"></pre>
-    </div>
-  </div>
+  <div id="statusbar">Starting…</div>
   <script nonce="${nonce}">
+    // Selection and style editing live in the sidebar (Scene tree + Inspector);
+    // this panel is only the live 3D view.
     const vscodeApi = acquireVsCodeApi();
-    const statusEl = document.getElementById('status');
-    const logEl = document.getElementById('log');
+    const statusEl = document.getElementById('statusbar');
     const canvasEl = document.getElementById('canvas');
-    const objectSelect = document.getElementById('objectSelect');
-    const schemaEl = document.getElementById('schema');
-    const valuesEl = document.getElementById('values');
-    let selectedObjectId = '';
     let nextReqId = 1;
     const pending = new Map();
-
-    function log(message) {
-      logEl.textContent += message + '\\n';
-      logEl.scrollTop = logEl.scrollHeight;
-    }
-    function setStatus(message) { statusEl.textContent = message; }
 
     function rpc(method, params) {
       return new Promise((resolve, reject) => {
@@ -342,68 +297,8 @@ function createWebviewHtml(
       layout.uirevision = 'magpylib-studio';  // hold camera across edits
       layout.autosize = true;
       Plotly.react(canvasEl, figure.data, layout, { responsive: true });
+      statusEl.textContent = 'Ready';
     }
-
-    async function loadObjectDetails() {
-      if (!selectedObjectId) return;
-      const [schema, values] = await Promise.all([
-        rpc('get_schema', { object_id: selectedObjectId }),
-        rpc('get_values', { object_id: selectedObjectId }),
-      ]);
-      schemaEl.textContent = JSON.stringify(schema, null, 2);
-      valuesEl.textContent = JSON.stringify(values.set, null, 2);
-    }
-
-    async function refreshAll() {
-      setStatus('Loading…');
-      const objects = await rpc('list_objects');
-      objectSelect.innerHTML = '';
-      for (const obj of objects) {
-        const opt = document.createElement('option');
-        opt.value = obj.id;
-        opt.textContent = (obj.label || obj.id) + ' (' + obj.type + ')';
-        objectSelect.appendChild(opt);
-      }
-      if (!objects.some((o) => o.id === selectedObjectId)) {
-        selectedObjectId = objects[0] ? objects[0].id : '';
-      }
-      objectSelect.value = selectedObjectId;
-      await Promise.all([refreshFigure(), loadObjectDetails()]);
-      setStatus('Ready');
-    }
-
-    objectSelect.addEventListener('change', () => {
-      selectedObjectId = objectSelect.value;
-      loadObjectDetails().catch((err) => log(String(err)));
-    });
-
-    document.getElementById('refresh').addEventListener('click', () => {
-      refreshAll().catch((err) => { setStatus('Error'); log(String(err)); });
-    });
-
-    document.getElementById('applyEdit').addEventListener('click', async () => {
-      const pathValue = document.getElementById('stylePath').value.trim();
-      const rawValue = document.getElementById('styleValue').value.trim();
-      if (!selectedObjectId || !pathValue || !rawValue) {
-        setStatus('Select object, path and value');
-        return;
-      }
-      let value = rawValue;
-      try { value = JSON.parse(rawValue); } catch { /* keep string */ }
-      try {
-        const result = await rpc('apply_edit', { object_id: selectedObjectId, path: pathValue, value });
-        if (result.ok) {
-          setStatus('Edit applied');
-          await Promise.all([refreshFigure(), loadObjectDetails()]);
-        } else {
-          setStatus('Rejected');
-          log('rejected: ' + result.error);
-        }
-      } catch (err) {
-        setStatus('Error');
-        log(String(err));
-      }
-    });
 
     window.addEventListener('message', (event) => {
       const message = event.data;
@@ -414,16 +309,8 @@ function createWebviewHtml(
         if (message.type === 'rpcResult') entry.resolve(message.result);
         else entry.reject(new Error(message.method + ': ' + message.error));
       } else if (message.type === 'refresh') {
-        // Pushed by the host after a language-model tool or tree edit.
-        refreshAll().catch((err) => log(String(err)));
-      } else if (message.type === 'select') {
-        // Pushed by the host when an object is clicked in the scene tree.
-        selectedObjectId = message.objectId;
-        if (Array.from(objectSelect.options).some((o) => o.value === selectedObjectId)) {
-          objectSelect.value = selectedObjectId;
-          loadObjectDetails().catch((err) => log(String(err)));
-        }
-        // else: boot in progress; refreshAll keeps this selection once loaded
+        // Pushed by the host after any edit (inspector, chat tool, tree).
+        refreshFigure().catch((err) => { statusEl.textContent = String(err); });
       }
     });
 
@@ -431,8 +318,7 @@ function createWebviewHtml(
       if (canvasEl.data) Plotly.Plots.resize(canvasEl);
     });
 
-    vscodeApi.postMessage({ type: 'ready' });
-    refreshAll().catch((err) => { setStatus('Engine failed'); log(String(err)); });
+    refreshFigure().catch((err) => { statusEl.textContent = 'Engine failed: ' + err; });
   </script>
 </body>
 </html>`;

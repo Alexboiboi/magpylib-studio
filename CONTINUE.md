@@ -35,12 +35,21 @@ and drives it.
     `#magpyAdd`, `#magpyRemove`, `#magpyParam` (successful edits auto-refresh
     the panel). One shared engine process. Tool names declared in package.json
     must exactly match those registered in `registerLmTools`.
-  - `src/sceneTree.ts` + activity-bar **Scene view** (`media/magnet.svg`):
-    clickable tree of scene objects → selects in the panel (ready-handshake
-    so selections made before the webview boots aren't dropped); context menu
-    Remove Object / Reset Style; auto-refreshes after every mutating call
-    (webview RPC router + LM tools + tree commands all trigger it). Flat tree
-    mirroring the flat document — `getChildren` is shaped for nesting later.
+  - `src/sceneTree.ts` + activity-bar **Scene view** (`media/magnet.svg`,
+    drawn after the magpylib logo — magnet/magpie/chip silhouette; the
+    activity bar renders it as an alpha mask): clickable tree of scene
+    objects; context menu Remove Object / Reset Style. Flat tree mirroring
+    the flat document — `getChildren` is shaped for nesting later.
+  - `src/inspectorView.ts` — **Inspector** sidebar webview view: schema-driven
+    widgets (enum → dropdown, format:color → picker+text, bounded number →
+    slider, boolean → tri-state '(default)'/true/false), resolved values
+    prefilled, set paths bold + ↺ per-path reset (`reset_style`), filter box.
+    '(default)' / empty input resets the path. Skips free-form specs
+    (`model3d.data`, `path.frames`).
+  - Layout: tree click → host `selectedObjectId` → inspector loads it; the
+    Studio panel is **plot-only** now. `broadcastMutation()` refreshes plot +
+    tree + inspector after every edit from any surface (inspector widgets,
+    LM tools, tree commands).
   - Python resolution: `magpylib-studio.pythonPath` setting → workspace/.venv →
     repo-root/.venv → `python3`. Engine stderr → output channel.
   - Verified via `node` smoke test driving compiled `EngineClient` against the
@@ -100,10 +109,8 @@ check that `../magpylib` is on `feat/improve-style` and installed `-e`.
 - **Try it live**: open `vscode-extension/` in VS Code, F5, run
   "magpylib Studio: Open Studio"; in Copilot chat try `make the cube green
   #magpyEdit` or `add a green sphere at [0,2,0] #magpyAdd`.
-- **Schema-driven inspector**: replace the raw-JSON schema pane + free-text
-  path/value form with real widgets generated from `get_schema()` (the Solara
-  POC shows the mapping: enum → dropdown, number → slider/input, color → picker).
-  Add scene load/save UI on top of `load_scene`/`to_dict`/`to_script`.
+- **Scene load/save UI** on top of `load_scene`/`to_dict`/`to_script`
+  (commands + file pickers; "export as Python script" is a one-liner).
 - **Nested collections**: `children` in the doc format, recursive
   `_build`/`to_script`, parent-aware add/remove/move; then the scene tree
   (already a TreeDataProvider) shows real hierarchy.
