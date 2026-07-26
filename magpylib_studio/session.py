@@ -164,11 +164,21 @@ class MagpylibStudioSession:
         else:
             cls = _resolve_type(spec["type"])
             obj = cls(**dict(spec.get("params", {})))
-        # optional post-construction rotations, applied in order:
-        # {"angle": deg, "axis": "z", "anchor": 0 | [x,y,z]}; no anchor
-        # rotates in place; on a Collection this rotates the whole group
+        # optional post-construction rotations, applied in order. Two forms:
+        # {"angle": deg|[deg,...], "axis": "z"|[x,y,z], "anchor"?, "start"?}
+        #   -> rotate_from_angax (no anchor rotates in place; on a Collection
+        #      rotates the whole group; an angle list builds a path)
+        # {"rotvec": [[x,y,z],...], "anchor"?, "start"?}
+        #   -> rotate_from_rotvec, elementwise over the path (how imported
+        #      orientation paths are reproduced exactly)
         for rot in spec.get("rotations", []):
-            obj.rotate_from_angax(rot["angle"], rot["axis"], anchor=rot.get("anchor"))
+            kwargs = {"anchor": rot.get("anchor")}
+            if "start" in rot:
+                kwargs["start"] = rot["start"]
+            if "rotvec" in rot:
+                obj.rotate_from_rotvec(rot["rotvec"], degrees=True, **kwargs)
+            else:
+                obj.rotate_from_angax(rot["angle"], rot["axis"], **kwargs)
         for path, value in spec.get("style", {}).items():
             obj.style.set(path, value)  # dotted-path set (same as the GUI/LLM)
         if spec["id"] in self._objs:
@@ -588,11 +598,18 @@ class MagpylibStudioSession:
             ctor = "Collection" if spec["type"] == "Collection" else spec["type"]
             lines.append(f"{name} = magpy.{ctor}({', '.join(parts)})")
             for rot in spec.get("rotations", []):
-                args = f"{rot['angle']!r}, {rot['axis']!r}"
+                if "rotvec" in rot:
+                    method = "rotate_from_rotvec"
+                    args = f"{rot['rotvec']!r}, degrees=True"
+                else:
+                    method = "rotate_from_angax"
+                    args = f"{rot['angle']!r}, {rot['axis']!r}"
                 anchor = rot.get("anchor")
                 if anchor is not None:
                     args += f", anchor={tuple(anchor) if isinstance(anchor, list) else anchor!r}"
-                lines.append(f"{name}.rotate_from_angax({args})")
+                if "start" in rot:
+                    args += f", start={rot['start']!r}"
+                lines.append(f"{name}.{method}({args})")
             return name
 
         names = [emit(s) for s in self.doc["objects"]]

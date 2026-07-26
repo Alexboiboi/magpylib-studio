@@ -467,6 +467,47 @@ def test_load_script_captures_show_call(tmp_path):
     assert s.load_captured(5)["ok"] is False  # out of range
 
 
+def test_load_script_orientation_and_property_paths(tmp_path):
+    import numpy as np
+
+    script = """
+import numpy as np
+import magpylib as magpy
+
+rotor = magpy.magnet.Cuboid(polarization=(1, 0, 0), dimension=(1, 1, 1),
+                            position=(2, 0, 0))
+rotor.rotate_from_angax(np.linspace(0, 270, 10), 'z', anchor=0)
+
+pulsed = magpy.current.Circle(current=[100, 200, 300], diameter=2)
+
+fading = magpy.magnet.Sphere(polarization=[[0, 0, 1], [0, 0, 0.5], [0, 0, 0.1]],
+                             diameter=1, position=(0, 0, 3))
+"""
+    path = tmp_path / "paths.py"
+    path.write_text(script, encoding="utf-8")
+    s = MagpylibStudioSession()
+    res = s.load_script(str(path))
+    assert res["ok"] is True, res
+    assert "warnings" not in res  # orientation paths now import exactly
+
+    import magpylib as magpy
+
+    orig = magpy.magnet.Cuboid(polarization=(1, 0, 0), dimension=(1, 1, 1),
+                               position=(2, 0, 0))
+    orig.rotate_from_angax(np.linspace(0, 270, 10), "z", anchor=0)
+    rotor = s._objs["rotor"]
+    assert np.allclose(rotor.position, orig.position)
+    assert np.allclose(rotor.orientation.as_matrix(), orig.orientation.as_matrix())
+    # path-valued properties (branch feature) round-trip through params
+    assert np.array(s._objs["pulsed"].current).tolist() == [100, 200, 300]
+    assert np.array(s._objs["fading"].polarization).shape == (3, 3)
+    # and the generated script reproduces all of it
+    ns = {}
+    exec(s.to_script().replace("scene.show(backend='plotly')", ""), ns)  # noqa: S102
+    assert np.allclose(ns["rotor"].orientation.as_matrix(), orig.orientation.as_matrix())
+    assert np.array(ns["fading"].polarization).shape == (3, 3)
+
+
 def test_load_script_multiple_shows(tmp_path):
     script = """
 import magpylib as magpy

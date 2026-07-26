@@ -81,15 +81,18 @@ def _spec_from(obj, object_id, used_ids, warnings):
         spec = {"id": object_id, "type": _dotted_type(obj), "params": params}
         rotvec = np.atleast_2d(obj.orientation.as_rotvec(degrees=True))
         if len(rotvec) > 1:
-            warnings.append(
-                f"{object_id}: orientation path not supported, kept last orientation"
-            )
-        angle = float(np.linalg.norm(rotvec[-1]))
-        if angle > 1e-9:
-            spec["rotations"] = [
-                {"angle": round(angle, 6),
-                 "axis": (rotvec[-1] / angle).round(9).tolist()}
-            ]
+            # orientation path: reproduced exactly, elementwise over the path
+            if np.linalg.norm(rotvec) > 1e-9:
+                spec["rotations"] = [
+                    {"rotvec": rotvec.round(6).tolist(), "start": 0}
+                ]
+        else:
+            angle = float(np.linalg.norm(rotvec[0]))
+            if angle > 1e-9:
+                spec["rotations"] = [
+                    {"angle": round(angle, 6),
+                     "axis": (rotvec[0] / angle).round(9).tolist()}
+                ]
     style = dict(obj.style.set_values())
     if style:
         spec["style"] = style
