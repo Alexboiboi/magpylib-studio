@@ -6,17 +6,34 @@ export interface SceneObject {
   label: string;
 }
 
+// One codicon per magpylib class, colored by category
+// (magnets red, currents blue, sensors green).
+const TYPE_ICONS: Record<string, string> = {
+  'magnet.Cuboid': 'primitive-square',
+  'magnet.Cylinder': 'database',
+  'magnet.CylinderSegment': 'pie-chart',
+  'magnet.Sphere': 'circle-large-filled',
+  'magnet.Tetrahedron': 'triangle-up',
+  'magnet.TriangularMesh': 'type-hierarchy-sub',
+  'current.Circle': 'circle-large',
+  'current.Polyline': 'pulse',
+  'misc.Dipole': 'compass',
+  'misc.CustomSource': 'tools',
+  Sensor: 'circuit-board',
+  Collection: 'folder',
+};
+
 function iconFor(type: string): vscode.ThemeIcon {
-  if (type.startsWith('magnet.')) {
-    return new vscode.ThemeIcon('magnet');
-  }
-  if (type.startsWith('current.')) {
-    return new vscode.ThemeIcon('issue-reopened');
-  }
-  if (type === 'Sensor') {
-    return new vscode.ThemeIcon('radio-tower');
-  }
-  return new vscode.ThemeIcon('symbol-object');
+  const category = type.startsWith('magnet.')
+    ? new vscode.ThemeColor('charts.red')
+    : type.startsWith('current.')
+      ? new vscode.ThemeColor('charts.blue')
+      : type === 'Sensor'
+        ? new vscode.ThemeColor('charts.green')
+        : undefined;
+  const icon =
+    TYPE_ICONS[type] ?? (type.startsWith('magnet.') ? 'magnet' : 'symbol-object');
+  return new vscode.ThemeIcon(icon, category);
 }
 
 /**
