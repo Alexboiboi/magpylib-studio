@@ -80,6 +80,15 @@
       {
         "command": "magpylib-studio.resetStyle",
         "title": "Reset Style"
+      },
+      {
+        "command": "magpylib-studio.moveTo",
+        "title": "Move to..."
+      },
+      {
+        "command": "magpylib-studio.newCollection",
+        "title": "New Collection...",
+        "icon": "$(new-folder)"
       }
     ],
     "keybindings": [
@@ -162,6 +171,11 @@
           "command": "magpylib-studio.loadExample",
           "when": "view == magpylib-studio.sceneView",
           "group": "scene@3"
+        },
+        {
+          "command": "magpylib-studio.newCollection",
+          "when": "view == magpylib-studio.sceneView",
+          "group": "scene@4"
         }
       ],
       "explorer/context": [
@@ -179,12 +193,24 @@
       ],
       "view/item/context": [
         {
+          "command": "magpylib-studio.moveTo",
+          "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpy/",
+          "group": "1_move@1"
+        },
+        {
+          "command": "magpylib-studio.newCollection",
+          "when": "view == magpylib-studio.sceneView && viewItem == magpyCollection",
+          "group": "1_move@2"
+        },
+        {
           "command": "magpylib-studio.removeObject",
-          "when": "view == magpylib-studio.sceneView && viewItem == magpyObject"
+          "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpy/",
+          "group": "2_modify@1"
         },
         {
           "command": "magpylib-studio.resetStyle",
-          "when": "view == magpylib-studio.sceneView && viewItem == magpyObject"
+          "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpy/",
+          "group": "2_modify@2"
         }
       ],
       "commandPalette": [
@@ -198,6 +224,10 @@
         },
         {
           "command": "magpylib-studio.removeObject",
+          "when": "false"
+        },
+        {
+          "command": "magpylib-studio.moveTo",
           "when": "false"
         },
         {

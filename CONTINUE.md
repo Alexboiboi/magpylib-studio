@@ -70,8 +70,11 @@ and drives it.
   - `src/sceneTree.ts` + activity-bar **Scene view** (`media/magnet.svg`,
     drawn after the magpylib logo — magnet/magpie/chip silhouette; the
     activity bar renders it as an alpha mask): clickable tree of scene
-    objects; context menu Remove Object / Reset Style. Flat tree mirroring
-    the flat document — `getChildren` is shaped for nesting later.
+    objects; context menu Move to… / New Collection… (on collections; also
+    view-title overflow) / Remove Object / Reset Style. **Drag & drop**
+    reparents (`TreeDragAndDropController` → `move_object`): onto a
+    Collection = move in, onto a plain object = move next to it, onto empty
+    space = move to scene root; cycles rejected by the engine.
   - `src/inspectorView.ts` — **Inspector** sidebar webview view: schema-driven
     widgets (enum → dropdown, format:color → picker+text, bounded number →
     slider, boolean → tri-state '(default)'/true/false), resolved values
@@ -154,8 +157,6 @@ check that `../magpylib` is on `feat/improve-style` and installed `-e`.
 - **Try it live**: open `vscode-extension/` in VS Code, F5, run
   "Magpylib Studio: Open Studio"; in Copilot chat try `make the cube green
   #magpyEdit` or `add a green sphere at [0,2,0] #magpyAdd`.
-- **Tree drag & drop** (`TreeDragAndDropController` → `move_object`) and a
-  "New Collection / move to..." context menu.
 - **Field maps**: `get_field` covers points/paths; a 2D plane-slice heatmap /
   streamline figure would complete the analysis story.
 - **Package a .vsix** (vsce) once features settle, for real installs.

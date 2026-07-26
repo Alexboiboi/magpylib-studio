@@ -37,16 +37,29 @@ function iconFor(type: string): vscode.ThemeIcon {
   return new vscode.ThemeIcon(icon, category);
 }
 
+const TREE_MIME = 'application/vnd.code.tree.magpylib-studio.sceneview';
+
 /**
  * Sidebar scene outline. The engine reports a flat list with `parent` ids
  * (depth-first); the root call fetches and caches it, child calls slice it.
+ * Drag & drop reparents: onto a Collection = move in, onto a plain object =
+ * move next to it, onto empty space = move to the scene root.
  */
-export class SceneTreeProvider implements vscode.TreeDataProvider<SceneObject> {
+export class SceneTreeProvider
+  implements
+    vscode.TreeDataProvider<SceneObject>,
+    vscode.TreeDragAndDropController<SceneObject>
+{
   private emitter = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.emitter.event;
+  readonly dragMimeTypes = [TREE_MIME];
+  readonly dropMimeTypes = [TREE_MIME];
   private objects: SceneObject[] = [];
 
-  constructor(private readonly listObjects: () => Promise<SceneObject[]>) {}
+  constructor(
+    private readonly listObjects: () => Promise<SceneObject[]>,
+    private readonly moveObject: (id: string, parent: string | null) => Promise<void>,
+  ) {}
 
   refresh(): void {
     this.emitter.fire();
@@ -63,7 +76,7 @@ export class SceneTreeProvider implements vscode.TreeDataProvider<SceneObject> {
     item.id = obj.id;
     item.description = obj.type;
     item.tooltip = `${obj.id} — ${obj.type}`;
-    item.contextValue = 'magpyObject';
+    item.contextValue = obj.type === 'Collection' ? 'magpyCollection' : 'magpyObject';
     item.iconPath = iconFor(obj.type);
     item.command = {
       command: 'magpylib-studio.selectObject',
@@ -79,5 +92,30 @@ export class SceneTreeProvider implements vscode.TreeDataProvider<SceneObject> {
       return this.objects.filter((o) => o.parent === null);
     }
     return this.objects.filter((o) => o.parent === element.id);
+  }
+
+  handleDrag(source: readonly SceneObject[], dataTransfer: vscode.DataTransfer): void {
+    dataTransfer.set(TREE_MIME, new vscode.DataTransferItem([...source]));
+  }
+
+  async handleDrop(
+    target: SceneObject | undefined,
+    dataTransfer: vscode.DataTransfer,
+  ): Promise<void> {
+    const source = dataTransfer.get(TREE_MIME)?.value as SceneObject[] | undefined;
+    if (!source?.length) {
+      return;
+    }
+    const parent =
+      target === undefined
+        ? null
+        : target.type === 'Collection'
+          ? target.id
+          : target.parent;
+    for (const obj of source) {
+      if (obj.id !== parent && (obj.parent ?? null) !== parent) {
+        await this.moveObject(obj.id, parent); // engine rejects cycles cleanly
+      }
+    }
   }
 }

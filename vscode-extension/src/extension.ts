@@ -280,14 +280,17 @@ function registerLmTools(context: vscode.ExtensionContext): void {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
-  const tree = new SceneTreeProvider(async () => {
-    try {
-      return await getEngine(context).request<SceneObject[]>('list_objects');
-    } catch (err) {
-      engineOutput?.appendLine(`scene view: ${err instanceof Error ? err.message : err}`);
-      return [];
-    }
-  });
+  const tree = new SceneTreeProvider(
+    async () => {
+      try {
+        return await getEngine(context).request<SceneObject[]>('list_objects');
+      } catch (err) {
+        engineOutput?.appendLine(`scene view: ${err instanceof Error ? err.message : err}`);
+        return [];
+      }
+    },
+    (id, parent) => mutateFromTree('move_object', { object_id: id, parent }),
+  );
   sceneTree = tree;
 
   inspector = new InspectorViewProvider(
@@ -402,7 +405,10 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   context.subscriptions.push(
-    vscode.window.registerTreeDataProvider('magpylib-studio.sceneView', tree),
+    vscode.window.createTreeView('magpylib-studio.sceneView', {
+      treeDataProvider: tree,
+      dragAndDropController: tree,
+    }),
     vscode.window.registerWebviewViewProvider(InspectorViewProvider.viewId, inspector, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
@@ -482,6 +488,61 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('magpylib-studio.resetStyle', (obj: SceneObject) =>
       mutateFromTree('reset_style', { object_id: obj.id }),
+    ),
+    vscode.commands.registerCommand('magpylib-studio.moveTo', async (obj: SceneObject) => {
+      const objects = await getEngine(context).request<SceneObject[]>('list_objects');
+      const subtree = new Set([obj.id]); // no moving into itself/descendants
+      for (let grew = true; grew; ) {
+        grew = false;
+        for (const o of objects) {
+          if (o.parent && subtree.has(o.parent) && !subtree.has(o.id)) {
+            subtree.add(o.id);
+            grew = true;
+          }
+        }
+      }
+      const targets: { label: string; parent: string | null }[] = [];
+      if (obj.parent !== null) {
+        targets.push({ label: '(scene root)', parent: null });
+      }
+      for (const o of objects) {
+        if (o.type === 'Collection' && !subtree.has(o.id) && o.id !== obj.parent) {
+          targets.push({ label: `${o.label} (${o.id})`, parent: o.id });
+        }
+      }
+      if (!targets.length) {
+        vscode.window.showInformationMessage('Magpylib Studio: nowhere to move this to.');
+        return;
+      }
+      const pick = await vscode.window.showQuickPick(
+        targets.map((t) => t.label),
+        { placeHolder: `Move "${obj.label}" to…` },
+      );
+      if (pick === undefined) {
+        return;
+      }
+      const parent = targets.find((t) => t.label === pick)?.parent ?? null;
+      await mutateFromTree('move_object', { object_id: obj.id, parent });
+    }),
+    vscode.commands.registerCommand(
+      'magpylib-studio.newCollection',
+      async (obj?: SceneObject) => {
+        const id = await vscode.window.showInputBox({
+          prompt: 'Id for the new collection',
+          validateInput: (v) =>
+            /^[A-Za-z_]\w*$/.test(v)
+              ? undefined
+              : 'Letters, digits, underscores; must not start with a digit.',
+        });
+        if (!id) {
+          return;
+        }
+        const params: Record<string, unknown> = { object_id: id, type: 'Collection' };
+        if (obj?.type === 'Collection') {
+          params.parent = obj.id; // context-menu on a collection: create inside
+        }
+        await mutateFromTree('add_object', params);
+      },
     ),
     new vscode.Disposable(() => {
       engine?.dispose();
