@@ -1,3 +1,4 @@
+import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -24,44 +25,99 @@ function repoRoot(context: vscode.ExtensionContext): string {
   return path.join(context.extensionPath, '..');
 }
 
-function findPython(context: vscode.ExtensionContext): string {
+let cachedPython: string | undefined;
+
+/** First interpreter that can actually import the engine. A workspace .venv
+ *  without magpylib-studio installed must not shadow a working one. */
+function findPython(context: vscode.ExtensionContext): string | undefined {
+  if (cachedPython) {
+    return cachedPython;
+  }
   const configured = vscode.workspace
     .getConfiguration('magpylib-studio')
     .get<string>('pythonPath');
-  if (configured) {
-    return configured;
-  }
-  const candidates: string[] = [];
-  for (const folder of vscode.workspace.workspaceFolders ?? []) {
-    candidates.push(path.join(folder.uri.fsPath, '.venv'));
-  }
-  candidates.push(path.join(repoRoot(context), '.venv'));
-  for (const venv of candidates) {
+  const candidates: string[] = configured ? [configured] : [];
+  const venvs = (vscode.workspace.workspaceFolders ?? []).map((f) =>
+    path.join(f.uri.fsPath, '.venv'),
+  );
+  venvs.push(path.join(repoRoot(context), '.venv'));
+  for (const venv of venvs) {
     for (const python of [
       path.join(venv, 'bin', 'python'),
       path.join(venv, 'Scripts', 'python.exe'),
     ]) {
       if (fs.existsSync(python)) {
-        return python;
+        candidates.push(python);
       }
     }
   }
-  return 'python3';
+  candidates.push('python3');
+  for (const python of candidates) {
+    const probe = spawnSync(python, ['-c', 'import magpylib_studio'], {
+      timeout: 20000,
+    });
+    if (probe.status === 0) {
+      cachedPython = python;
+      return python;
+    }
+    engineOutput?.appendLine(
+      `[skipping ${python}: cannot import magpylib_studio]`,
+    );
+  }
+  return undefined;
 }
 
 function getEngine(context: vscode.ExtensionContext): EngineClient {
   if (engine?.isRunning) {
     return engine;
   }
-  const pythonPath = findPython(context);
-  const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? repoRoot(context);
   engineOutput ??= vscode.window.createOutputChannel('Magpylib Studio Engine');
+  const pythonPath = findPython(context);
+  if (!pythonPath) {
+    vscode.window
+      .showErrorMessage(
+        'Magpylib Studio: no Python interpreter with the magpylib-studio ' +
+          'engine found. Set "magpylib-studio.pythonPath" to an interpreter ' +
+          'where the engine package is installed.',
+        'Open Settings',
+      )
+      .then((choice) => {
+        if (choice) {
+          vscode.commands.executeCommand(
+            'workbench.action.openSettings',
+            'magpylib-studio.pythonPath',
+          );
+        }
+      });
+    throw new Error('no usable Python interpreter for the engine');
+  }
+  const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? repoRoot(context);
+  engineOutput.appendLine(`[starting engine: ${pythonPath}]`);
   const client = new EngineClient(pythonPath, cwd);
-  client.onStderr = (text) => engineOutput?.append(text);
+  let stderrTail = '';
+  client.onStderr = (text) => {
+    engineOutput?.append(text);
+    stderrTail = (stderrTail + text).slice(-400);
+  };
   client.onExit = (code) => {
     engineOutput?.appendLine(`\n[engine exited with code ${code}]`);
     if (engine === client) {
       engine = undefined;
+    }
+    if (code !== 0) {
+      cachedPython = undefined; // re-probe interpreters on the next attempt
+      const lastLine = stderrTail.trim().split('\n').pop() ?? '';
+      vscode.window
+        .showErrorMessage(
+          `Magpylib Studio engine crashed (exit ${code})` +
+            (lastLine ? `: ${lastLine}` : ''),
+          'Show Output',
+        )
+        .then((choice) => {
+          if (choice) {
+            engineOutput?.show();
+          }
+        });
     }
   };
   engine = client;
