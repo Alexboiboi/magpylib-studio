@@ -299,6 +299,8 @@ function createWebviewHtml(
       const layout = figure.layout || {};
       layout.uirevision = 'magpylib-studio';  // hold camera across edits
       layout.autosize = true;
+      layout.showlegend = false;  // the Scene tree is the legend
+      layout.margin = { l: 0, r: 0, t: 0, b: 0 };
       Plotly.react(canvasEl, figure.data, layout, { responsive: true });
       statusEl.textContent = 'Ready';
     }
