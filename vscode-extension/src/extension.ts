@@ -281,6 +281,7 @@ function registerLmTools(context: vscode.ExtensionContext): void {
 
 export function activate(context: vscode.ExtensionContext): void {
   const tree = new SceneTreeProvider(
+    context.extensionUri,
     async () => {
       try {
         return await getEngine(context).request<SceneObject[]>('list_objects');
@@ -583,15 +584,25 @@ function createWebviewHtml(
     #canvas { flex: 1; min-height: 0; }
     #statusbar { display: flex; gap: 12px; align-items: center; padding: 2px 10px; font-size: 11px; opacity: 0.8; border-top: 1px solid var(--vscode-panel-border, #444); }
     #statusbar label { display: flex; gap: 4px; align-items: center; cursor: pointer; }
-    #statusbar button { background: none; border: none; color: inherit; cursor: pointer; font-size: 14px; padding: 0 2px; }
+    #statusbar button { display: inline-flex; align-items: center; justify-content: center; background: none; border: none; color: inherit; cursor: pointer; padding: 2px; border-radius: 3px; opacity: 0.85; }
+    #statusbar button:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,0.2)); opacity: 1; }
+    #statusbar button svg { display: block; }
   </style>
   <script nonce="${nonce}" src="${plotlyUri}"></script>
 </head>
 <body>
   <div id="canvas"></div>
   <div id="statusbar">
-    <button id="undoBtn" title="Undo (Cmd/Ctrl+Z)">↶</button>
-    <button id="redoBtn" title="Redo (Cmd/Ctrl+Shift+Z)">↷</button>
+    <button id="undoBtn" title="Undo (Cmd/Ctrl+Z)" aria-label="Undo">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 7h6.5a3.5 3.5 0 0 1 0 7H6"/><path d="M5.5 4.5 3 7l2.5 2.5"/>
+      </svg>
+    </button>
+    <button id="redoBtn" title="Redo (Cmd/Ctrl+Shift+Z)" aria-label="Redo">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M13 7H6.5a3.5 3.5 0 0 0 0 7H10"/><path d="M10.5 4.5 13 7l-2.5 2.5"/>
+      </svg>
+    </button>
     <label><input type="checkbox" id="animate" /> Animate paths</label>
     <span id="status">Starting…</span>
   </div>

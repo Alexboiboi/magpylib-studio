@@ -7,34 +7,32 @@ export interface SceneObject {
   parent: string | null;
 }
 
-// One codicon per magpylib class, colored by category
-// (magnets red, currents blue, sensors green).
-const TYPE_ICONS: Record<string, string> = {
-  'magnet.Cuboid': 'primitive-square',
-  'magnet.Cylinder': 'database',
-  'magnet.CylinderSegment': 'pie-chart',
-  'magnet.Sphere': 'circle-large-filled',
-  'magnet.Tetrahedron': 'triangle-up',
-  'magnet.TriangularMesh': 'type-hierarchy-sub',
-  'current.Circle': 'circle-large',
-  'current.Polyline': 'pulse',
-  'misc.Dipole': 'compass',
-  'misc.CustomSource': 'tools',
-  Sensor: 'circuit-board',
-  Collection: 'folder',
+// Wireframe SVGs in media/icons, one per magpylib class, colored by
+// category (magnets red, currents blue, sensors green, misc gray).
+const TYPE_ICON_FILES: Record<string, string> = {
+  'magnet.Cuboid': 'cuboid',
+  'magnet.Cylinder': 'cylinder',
+  'magnet.CylinderSegment': 'cylinder-segment',
+  'magnet.Sphere': 'sphere',
+  'magnet.Tetrahedron': 'tetrahedron',
+  'magnet.TriangularMesh': 'mesh',
+  'current.Circle': 'loop',
+  'current.Polyline': 'polyline',
+  'misc.Dipole': 'dipole',
+  'misc.CustomSource': 'custom',
+  Sensor: 'sensor',
 };
 
-function iconFor(type: string): vscode.ThemeIcon {
-  const category = type.startsWith('magnet.')
-    ? new vscode.ThemeColor('charts.red')
-    : type.startsWith('current.')
-      ? new vscode.ThemeColor('charts.blue')
-      : type === 'Sensor'
-        ? new vscode.ThemeColor('charts.green')
-        : undefined;
-  const icon =
-    TYPE_ICONS[type] ?? (type.startsWith('magnet.') ? 'magnet' : 'symbol-object');
-  return new vscode.ThemeIcon(icon, category);
+function iconFor(
+  type: string,
+  extensionUri: vscode.Uri,
+): vscode.Uri | vscode.ThemeIcon {
+  if (type === 'Collection') {
+    return new vscode.ThemeIcon('folder');
+  }
+  const file =
+    TYPE_ICON_FILES[type] ?? (type.startsWith('magnet.') ? 'cuboid' : 'custom');
+  return vscode.Uri.joinPath(extensionUri, 'media', 'icons', `${file}.svg`);
 }
 
 const TREE_MIME = 'application/vnd.code.tree.magpylib-studio.sceneview';
@@ -57,6 +55,7 @@ export class SceneTreeProvider
   private objects: SceneObject[] = [];
 
   constructor(
+    private readonly extensionUri: vscode.Uri,
     private readonly listObjects: () => Promise<SceneObject[]>,
     private readonly moveObject: (id: string, parent: string | null) => Promise<void>,
   ) {}
@@ -77,7 +76,7 @@ export class SceneTreeProvider
     item.description = obj.type;
     item.tooltip = `${obj.id} — ${obj.type}`;
     item.contextValue = obj.type === 'Collection' ? 'magpyCollection' : 'magpyObject';
-    item.iconPath = iconFor(obj.type);
+    item.iconPath = iconFor(obj.type, this.extensionUri);
     item.command = {
       command: 'magpylib-studio.selectObject',
       title: 'Select in Studio',
