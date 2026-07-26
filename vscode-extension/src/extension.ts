@@ -115,6 +115,11 @@ function openStudioPanel(context: vscode.ExtensionContext): void {
   currentPanel = panel;
   panel.webview.html = createWebviewHtml(context, panel.webview);
   wireRpcRouter(context, panel.webview);
+  panel.webview.onDidReceiveMessage((message) => {
+    if (message.type === 'uiCommand') {
+      vscode.commands.executeCommand(`magpylib-studio.${message.command}`);
+    }
+  });
   panel.onDidDispose(() => {
     currentPanel = undefined;
   });
@@ -214,6 +219,7 @@ function registerLmTools(context: vscode.ExtensionContext): void {
     editTool('magpylib-studio_setParam', 'set_param'),
     editTool('magpylib-studio_clearScene', 'clear_scene'),
     editTool('magpylib-studio_batch', 'batch'),
+    editTool('magpylib-studio_undo', 'undo'),
   );
 }
 
@@ -237,6 +243,25 @@ export function activate(context: vscode.ExtensionContext): void {
     },
     () => selectedObjectId,
   );
+
+  /** Undo/redo: refresh on success; a quiet status message when empty. */
+  const undoRedo = async (method: 'undo' | 'redo') => {
+    try {
+      const result = (await getEngine(context).request(method)) as {
+        ok: boolean;
+        error?: string;
+      };
+      if (result.ok) {
+        broadcastMutation();
+      } else {
+        vscode.window.setStatusBarMessage(`Magpylib Studio: ${result.error}`, 2000);
+      }
+    } catch (err) {
+      vscode.window.showErrorMessage(
+        `Magpylib Studio: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  };
 
   /** Run a mutating engine call from the tree UI, surface failures, refresh. */
   const mutateFromTree = async (method: string, params: Record<string, unknown>) => {
@@ -310,6 +335,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('magpylib-studio.openFieldView', () =>
       openFieldPanel(context),
     ),
+    vscode.commands.registerCommand('magpylib-studio.undo', () => undoRedo('undo')),
+    vscode.commands.registerCommand('magpylib-studio.redo', () => undoRedo('redo')),
     vscode.commands.registerCommand('magpylib-studio.refreshScene', () =>
       broadcastMutation(),
     ),
@@ -365,12 +392,15 @@ function createWebviewHtml(
     #canvas { flex: 1; min-height: 0; }
     #statusbar { display: flex; gap: 12px; align-items: center; padding: 2px 10px; font-size: 11px; opacity: 0.8; border-top: 1px solid var(--vscode-panel-border, #444); }
     #statusbar label { display: flex; gap: 4px; align-items: center; cursor: pointer; }
+    #statusbar button { background: none; border: none; color: inherit; cursor: pointer; font-size: 14px; padding: 0 2px; }
   </style>
   <script nonce="${nonce}" src="${plotlyUri}"></script>
 </head>
 <body>
   <div id="canvas"></div>
   <div id="statusbar">
+    <button id="undoBtn" title="Undo (Cmd/Ctrl+Z)">↶</button>
+    <button id="redoBtn" title="Redo (Cmd/Ctrl+Shift+Z)">↷</button>
     <label><input type="checkbox" id="animate" /> Animate paths</label>
     <span id="status">Starting…</span>
   </div>
@@ -430,6 +460,13 @@ function createWebviewHtml(
     animateEl.addEventListener('change', () => {
       statusEl.textContent = 'Loading…';
       refreshFigure().catch((err) => { statusEl.textContent = String(err); });
+    });
+
+    document.getElementById('undoBtn').addEventListener('click', () => {
+      vscodeApi.postMessage({ type: 'uiCommand', command: 'undo' });
+    });
+    document.getElementById('redoBtn').addEventListener('click', () => {
+      vscodeApi.postMessage({ type: 'uiCommand', command: 'redo' });
     });
 
     window.addEventListener('message', (event) => {

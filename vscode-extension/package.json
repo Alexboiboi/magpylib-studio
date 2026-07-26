@@ -52,12 +52,36 @@
         "title": "Magpylib Studio: Load Scene from File..."
       },
       {
+        "command": "magpylib-studio.undo",
+        "title": "Magpylib Studio: Undo Scene Edit",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "magpylib-studio.redo",
+        "title": "Magpylib Studio: Redo Scene Edit",
+        "icon": "$(redo)"
+      },
+      {
         "command": "magpylib-studio.removeObject",
         "title": "Remove Object"
       },
       {
         "command": "magpylib-studio.resetStyle",
         "title": "Reset Style"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "magpylib-studio.undo",
+        "key": "ctrl+z",
+        "mac": "cmd+z",
+        "when": "activeWebviewPanelId == 'magpylibStudio' || activeWebviewPanelId == 'magpylibField'"
+      },
+      {
+        "command": "magpylib-studio.redo",
+        "key": "ctrl+shift+z",
+        "mac": "cmd+shift+z",
+        "when": "activeWebviewPanelId == 'magpylibStudio' || activeWebviewPanelId == 'magpylibField'"
       }
     ],
     "viewsContainers": {
@@ -327,6 +351,22 @@
                 "H"
               ],
               "description": "B (tesla, default) or H (A/m)."
+            }
+          }
+        }
+      },
+      {
+        "name": "magpylib-studio_undo",
+        "displayName": "Undo magpylib scene edit",
+        "toolReferenceName": "magpyUndo",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "Undo the most recent scene change(s) - style edits, adds, removes, moves, loads; a whole batch is one step. Use when the user asks to undo/revert, or to roll back your own edit that had an unwanted effect. Returns {ok, error?}.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "steps": {
+              "type": "number",
+              "description": "How many history steps to undo (default 1)."
             }
           }
         }

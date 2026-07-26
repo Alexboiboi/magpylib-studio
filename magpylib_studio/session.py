@@ -22,7 +22,9 @@ Protocol surface (all JSON-serializable in/out):
   load_scene(scene | path)             -> {"ok": bool, "error"?: str}
   load_example()                       -> {"ok": bool, "error"?: str}
   clear_scene()                        -> {"ok": bool, "error"?: str}
-  batch(operations)                    -> {"ok": bool, "results": [...]}
+  batch(operations)                    -> {"ok": bool, "results": [...]} (1 undo step)
+  undo(steps?) / redo(steps?)          -> {"ok": bool, "error"?: str}
+  get_history()                        -> {"undo": [labels], "redo": [labels]}
   to_dict()                            -> the scene document
   to_script()                          -> equivalent magpylib Python code
 """
@@ -130,7 +132,20 @@ class MagpylibStudioSession:
     def __init__(self, scene: dict | None = None):
         self.doc = scene if scene is not None else {"objects": []}  # start empty
         self._objs: dict[str, object] = {}
+        # In-session undo/redo (durable history stays in git via to_script):
+        # each entry is {"label", "doc"} — the doc state BEFORE the change.
+        self._undo: list[dict] = []
+        self._redo: list[dict] = []
+        self._history_paused = False
         self._build()
+
+    def _record_state(self, label, doc_before):
+        """Push a pre-change doc state onto the undo stack (capped)."""
+        if self._history_paused:
+            return
+        self._undo.append({"label": label, "doc": doc_before})
+        del self._undo[:-100]
+        self._redo.clear()
 
     def _build(self):
         self._objs = {}
@@ -158,12 +173,13 @@ class MagpylibStudioSession:
         self._objs[spec["id"]] = obj
         return obj
 
-    def _mutate_doc(self, mutate):
+    def _mutate_doc(self, mutate, label="edit"):
         """Apply `mutate(doc)` and rebuild; on any failure restore the old doc.
 
         The doc stays the single source of truth: structural edits go through
         the same build path as startup, so a doc that builds once always
         rebuilds — bad mutations are rolled back and reported, never applied.
+        Successful mutations push the prior state onto the undo stack.
         """
         snapshot = json.loads(json.dumps(self.doc))
         try:
@@ -173,6 +189,7 @@ class MagpylibStudioSession:
             self.doc = snapshot
             self._build()
             return {"ok": False, "error": str(e)}
+        self._record_state(label, snapshot)
         return {"ok": True}
 
     def _iter_specs(self, specs=None, parent=None):
@@ -311,11 +328,13 @@ class MagpylibStudioSession:
     # --- editing -----------------------------------------------------------
     def apply_edit(self, object_id, path, value):
         obj = self._objs[object_id]
+        before = json.loads(json.dumps(self.doc))
         try:
             obj.style.set(path, value)
         except Exception as e:  # noqa: BLE001 - report validation errors, don't crash
             return {"ok": False, "error": str(e)}
         self._spec(object_id)["style"] = dict(obj.style.set_values())  # keep doc synced
+        self._record_state(f"edit {object_id} {path}", before)
         return {"ok": True}
 
     # --- scene structure ---------------------------------------------------
@@ -343,7 +362,7 @@ class MagpylibStudioSession:
             )
             target.append(spec)
 
-        return self._mutate_doc(mutate)
+        return self._mutate_doc(mutate, f"add {object_id}")
 
     def remove_object(self, object_id):
         """Remove an object; removing a Collection removes its whole subtree."""
@@ -352,7 +371,7 @@ class MagpylibStudioSession:
         def mutate(doc):
             self._container_of(object_id).remove(spec)
 
-        return self._mutate_doc(mutate)
+        return self._mutate_doc(mutate, f"remove {object_id}")
 
     def move_object(self, object_id, parent=None):
         """Reparent an object: into a Collection, or to the root (parent=None)."""
@@ -373,7 +392,7 @@ class MagpylibStudioSession:
             )
             target.append(spec)
 
-        return self._mutate_doc(mutate)
+        return self._mutate_doc(mutate, f"move {object_id}")
 
     def set_param(self, object_id, name, value):
         """Set a constructor parameter (position, dimension, polarization, ...)."""
@@ -382,7 +401,7 @@ class MagpylibStudioSession:
         def mutate(doc):
             spec.setdefault("params", {})[name] = value
 
-        return self._mutate_doc(mutate)
+        return self._mutate_doc(mutate, f"set {object_id}.{name}")
 
     def reset_style(self, object_id, path=None):
         """Reset one style path (or all styles) to defaults by dropping it
@@ -397,7 +416,7 @@ class MagpylibStudioSession:
             else:
                 del spec["style"][path]
 
-        return self._mutate_doc(mutate)
+        return self._mutate_doc(mutate, f"reset {object_id} {path or 'style'}")
 
     def load_scene(self, scene):
         """Replace the whole document. `scene` is a document dict or a path to
@@ -412,32 +431,82 @@ class MagpylibStudioSession:
         def mutate(doc):
             self.doc = json.loads(json.dumps(scene))
 
-        return self._mutate_doc(mutate)
+        return self._mutate_doc(mutate, "load scene")
 
     def load_example(self):
         """Load the built-in example scene (Halbach ring, coil pair, sensor)."""
-        return self.load_scene(example_scene())
+        result = self.load_scene(example_scene())
+        if result["ok"] and not self._history_paused and self._undo:
+            self._undo[-1]["label"] = "load example"
+        return result
 
     def clear_scene(self):
         """Remove every object at once."""
-        return self.load_scene({"objects": []})
+        result = self.load_scene({"objects": []})
+        if result["ok"] and not self._history_paused and self._undo:
+            self._undo[-1]["label"] = "clear scene"
+        return result
 
     def batch(self, operations):
         """Apply several mutating operations in one call, e.g.
         [{"method": "add_object", "params": {...}}, ...]. Continues past
-        failures; per-operation results let the caller fix and retry."""
-        results = []
-        for op in operations:
-            method = op.get("method")
-            params = op.get("params") or {}
-            if method not in _BATCHABLE:
-                results.append({"ok": False, "error": f"method {method!r} not batchable"})
-                continue
-            try:
-                results.append(getattr(self, method)(**params))
-            except Exception as e:  # noqa: BLE001 - keep going, report per op
-                results.append({"ok": False, "error": str(e)})
+        failures; per-operation results let the caller fix and retry.
+        One undo step for the whole batch."""
+        before = json.loads(json.dumps(self.doc))
+        self._history_paused = True
+        try:
+            results = []
+            for op in operations:
+                method = op.get("method")
+                params = op.get("params") or {}
+                if method not in _BATCHABLE:
+                    results.append(
+                        {"ok": False, "error": f"method {method!r} not batchable"}
+                    )
+                    continue
+                try:
+                    results.append(getattr(self, method)(**params))
+                except Exception as e:  # noqa: BLE001 - keep going, report per op
+                    results.append({"ok": False, "error": str(e)})
+        finally:
+            self._history_paused = False
+        if any(r["ok"] for r in results):  # something changed -> one undo step
+            self._record_state(f"batch ({len(operations)} ops)", before)
         return {"ok": all(r["ok"] for r in results), "results": results}
+
+    # --- undo / redo -------------------------------------------------------
+    def undo(self, steps=1):
+        """Step back through the in-session history (git stays the durable
+        history; this is for quick reverts of slider drags / LLM edits)."""
+        for _ in range(steps):
+            if not self._undo:
+                return {"ok": False, "error": "nothing to undo"}
+            entry = self._undo.pop()
+            self._redo.append(
+                {"label": entry["label"], "doc": json.loads(json.dumps(self.doc))}
+            )
+            self.doc = entry["doc"]
+            self._build()  # snapshots built before, so this cannot fail
+        return {"ok": True}
+
+    def redo(self, steps=1):
+        for _ in range(steps):
+            if not self._redo:
+                return {"ok": False, "error": "nothing to redo"}
+            entry = self._redo.pop()
+            self._undo.append(
+                {"label": entry["label"], "doc": json.loads(json.dumps(self.doc))}
+            )
+            self.doc = entry["doc"]
+            self._build()
+        return {"ok": True}
+
+    def get_history(self):
+        """Labels of what undo/redo would revert, most recent last."""
+        return {
+            "undo": [e["label"] for e in self._undo],
+            "redo": [e["label"] for e in self._redo],
+        }
 
     # --- serialization / round-trip ---------------------------------------
     def to_dict(self):

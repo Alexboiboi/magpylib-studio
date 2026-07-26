@@ -364,6 +364,49 @@ def test_batch_continues_past_failures(session):
     assert [o["id"] for o in session.list_objects()] == ["cube"]
 
 
+def test_undo_redo_style_and_structure(session):
+    session.apply_edit("cube", "color", "red")
+    session.remove_object("cyl")
+    assert session.get_history()["undo"] == ["edit cube color", "remove cyl"]
+
+    assert session.undo() == {"ok": True}  # cyl back
+    assert [o["id"] for o in session.list_objects()] == ["cube", "cyl"]
+    assert session._objs["cube"].style.color == "red"  # first edit still applied
+
+    assert session.undo() == {"ok": True}  # color back to default
+    assert session._objs["cube"].style.color is None
+
+    assert session.redo() == {"ok": True}
+    assert session._objs["cube"].style.color == "red"
+    assert session.get_history() == {"undo": ["edit cube color"],
+                                     "redo": ["remove cyl"]}
+
+    # a new edit clears the redo branch
+    session.apply_edit("cube", "opacity", 0.5)
+    assert session.get_history()["redo"] == []
+
+    assert session.undo(steps=2) == {"ok": True}
+    assert session.undo() == {"ok": False, "error": "nothing to undo"}
+    assert session.redo(steps=2) == {"ok": True}
+    assert session.redo()["ok"] is False
+
+
+def test_batch_is_one_undo_step(session):
+    session.batch([
+        {"method": "apply_edit", "params": {
+            "object_id": "cube", "path": "color", "value": "green"}},
+        {"method": "remove_object", "params": {"object_id": "cyl"}},
+    ])
+    assert session.get_history()["undo"] == ["batch (2 ops)"]
+    assert session.undo() == {"ok": True}
+    assert [o["id"] for o in session.list_objects()] == ["cube", "cyl"]
+    assert session._objs["cube"].style.color is None
+    # failed edits don't pollute history
+    session.apply_edit("cube", "opacity", 7)
+    session.add_object("cube", "magnet.Sphere")
+    assert session.get_history()["undo"] == []
+
+
 def test_jsonrpc_roundtrip():
     """Drive the stdio server end to end through pipes."""
     requests = [

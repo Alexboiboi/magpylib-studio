@@ -34,6 +34,9 @@ _PUBLIC = {
     "load_example",
     "clear_scene",
     "batch",
+    "undo",
+    "redo",
+    "get_history",
     "to_dict",
     "to_script",
 }

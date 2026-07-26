@@ -108,7 +108,10 @@ check that `../magpylib` is on `feat/improve-style` and installed `-e`.
 
 1. **The scene document is the source of truth.** Every edit updates the live
    object AND `self.doc`, so `to_script()` always reflects current state →
-   **git is the history**, no bespoke undo stack.
+   **git is the durable history**. (An *in-session* undo/redo stack of doc
+   snapshots exists for quick reverts — `undo`/`redo`/`get_history`, batch =
+   one step, Cmd+Z in the panels, `#magpyUndo` — it complements git, it does
+   not replace it.)
 2. **`schema()` is the one contract** — the same JSON Schema drives the
    frontend inspector widgets AND the LLM tool's `input_schema`.
 3. **Shared validation** — every edit goes through `style.set`, validated by the
