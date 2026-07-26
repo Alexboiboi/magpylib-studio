@@ -111,6 +111,7 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
     .vec { display: grid; grid-template-columns: 14px 1fr 14px 1fr 14px 1fr; gap: 3px; align-items: center; padding: 1px 0 1px 8px; }
     .vec span { opacity: 0.7; text-align: right; }
     .vec input { width: 100%; box-sizing: border-box; }
+    .vec.readonly input { opacity: 0.6; background: transparent; border-color: transparent; cursor: default; }
     .trow { display: flex; gap: 4px; align-items: center; padding: 2px 0 2px 8px; flex-wrap: wrap; }
     .trow input[type=number] { width: 52px; }
     .trow select { width: auto; }
@@ -359,9 +360,9 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
     }
 
     // --- transform section: absolute pose, relative ops, path tools -------
-    function vecRow(labels, values, onCommit) {
+    function vecRow(labels, values, onCommit, readonly) {
       const row = document.createElement('div');
-      row.className = 'vec';
+      row.className = 'vec' + (readonly ? ' readonly' : '');
       const inputs = [];
       labels.forEach((name, i) => {
         const tag = document.createElement('span');
@@ -370,9 +371,15 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
         input.type = 'number';
         input.step = 'any';
         input.value = Number(values[i]).toFixed(4).replace(/\\.?0+$/, '');
-        input.addEventListener('change', () =>
-          onCommit(inputs.map((el) => parseFloat(el.value) || 0)),
-        );
+        if (readonly) {
+          input.readOnly = true;
+          input.tabIndex = -1;
+          input.title = readonly;
+        } else {
+          input.addEventListener('change', () =>
+            onCommit(inputs.map((el) => parseFloat(el.value) || 0)),
+          );
+        }
         inputs.push(input);
         row.append(tag, input);
       });
@@ -398,18 +405,24 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
       summary.textContent = 'transform';
       box.appendChild(summary);
 
-      if (t.path_length > 1) {
+      // With a path there is no single pose to edit: the fields show the last
+      // step read-only, and move/rotate/Clear path do the editing instead.
+      const pathed = t.path_length > 1
+        ? 'read-only while this object has a path (' + t.path_length +
+          ' steps) — use move/rotate below, or Clear path'
+        : '';
+      if (pathed) {
         const hint = document.createElement('div');
         hint.className = 'hint';
-        hint.textContent = 'path: ' + t.path_length + ' steps (values show the last)';
+        hint.textContent = 'path: ' + t.path_length + ' steps (showing the last)';
         box.appendChild(hint);
       }
       box.appendChild(vecRow(['x', 'y', 'z'], t.position, (v) =>
         transformOp('set_transform', { position: v }),
-      ));
+      pathed));
       box.appendChild(vecRow(['rx', 'ry', 'rz'], t.orientation, (v) =>
         transformOp('set_transform', { orientation: v }),
-      ));
+      pathed));
 
       // relative rotate, optionally orbiting the origin, optionally a path
       const row = document.createElement('div');
