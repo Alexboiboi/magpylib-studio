@@ -22,6 +22,91 @@ let sceneDocEmitter: vscode.EventEmitter<vscode.Uri> | undefined;
 const SCRIPT_URI = vscode.Uri.parse('magpylib-studio:/scene.py');
 const SCENE_JSON_URI = vscode.Uri.parse('magpylib-studio:/scene.json');
 
+/** Object types offered by "Add Object…", with ready-to-build defaults. */
+const OBJECT_TEMPLATES: {
+  label: string;
+  type: string;
+  detail: string;
+  params: Record<string, unknown>;
+}[] = [
+  {
+    label: 'Cuboid magnet',
+    type: 'magnet.Cuboid',
+    detail: 'polarization (0,0,1) T, dimension 1×1×1 m',
+    params: { polarization: [0, 0, 1], dimension: [1, 1, 1] },
+  },
+  {
+    label: 'Cylinder magnet',
+    type: 'magnet.Cylinder',
+    detail: 'polarization (0,0,1) T, diameter 1 m, height 1 m',
+    params: { polarization: [0, 0, 1], dimension: [1, 1] },
+  },
+  {
+    label: 'Cylinder segment magnet',
+    type: 'magnet.CylinderSegment',
+    detail: 'r 1→2 m, height 1 m, 0°→90°',
+    params: { polarization: [0, 0, 1], dimension: [1, 2, 1, 0, 90] },
+  },
+  {
+    label: 'Sphere magnet',
+    type: 'magnet.Sphere',
+    detail: 'polarization (0,0,1) T, diameter 1 m',
+    params: { polarization: [0, 0, 1], diameter: 1 },
+  },
+  {
+    label: 'Tetrahedron magnet',
+    type: 'magnet.Tetrahedron',
+    detail: 'unit tetrahedron at the origin',
+    params: {
+      polarization: [0, 0, 1],
+      vertices: [
+        [0, 0, 0],
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+      ],
+    },
+  },
+  {
+    label: 'Current loop',
+    type: 'current.Circle',
+    detail: '1000 A, diameter 2 m',
+    params: { current: 1000, diameter: 2 },
+  },
+  {
+    label: 'Current polyline',
+    type: 'current.Polyline',
+    detail: '1000 A along three points',
+    params: {
+      current: 1000,
+      vertices: [
+        [0, 0, 0],
+        [1, 0, 0],
+        [1, 1, 0],
+      ],
+    },
+  },
+  {
+    label: 'Dipole',
+    type: 'misc.Dipole',
+    detail: 'moment (0,0,100) A·m²',
+    params: { moment: [0, 0, 100] },
+  },
+  { label: 'Sensor', type: 'Sensor', detail: 'field probe at the origin', params: {} },
+  { label: 'Collection', type: 'Collection', detail: 'empty group', params: {} },
+];
+
+/** Parse "1, 2, 3" / "1 2 3" into numbers; undefined if not `count` values. */
+function parseVector(text: string, count: number): number[] | undefined {
+  const parts = text
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .map(Number);
+  return parts.length === count && parts.every((n) => Number.isFinite(n))
+    ? parts
+    : undefined;
+}
+
 /** Repo root in the dev layout (vscode-extension/ inside the repo). */
 function repoRoot(context: vscode.ExtensionContext): string {
   return path.join(context.extensionPath, '..');
@@ -556,6 +641,130 @@ export function activate(context: vscode.ExtensionContext): void {
       const parent = targets.find((t) => t.label === pick)?.parent ?? null;
       await mutateFromTree('move_object', { object_id: obj.id, parent });
     }),
+    vscode.commands.registerCommand(
+      'magpylib-studio.addObject',
+      async (obj?: SceneObject) => {
+        const pick = await vscode.window.showQuickPick(
+          OBJECT_TEMPLATES.map((t) => ({ label: t.label, detail: t.detail, t })),
+          { placeHolder: 'Object to add' },
+        );
+        if (!pick) {
+          return;
+        }
+        const suggestion = pick.t.type.split('.').pop()!.toLowerCase();
+        const id = await vscode.window.showInputBox({
+          prompt: `Id for the new ${pick.label.toLowerCase()}`,
+          value: suggestion,
+          validateInput: (v) =>
+            /^[A-Za-z_]\w*$/.test(v)
+              ? undefined
+              : 'Letters, digits, underscores; must not start with a digit.',
+        });
+        if (!id) {
+          return;
+        }
+        const params: Record<string, unknown> = {
+          object_id: id,
+          type: pick.t.type,
+          params: pick.t.params,
+          style: { label: pick.label },
+        };
+        if (obj?.type === 'Collection') {
+          params.parent = obj.id; // right-clicked a group: create inside it
+        }
+        await mutateFromTree('add_object', params);
+        openStudioPanel(context);
+      },
+    ),
+    vscode.commands.registerCommand(
+      'magpylib-studio.setPosition',
+      async (obj: SceneObject) => {
+        const current = (await getEngine(context).request('get_transform', {
+          object_id: obj.id,
+        })) as { position: number[] };
+        const text = await vscode.window.showInputBox({
+          prompt: `Position of "${obj.label}" as x, y, z (m)`,
+          value: current.position.join(', '),
+          validateInput: (v) =>
+            parseVector(v, 3) ? undefined : 'Three numbers, e.g. 0, 0, 1.5',
+        });
+        const position = text && parseVector(text, 3);
+        if (position) {
+          await mutateFromTree('set_transform', { object_id: obj.id, position });
+        }
+      },
+    ),
+    vscode.commands.registerCommand(
+      'magpylib-studio.moveBy',
+      async (obj: SceneObject) => {
+        const text = await vscode.window.showInputBox({
+          prompt: `Move "${obj.label}" by dx, dy, dz (m) — append " × N" for an N-step path`,
+          value: '0, 0, 1',
+          validateInput: (v) =>
+            parseVector(v.split('×')[0], 3) ? undefined : 'Three numbers, e.g. 0, 0, 1',
+        });
+        if (!text) {
+          return;
+        }
+        const [vecPart, stepPart] = text.split('×');
+        const d = parseVector(vecPart, 3)!;
+        const steps = Math.max(1, parseInt(stepPart ?? '1', 10) || 1);
+        const displacement =
+          steps === 1
+            ? d
+            : Array.from({ length: steps }, (_, i) =>
+                d.map((c) => (c * (i + 1)) / steps),
+              );
+        await mutateFromTree('move', {
+          object_id: obj.id,
+          displacement,
+          ...(steps > 1 ? { start: -1 } : {}),
+        });
+      },
+    ),
+    vscode.commands.registerCommand(
+      'magpylib-studio.rotateBy',
+      async (obj: SceneObject) => {
+        const axisPick = await vscode.window.showQuickPick(
+          [
+            { label: 'z — spin in place', axis: 'z', anchor: undefined },
+            { label: 'z — orbit the origin', axis: 'z', anchor: 0 },
+            { label: 'x — spin in place', axis: 'x', anchor: undefined },
+            { label: 'y — spin in place', axis: 'y', anchor: undefined },
+          ],
+          { placeHolder: `Rotate "${obj.label}" about…` },
+        );
+        if (!axisPick) {
+          return;
+        }
+        const text = await vscode.window.showInputBox({
+          prompt: 'Angle in degrees — append " × N" for an N-step path',
+          value: '45',
+          validateInput: (v) =>
+            Number.isFinite(Number(v.split('×')[0])) ? undefined : 'A number, e.g. 45',
+        });
+        if (!text) {
+          return;
+        }
+        const [anglePart, stepPart] = text.split('×');
+        const total = Number(anglePart);
+        const steps = Math.max(1, parseInt(stepPart ?? '1', 10) || 1);
+        const angle =
+          steps === 1
+            ? total
+            : Array.from({ length: steps }, (_, i) => (total * (i + 1)) / steps);
+        await mutateFromTree('rotate', {
+          object_id: obj.id,
+          angle,
+          axis: axisPick.axis,
+          ...(axisPick.anchor !== undefined ? { anchor: axisPick.anchor } : {}),
+          ...(steps > 1 ? { start: -1 } : {}),
+        });
+      },
+    ),
+    vscode.commands.registerCommand('magpylib-studio.clearPath', (obj: SceneObject) =>
+      mutateFromTree('clear_path', { object_id: obj.id }),
+    ),
     vscode.commands.registerCommand(
       'magpylib-studio.newCollection',
       async (obj?: SceneObject) => {

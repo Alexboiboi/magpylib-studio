@@ -22,6 +22,13 @@ newline-delimited JSON-RPC over stdio.
   entry to jump the scene there, both backwards and forwards; the timeline
   itself stays put. Undo/redo icons sit on the Scene and History view
   titles (Cmd+Z / Cmd+Shift+Z still work inside the panels).
+- **Add Object…** — the `+` icon on the Scene view (or right-click a
+  collection to create inside it, or the empty-view welcome): pick a type
+  (cuboid, cylinder, segment, sphere, tetrahedron, current loop/polyline,
+  dipole, sensor, collection) and it is created with sensible defaults.
+- **Right-click → Transform** — Set Position…, Move By…, Rotate… (spin or
+  orbit the origin), Clear Path. Move/Rotate accept `× N` at the end of the
+  value to spread the operation over an N-step animation path, e.g. `360 × 36`.
 - **Transforms** — the Inspector's `transform` section: absolute position and
   rotation-vector fields, relative *rotate* (with "orbit origin" for
   Halbach-style arrangements) and *move*, each with a step count that turns

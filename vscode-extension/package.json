@@ -93,6 +93,27 @@
         "command": "magpylib-studio.newCollection",
         "title": "New Collection...",
         "icon": "$(new-folder)"
+      },
+      {
+        "command": "magpylib-studio.addObject",
+        "title": "Magpylib Studio: Add Object...",
+        "icon": "$(add)"
+      },
+      {
+        "command": "magpylib-studio.setPosition",
+        "title": "Set Position..."
+      },
+      {
+        "command": "magpylib-studio.moveBy",
+        "title": "Move By..."
+      },
+      {
+        "command": "magpylib-studio.rotateBy",
+        "title": "Rotate..."
+      },
+      {
+        "command": "magpylib-studio.clearPath",
+        "title": "Clear Path"
       }
     ],
     "keybindings": [
@@ -142,10 +163,34 @@
     "viewsWelcome": [
       {
         "view": "magpylib-studio.sceneView",
-        "contents": "The scene is empty.\n[Load Example Scene](command:magpylib-studio.loadExample)\nTwo stacked Halbach rings and a sensor path along the bore.\n[Import Python Script...](command:magpylib-studio.importScript)\nRun an existing magpylib script and edit its scene here.\n[Load Scene from File...](command:magpylib-studio.loadScene)\nOr ask Copilot chat to add objects with #magpyAdd."
+        "contents": "The scene is empty.\n[Add Object...](command:magpylib-studio.addObject)\nA magnet, current, sensor or collection.\n[Load Example Scene](command:magpylib-studio.loadExample)\nTwo stacked Halbach rings and a sensor path along the bore.\n[Import Python Script...](command:magpylib-studio.importScript)\nRun an existing magpylib script and edit its scene here.\n[Load Scene from File...](command:magpylib-studio.loadScene)\nOr ask Copilot chat to add objects with #magpyAdd."
+      }
+    ],
+    "submenus": [
+      {
+        "id": "magpylib-studio.transformSubmenu",
+        "label": "Transform"
       }
     ],
     "menus": {
+      "magpylib-studio.transformSubmenu": [
+        {
+          "command": "magpylib-studio.setPosition",
+          "group": "1_pose@1"
+        },
+        {
+          "command": "magpylib-studio.moveBy",
+          "group": "1_pose@2"
+        },
+        {
+          "command": "magpylib-studio.rotateBy",
+          "group": "1_pose@3"
+        },
+        {
+          "command": "magpylib-studio.clearPath",
+          "group": "2_path@1"
+        }
+      ],
       "view/title": [
         {
           "command": "magpylib-studio.undo",
@@ -166,6 +211,11 @@
           "command": "magpylib-studio.redo",
           "when": "view == magpylib-studio.historyView",
           "group": "navigation@2"
+        },
+        {
+          "command": "magpylib-studio.addObject",
+          "when": "view == magpylib-studio.sceneView",
+          "group": "navigation@0"
         },
         {
           "command": "magpylib-studio.refreshScene",
@@ -223,6 +273,16 @@
       ],
       "view/item/context": [
         {
+          "submenu": "magpylib-studio.transformSubmenu",
+          "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpy/",
+          "group": "1_move@0"
+        },
+        {
+          "command": "magpylib-studio.addObject",
+          "when": "view == magpylib-studio.sceneView && viewItem == magpyCollection",
+          "group": "1_move@3"
+        },
+        {
           "command": "magpylib-studio.moveTo",
           "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpy/",
           "group": "1_move@1"
@@ -262,6 +322,22 @@
         },
         {
           "command": "magpylib-studio.gotoHistory",
+          "when": "false"
+        },
+        {
+          "command": "magpylib-studio.setPosition",
+          "when": "false"
+        },
+        {
+          "command": "magpylib-studio.moveBy",
+          "when": "false"
+        },
+        {
+          "command": "magpylib-studio.rotateBy",
+          "when": "false"
+        },
+        {
+          "command": "magpylib-studio.clearPath",
           "when": "false"
         },
         {
