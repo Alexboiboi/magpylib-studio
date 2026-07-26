@@ -280,19 +280,24 @@ function createWebviewHtml(
     html, body { margin: 0; height: 100%; font-family: var(--vscode-font-family, sans-serif); color: var(--vscode-foreground); }
     body { display: flex; flex-direction: column; }
     #canvas { flex: 1; min-height: 0; }
-    #statusbar { padding: 2px 10px; font-size: 11px; opacity: 0.8; border-top: 1px solid var(--vscode-panel-border, #444); }
+    #statusbar { display: flex; gap: 12px; align-items: center; padding: 2px 10px; font-size: 11px; opacity: 0.8; border-top: 1px solid var(--vscode-panel-border, #444); }
+    #statusbar label { display: flex; gap: 4px; align-items: center; cursor: pointer; }
   </style>
   <script nonce="${nonce}" src="${plotlyUri}"></script>
 </head>
 <body>
   <div id="canvas"></div>
-  <div id="statusbar">Starting…</div>
+  <div id="statusbar">
+    <label><input type="checkbox" id="animate" /> Animate paths</label>
+    <span id="status">Starting…</span>
+  </div>
   <script nonce="${nonce}">
     // Selection and style editing live in the sidebar (Scene tree + Inspector);
     // this panel is only the live 3D view.
     const vscodeApi = acquireVsCodeApi();
-    const statusEl = document.getElementById('statusbar');
+    const statusEl = document.getElementById('status');
     const canvasEl = document.getElementById('canvas');
+    const animateEl = document.getElementById('animate');
     let nextReqId = 1;
     const pending = new Map();
 
@@ -305,15 +310,25 @@ function createWebviewHtml(
     }
 
     async function refreshFigure() {
-      const figure = await rpc('get_figure');
+      const figure = await rpc('get_figure', { animation: animateEl.checked });
       const layout = figure.layout || {};
       layout.uirevision = 'magpylib-studio';  // hold camera across edits
       layout.autosize = true;
       layout.showlegend = false;  // the Scene tree is the legend
       layout.margin = { l: 0, r: 0, t: 0, b: 0 };
-      Plotly.react(canvasEl, figure.data, layout, { responsive: true });
+      await Plotly.react(canvasEl, {
+        data: figure.data,
+        layout,
+        frames: figure.frames || [],
+        config: { responsive: true },
+      });
       statusEl.textContent = 'Ready';
     }
+
+    animateEl.addEventListener('change', () => {
+      statusEl.textContent = 'Loading…';
+      refreshFigure().catch((err) => { statusEl.textContent = String(err); });
+    });
 
     window.addEventListener('message', (event) => {
       const message = event.data;

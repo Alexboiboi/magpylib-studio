@@ -213,6 +213,16 @@ def test_load_example():
     assert ns["r2m01"].position.round(3).tolist() != [2.3, 0, 1.5]
 
 
+def test_get_figure_animation():
+    s = MagpylibStudioSession()
+    s.load_example()
+    animated = s.get_figure(animation=True)
+    assert len(animated.get("frames", [])) == 25  # one per sensor path point
+    assert "updatemenus" in animated["layout"]  # play button
+    json.dumps(animated)
+    assert not s.get_figure().get("frames")  # static by default
+
+
 def test_nested_structure_ops(session):
     assert session.add_object("grp", "Collection")["ok"] is True
     assert session.add_object("ball", "magnet.Sphere",
