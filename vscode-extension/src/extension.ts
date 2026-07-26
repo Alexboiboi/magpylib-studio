@@ -11,6 +11,12 @@ let selectedObjectId: string | undefined;
 let sceneTree: SceneTreeProvider | undefined;
 let inspector: InspectorViewProvider | undefined;
 let engineOutput: vscode.OutputChannel | undefined;
+let sceneDocEmitter: vscode.EventEmitter<vscode.Uri> | undefined;
+
+// Read-only virtual documents generated from the scene (git is the history:
+// the user saves these into their repo; the doc stays canonical).
+const SCRIPT_URI = vscode.Uri.parse('magpylib-studio:/scene.py');
+const SCENE_JSON_URI = vscode.Uri.parse('magpylib-studio:/scene.json');
 
 /** Repo root in the dev layout (vscode-extension/ inside the repo). */
 function repoRoot(context: vscode.ExtensionContext): string {
@@ -133,6 +139,8 @@ function broadcastMutation(): void {
     currentPanel?.webview.postMessage({ type: 'refresh' });
     sceneTree?.refresh();
     inspector?.refresh();
+    sceneDocEmitter?.fire(SCRIPT_URI);
+    sceneDocEmitter?.fire(SCENE_JSON_URI);
   }, 150);
 }
 
@@ -219,10 +227,53 @@ export function activate(context: vscode.ExtensionContext): void {
     broadcastMutation();
   };
 
+  sceneDocEmitter = new vscode.EventEmitter<vscode.Uri>();
+  const sceneDocProvider: vscode.TextDocumentContentProvider = {
+    onDidChange: sceneDocEmitter.event,
+    provideTextDocumentContent: async (uri) =>
+      uri.path.endsWith('.py')
+        ? getEngine(context).request<string>('to_script')
+        : JSON.stringify(await getEngine(context).request('to_dict'), null, 2),
+  };
+
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('magpylib-studio.sceneView', tree),
     vscode.window.registerWebviewViewProvider(InspectorViewProvider.viewId, inspector, {
       webviewOptions: { retainContextWhenHidden: true },
+    }),
+    vscode.workspace.registerTextDocumentContentProvider('magpylib-studio', sceneDocProvider),
+    vscode.commands.registerCommand('magpylib-studio.viewScript', async () => {
+      const doc = await vscode.workspace.openTextDocument(SCRIPT_URI);
+      await vscode.window.showTextDocument(doc, {
+        viewColumn: vscode.ViewColumn.Beside,
+        preview: false,
+      });
+    }),
+    vscode.commands.registerCommand('magpylib-studio.saveScene', async () => {
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+      const target = await vscode.window.showSaveDialog({
+        filters: { 'Python script': ['py'], 'Scene JSON': ['json'] },
+        defaultUri: workspaceRoot && vscode.Uri.joinPath(workspaceRoot, 'scene.py'),
+      });
+      if (!target) {
+        return;
+      }
+      const content = target.path.endsWith('.json')
+        ? JSON.stringify(await getEngine(context).request('to_dict'), null, 2) + '\n'
+        : (await getEngine(context).request<string>('to_script')) + '\n';
+      await vscode.workspace.fs.writeFile(target, Buffer.from(content, 'utf8'));
+      vscode.window.showInformationMessage(`Magpylib Studio: saved ${target.fsPath}`);
+    }),
+    vscode.commands.registerCommand('magpylib-studio.loadScene', async () => {
+      const picks = await vscode.window.showOpenDialog({
+        filters: { 'Scene JSON': ['json'] },
+        canSelectMany: false,
+      });
+      if (!picks?.length) {
+        return;
+      }
+      await mutateFromTree('load_scene', { scene: picks[0].fsPath });
+      openStudioPanel(context);
     }),
     vscode.commands.registerCommand('magpylib-studio.openStudio', () =>
       openStudioPanel(context),

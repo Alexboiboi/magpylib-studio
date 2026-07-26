@@ -58,9 +58,15 @@ and drives it.
     '(default)' / empty input resets the path. Skips free-form specs
     (`model3d.data`, `path.frames`).
   - Layout: tree click → host `selectedObjectId` → inspector loads it; the
-    Studio panel is **plot-only** now. `broadcastMutation()` refreshes plot +
-    tree + inspector after every edit from any surface (inspector widgets,
-    LM tools, tree commands).
+    Studio panel is **plot-only** now (with an "Animate paths" toggle; plot
+    template follows the VS Code theme). `broadcastMutation()` (debounced
+    150 ms) refreshes plot + tree + inspector + virtual docs after every edit
+    from any surface (inspector widgets, LM tools, tree commands).
+  - **Script/scene I/O**: read-only virtual docs `magpylib-studio:/scene.py`
+    (to_script) and `/scene.json` (to_dict) that live-update on every edit;
+    commands View Python Script ($(code) icon on the Scene view), Save Scene
+    As… (.py or .json via extension), Load Scene from File… (JSON; also
+    linked in the empty-view welcome). Script → doc import stays deferred.
   - Python resolution: `magpylib-studio.pythonPath` setting → workspace/.venv →
     repo-root/.venv → `python3`. Engine stderr → output channel.
   - Verified via `node` smoke test driving compiled `EngineClient` against the
@@ -120,8 +126,6 @@ check that `../magpylib` is on `feat/improve-style` and installed `-e`.
 - **Try it live**: open `vscode-extension/` in VS Code, F5, run
   "Magpylib Studio: Open Studio"; in Copilot chat try `make the cube green
   #magpyEdit` or `add a green sphere at [0,2,0] #magpyAdd`.
-- **Scene load/save UI** on top of `load_scene`/`to_dict`/`to_script`
-  (commands + file pickers; "export as Python script" is a one-liner).
 - **Tree drag & drop** (`TreeDragAndDropController` → `move_object`) and a
   "New Collection / move to..." context menu.
 - **Field evaluation tool** (`#magpyField` wrapping `getB` at the sensor) —
