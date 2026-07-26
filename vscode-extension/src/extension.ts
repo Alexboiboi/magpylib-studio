@@ -132,6 +132,64 @@ const PARAM_UNITS: Record<string, string> = {
   vertices: ' (m), x,y,z per point',
 };
 
+/** Rotation axis: a named axis or a free vector. */
+async function askRotationAxis(): Promise<string | number[] | undefined> {
+  const pick = await vscode.window.showQuickPick(
+    [
+      { label: 'x', detail: 'rotate about the x axis' },
+      { label: 'y', detail: 'rotate about the y axis' },
+      { label: 'z', detail: 'rotate about the z axis' },
+      { label: 'Custom vector…', detail: 'any direction, e.g. 1, 1, 0' },
+    ],
+    { placeHolder: 'Rotation axis' },
+  );
+  if (!pick) {
+    return undefined;
+  }
+  if (!pick.label.startsWith('Custom')) {
+    return pick.label;
+  }
+  const text = await vscode.window.showInputBox({
+    prompt: 'Axis direction as x, y, z',
+    value: '1, 1, 0',
+    validateInput: (v) =>
+      parseVector(v, 3)?.some((n) => n !== 0)
+        ? undefined
+        : 'Three numbers, not all zero',
+  });
+  return text ? parseVector(text, 3) : undefined;
+}
+
+/** Rotation anchor: spin in place, orbit the origin, or orbit a point. */
+async function askRotationAnchor(): Promise<
+  { value: number | number[] | undefined } | undefined
+> {
+  const pick = await vscode.window.showQuickPick(
+    [
+      { label: 'Itself', detail: 'spin in place, position unchanged' },
+      { label: 'Scene origin', detail: 'orbit (0, 0, 0)' },
+      { label: 'Custom point…', detail: 'orbit any point' },
+    ],
+    { placeHolder: 'Rotate around…' },
+  );
+  if (!pick) {
+    return undefined;
+  }
+  if (pick.label === 'Itself') {
+    return { value: undefined };
+  }
+  if (pick.label === 'Scene origin') {
+    return { value: 0 };
+  }
+  const text = await vscode.window.showInputBox({
+    prompt: 'Anchor point as x, y, z (m)',
+    value: '0, 0, 0',
+    validateInput: (v) => (parseVector(v, 3) ? undefined : 'Three numbers, e.g. 0, 0, 1'),
+  });
+  const anchor = text && parseVector(text, 3);
+  return anchor ? { value: anchor } : undefined;
+}
+
 /** Parse a free-form list of numbers ("1, 2 3"); undefined if none/invalid. */
 function parseNumbers(text: string): number[] | undefined {
   const parts = text
@@ -812,18 +870,12 @@ export function activate(context: vscode.ExtensionContext): void {
         if (!kind) {
           return;
         }
-        const axisPick = await vscode.window.showQuickPick(
-          [
-            { label: 'z — orbit the origin', axis: 'z', anchor: 0 as number | undefined },
-            { label: 'z — spin in place', axis: 'z', anchor: undefined },
-            { label: 'x — orbit the origin', axis: 'x', anchor: 0 },
-            { label: 'x — spin in place', axis: 'x', anchor: undefined },
-            { label: 'y — orbit the origin', axis: 'y', anchor: 0 },
-            { label: 'y — spin in place', axis: 'y', anchor: undefined },
-          ],
-          { placeHolder: 'Axis — orbit moves around the origin, spin turns in place' },
-        );
-        if (!axisPick) {
+        const axis = await askRotationAxis();
+        if (axis === undefined) {
+          return;
+        }
+        const anchor = await askRotationAnchor();
+        if (anchor === undefined) {
           return;
         }
         const text = await vscode.window.showInputBox({
@@ -849,8 +901,8 @@ export function activate(context: vscode.ExtensionContext): void {
         await mutateFromTree('rotate', {
           object_id: obj.id,
           angle,
-          axis: axisPick.axis,
-          ...(axisPick.anchor !== undefined ? { anchor: axisPick.anchor } : {}),
+          axis,
+          ...(anchor.value !== undefined ? { anchor: anchor.value } : {}),
           ...(kind.steps > 1 ? { start: -1 } : {}),
         });
       },
