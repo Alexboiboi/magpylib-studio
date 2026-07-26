@@ -96,31 +96,20 @@ const OBJECT_TEMPLATES: {
   { label: 'Collection', type: 'Collection', detail: 'empty group', params: {} },
 ];
 
-/**
- * Ask whether a transform is a single step or an animation path, and how many
- * steps. Common step counts are offered directly so the usual cases are one
- * click; "Custom…" prompts for any number.
- */
-async function askPathOrSingle(
-  title: string,
-  verb: 'move' | 'rotate',
-): Promise<{ steps: number } | undefined> {
-  const example = verb === 'rotate' ? '36 steps ≈ 10° each' : 'smooth sweep';
+/** Ask whether a transform applies once or builds an animation path. */
+async function askPathOrSingle(title: string): Promise<{ steps: number } | undefined> {
   const pick = await vscode.window.showQuickPick(
     [
-      { label: 'Single step', detail: 'Apply once — no path', steps: 1 },
-      { label: 'Path — 10 steps', detail: 'animation path', steps: 10 },
-      { label: 'Path — 24 steps', detail: 'animation path', steps: 24 },
-      { label: 'Path — 36 steps', detail: example, steps: 36 },
-      { label: 'Path — custom…', detail: 'choose the number of steps', steps: 0 },
+      { label: 'Scalar', detail: 'apply once', path: false },
+      { label: 'Path', detail: 'spread over an animation path', path: true },
     ],
-    { placeHolder: `${title}: single step or animation path?` },
+    { placeHolder: `${title}: scalar or path?` },
   );
   if (!pick) {
     return undefined;
   }
-  if (pick.steps > 0) {
-    return { steps: pick.steps };
+  if (!pick.path) {
+    return { steps: 1 };
   }
   const text = await vscode.window.showInputBox({
     prompt: 'Number of path steps',
@@ -734,7 +723,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(
       'magpylib-studio.moveBy',
       async (obj: SceneObject) => {
-        const kind = await askPathOrSingle(`Move "${obj.label}"`, 'move');
+        const kind = await askPathOrSingle(`Move "${obj.label}"`);
         if (!kind) {
           return;
         }
@@ -767,7 +756,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(
       'magpylib-studio.rotateBy',
       async (obj: SceneObject) => {
-        const kind = await askPathOrSingle(`Rotate "${obj.label}"`, 'rotate');
+        const kind = await askPathOrSingle(`Rotate "${obj.label}"`);
         if (!kind) {
           return;
         }
