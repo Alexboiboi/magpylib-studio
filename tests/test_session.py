@@ -75,6 +75,83 @@ def test_to_script_is_valid_magpylib_code(session):
     assert ns["cube"].style.magnetization.mode == "arrow"
 
 
+def test_add_object(session):
+    res = session.add_object(
+        "sphere", "magnet.Sphere",
+        params={"polarization": [0, 1, 0], "diameter": 1, "position": [0, 2.5, 0]},
+        style={"label": "Ball", "color": "green"},
+    )
+    assert res == {"ok": True}
+    assert [o["id"] for o in session.list_objects()] == ["cube", "cyl", "sphere"]
+    assert session._objs["sphere"].style.color == "green"
+    assert len(session.scene.children) == 3
+
+
+def test_add_object_rejects_duplicate_id_and_bad_specs(session):
+    assert session.add_object("cube", "magnet.Sphere")["ok"] is False
+    # unknown type and invalid params roll back without touching the scene
+    assert session.add_object("x", "magnet.Nope")["ok"] is False
+    assert session.add_object("x", "magnet.Sphere", params={"bogus": 1})["ok"] is False
+    assert [o["id"] for o in session.list_objects()] == ["cube", "cyl"]
+    assert session._objs["cube"] is not None  # scene rebuilt and usable
+    session.get_figure()
+
+
+def test_remove_object(session):
+    assert session.remove_object("cyl") == {"ok": True}
+    assert [o["id"] for o in session.list_objects()] == ["cube"]
+    assert len(session.scene.children) == 1
+    with pytest.raises(KeyError):
+        session.remove_object("cyl")  # unknown id raises, like apply_edit
+
+
+def test_set_param_moves_object_and_syncs_doc(session):
+    assert session.set_param("cube", "position", [0, 0, 3]) == {"ok": True}
+    assert list(session._objs["cube"].position) == [0, 0, 3]
+    assert session._spec("cube")["params"]["position"] == [0, 0, 3]
+    # bad param name rolls back
+    res = session.set_param("cube", "bogus", 1)
+    assert res["ok"] is False
+    assert "bogus" not in session._spec("cube")["params"]
+
+
+def test_set_param_survives_round_trip(session):
+    session.set_param("cube", "position", [1, 2, 3])
+    ns = {}
+    exec(session.to_script().replace("scene.show(backend='plotly')", ""), ns)  # noqa: S102
+    assert list(ns["cube"].position) == [1, 2, 3]
+
+
+def test_reset_style(session):
+    session.apply_edit("cube", "color", "red")
+    session.apply_edit("cube", "opacity", 0.5)
+    assert session.reset_style("cube", "color") == {"ok": True}
+    assert session._objs["cube"].style.color is None
+    assert session._objs["cube"].style.opacity == 0.5  # others untouched
+    assert session.reset_style("cube", "color")["ok"] is False  # not set anymore
+    assert session.reset_style("cube") == {"ok": True}  # clear all
+    assert session._spec("cube")["style"] == {}
+    assert session._objs["cube"].style.opacity is None
+
+
+def test_load_scene_from_dict_and_file(session, tmp_path):
+    doc = {"objects": [{"id": "solo", "type": "magnet.Sphere",
+                        "params": {"polarization": [0, 0, 1], "diameter": 2},
+                        "style": {"label": "Solo"}}]}
+    assert session.load_scene(doc) == {"ok": True}
+    assert [o["id"] for o in session.list_objects()] == ["solo"]
+
+    path = tmp_path / "scene.json"
+    path.write_text(json.dumps({"objects": []}), encoding="utf-8")
+    assert session.load_scene(str(path)) == {"ok": True}
+    assert session.list_objects() == []
+
+    # bad path and bad document are reported, scene untouched
+    assert session.load_scene(str(tmp_path / "missing.json"))["ok"] is False
+    assert session.load_scene({"nope": []})["ok"] is False
+    assert session.list_objects() == []
+
+
 def test_jsonrpc_roundtrip():
     """Drive the stdio server end to end through pipes."""
     requests = [

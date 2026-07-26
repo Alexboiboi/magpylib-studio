@@ -12,6 +12,11 @@ Protocol surface (all JSON-serializable in/out):
   get_values(object_id)                -> {"set": {...}, "resolved": {...}}
   get_figure()                         -> plotly figure JSON of the whole scene
   apply_edit(object_id, path, value)   -> {"ok": bool, "error"?: str}
+  add_object(object_id, type, params?, style?) -> {"ok": bool, "error"?: str}
+  remove_object(object_id)             -> {"ok": bool, "error"?: str}
+  set_param(object_id, name, value)    -> {"ok": bool, "error"?: str}
+  reset_style(object_id, path?)        -> {"ok": bool, "error"?: str}
+  load_scene(scene | path)             -> {"ok": bool, "error"?: str}
   to_dict()                            -> the scene document
   to_script()                          -> equivalent magpylib Python code
 """
@@ -79,6 +84,7 @@ class MagpylibStudioSession:
         self._build()
 
     def _build(self):
+        self._objs = {}
         objs = []
         for spec in self.doc["objects"]:
             cls = _resolve_type(spec["type"])
@@ -88,6 +94,23 @@ class MagpylibStudioSession:
             self._objs[spec["id"]] = obj
             objs.append(obj)
         self.scene = magpy.Collection(*objs)
+
+    def _mutate_doc(self, mutate):
+        """Apply `mutate(doc)` and rebuild; on any failure restore the old doc.
+
+        The doc stays the single source of truth: structural edits go through
+        the same build path as startup, so a doc that builds once always
+        rebuilds — bad mutations are rolled back and reported, never applied.
+        """
+        snapshot = json.loads(json.dumps(self.doc))
+        try:
+            mutate(self.doc)
+            self._build()
+        except Exception as e:  # noqa: BLE001 - report every failure to the caller
+            self.doc = snapshot
+            self._build()
+            return {"ok": False, "error": str(e)}
+        return {"ok": True}
 
     def _spec(self, object_id):
         for spec in self.doc["objects"]:
@@ -130,6 +153,70 @@ class MagpylibStudioSession:
             return {"ok": False, "error": str(e)}
         self._spec(object_id)["style"] = dict(obj.style.set_values())  # keep doc synced
         return {"ok": True}
+
+    # --- scene structure ---------------------------------------------------
+    def add_object(self, object_id, type, params=None, style=None):
+        if any(s["id"] == object_id for s in self.doc["objects"]):
+            return {"ok": False, "error": f"object id {object_id!r} already exists"}
+
+        def mutate(doc):
+            doc["objects"].append(
+                {
+                    "id": object_id,
+                    "type": type,
+                    "params": params or {},
+                    "style": style or {},
+                }
+            )
+
+        return self._mutate_doc(mutate)
+
+    def remove_object(self, object_id):
+        self._spec(object_id)  # raise early on unknown id
+
+        def mutate(doc):
+            doc["objects"] = [s for s in doc["objects"] if s["id"] != object_id]
+
+        return self._mutate_doc(mutate)
+
+    def set_param(self, object_id, name, value):
+        """Set a constructor parameter (position, dimension, polarization, ...)."""
+        spec = self._spec(object_id)
+
+        def mutate(doc):
+            spec.setdefault("params", {})[name] = value
+
+        return self._mutate_doc(mutate)
+
+    def reset_style(self, object_id, path=None):
+        """Reset one style path (or all styles) to defaults by dropping it
+        from the doc and rebuilding — the property tree has no unset."""
+        spec = self._spec(object_id)
+        if path is not None and path not in spec.get("style", {}):
+            return {"ok": False, "error": f"style path {path!r} is not set on {object_id!r}"}
+
+        def mutate(doc):
+            if path is None:
+                spec["style"] = {}
+            else:
+                del spec["style"][path]
+
+        return self._mutate_doc(mutate)
+
+    def load_scene(self, scene):
+        """Replace the whole document. `scene` is a document dict or a path to
+        a JSON file containing one. (Script -> document is deferred by design.)"""
+        if isinstance(scene, str):
+            try:
+                with open(scene, encoding="utf-8") as f:
+                    scene = json.load(f)
+            except (OSError, json.JSONDecodeError) as e:
+                return {"ok": False, "error": str(e)}
+
+        def mutate(doc):
+            self.doc = json.loads(json.dumps(scene))
+
+        return self._mutate_doc(mutate)
 
     # --- serialization / round-trip ---------------------------------------
     def to_dict(self):

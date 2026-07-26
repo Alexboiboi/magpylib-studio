@@ -117,38 +117,39 @@ function toolResult(payload: unknown): vscode.LanguageModelToolResult {
 }
 
 function registerLmTools(context: vscode.ExtensionContext): void {
-  context.subscriptions.push(
-    vscode.lm.registerTool('magpylib-studio_listObjects', {
-      async invoke() {
-        return toolResult(await getEngine(context).request('list_objects'));
-      },
-    }),
-    vscode.lm.registerTool<{ object_id: string }>('magpylib-studio_getSchema', {
-      async invoke(options) {
+  /** Read-only tool: forward input as RPC params, return the result. */
+  const queryTool = (toolName: string, method: string) =>
+    vscode.lm.registerTool(toolName, {
+      async invoke(options: vscode.LanguageModelToolInvocationOptions<object>) {
         return toolResult(
-          await getEngine(context).request('get_schema', {
-            object_id: options.input.object_id,
-          }),
+          await getEngine(context).request(
+            method,
+            options.input as Record<string, unknown>,
+          ),
         );
       },
-    }),
-    vscode.lm.registerTool<{ object_id: string; path: string; value: unknown }>(
-      'magpylib-studio_applyEdit',
-      {
-        async invoke(options) {
-          const { object_id, path: stylePath, value } = options.input;
-          const result = (await getEngine(context).request('apply_edit', {
-            object_id,
-            path: stylePath,
-            value,
-          })) as { ok: boolean; error?: string };
-          if (result.ok) {
-            refreshPanel();
-          }
-          return toolResult(result);
-        },
+    });
+  /** Mutating tool: same, but refresh the Studio panel when the edit sticks. */
+  const editTool = (toolName: string, method: string) =>
+    vscode.lm.registerTool(toolName, {
+      async invoke(options: vscode.LanguageModelToolInvocationOptions<object>) {
+        const result = (await getEngine(context).request(
+          method,
+          options.input as Record<string, unknown>,
+        )) as { ok: boolean; error?: string };
+        if (result.ok) {
+          refreshPanel();
+        }
+        return toolResult(result);
       },
-    ),
+    });
+  context.subscriptions.push(
+    queryTool('magpylib-studio_listObjects', 'list_objects'),
+    queryTool('magpylib-studio_getSchema', 'get_schema'),
+    editTool('magpylib-studio_applyEdit', 'apply_edit'),
+    editTool('magpylib-studio_addObject', 'add_object'),
+    editTool('magpylib-studio_removeObject', 'remove_object'),
+    editTool('magpylib-studio_setParam', 'set_param'),
   );
 }
 

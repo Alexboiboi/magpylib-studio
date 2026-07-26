@@ -62,6 +62,85 @@
         }
       },
       {
+        "name": "magpylib-studio_addObject",
+        "displayName": "Add magpylib object",
+        "toolReferenceName": "magpyAdd",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "Add a new object to the magpylib Studio scene. 'type' is a dotted magpylib class path like 'magnet.Cuboid', 'magnet.Cylinder', 'magnet.Sphere', 'current.Circle' or 'Sensor'. 'params' are the constructor kwargs (e.g. polarization, dimension/diameter, position); 'style' maps dotted style paths to values. On failure the result contains the constructor/validation error - fix and retry.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "object_id": {
+              "type": "string",
+              "description": "New unique id for the object (used as the variable name in generated scripts)."
+            },
+            "type": {
+              "type": "string",
+              "description": "Dotted magpylib class path, e.g. 'magnet.Sphere'."
+            },
+            "params": {
+              "type": "object",
+              "description": "Constructor kwargs, e.g. {\"polarization\": [0,0,1], \"diameter\": 1, \"position\": [0,2,0]}."
+            },
+            "style": {
+              "type": "object",
+              "description": "Optional style, dotted paths to values, e.g. {\"label\": \"Ball\", \"color\": \"green\"}."
+            }
+          },
+          "required": [
+            "object_id",
+            "type"
+          ]
+        }
+      },
+      {
+        "name": "magpylib-studio_removeObject",
+        "displayName": "Remove magpylib object",
+        "toolReferenceName": "magpyRemove",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "Remove one object from the magpylib Studio scene by id.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "object_id": {
+              "type": "string",
+              "description": "Id of the scene object to remove, as returned by the list objects tool."
+            }
+          },
+          "required": [
+            "object_id"
+          ]
+        }
+      },
+      {
+        "name": "magpylib-studio_setParam",
+        "displayName": "Set magpylib object parameter",
+        "toolReferenceName": "magpyParam",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "Set a constructor parameter of a magpylib scene object - position, dimension, diameter, polarization, ... Use this to move or resize objects (style edits use the apply edit tool instead). On failure the result contains the error - fix and retry.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "object_id": {
+              "type": "string",
+              "description": "Id of the scene object, as returned by the list objects tool."
+            },
+            "name": {
+              "type": "string",
+              "description": "Parameter name, e.g. 'position', 'dimension', 'polarization'."
+            },
+            "value": {
+              "description": "New value, e.g. [0, 0, 2] for position."
+            }
+          },
+          "required": [
+            "object_id",
+            "name",
+            "value"
+          ]
+        }
+      },
+      {
         "name": "magpylib-studio_applyEdit",
         "displayName": "Edit magpylib style",
         "toolReferenceName": "magpyEdit",

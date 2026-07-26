@@ -14,10 +14,14 @@ and drives it.
 
 - `magpylib_studio/session.py` — `MagpylibStudioSession`: `list_objects`, `get_schema`,
   `get_values` (set vs resolved), `get_figure` (plotly JSON), `apply_edit`,
-  `to_dict`, `to_script`.
+  `add_object`, `remove_object`, `set_param` (move/resize/repolarize),
+  `reset_style` (drop from doc + rebuild; the property tree has no unset),
+  `load_scene` (dict or JSON file path), `to_dict`, `to_script`. Structural
+  edits go through `_mutate_doc`: mutate doc → rebuild scene; on failure the
+  old doc is restored and the error reported (`{"ok": false, ...}`).
 - `magpylib_studio/rpc.py` — JSON-RPC stdio loop (`serve`), method allow-list.
 - `magpylib_studio/__main__.py` — `python -m magpylib_studio`.
-- `tests/test_session.py` — 9 tests, **all green**, ruff clean.
+- `tests/test_session.py` — 16 tests, **all green**, ruff clean (`uvx ruff check`).
 - Verified: real subprocess driven through pipes; scene document round-trips
   through rebuild; `to_script()` emits code that executes and reproduces edits;
   invalid edits are reported (`{"ok": false, "error": ...}`) not raised.
@@ -26,9 +30,11 @@ and drives it.
     the request-id space, line-buffered stdout, rejects on engine exit).
   - `src/extension.ts` — `openStudio` command → webview (bundled plotly.js 3.x
     via webview URI + CSP nonce, `uirevision` holds the camera, object picker,
-    schema + set-values panes, manual edit form) and three **`vscode.lm`
-    Language Model Tools**: `#magpyObjects`, `#magpySchema`, `#magpyEdit`
-    (successful edit auto-refreshes the panel). One shared engine process.
+    schema + set-values panes, manual edit form) and six **`vscode.lm`
+    Language Model Tools**: `#magpyObjects`, `#magpySchema`, `#magpyEdit`,
+    `#magpyAdd`, `#magpyRemove`, `#magpyParam` (successful edits auto-refresh
+    the panel). One shared engine process. Tool names declared in package.json
+    must exactly match those registered in `registerLmTools`.
   - Python resolution: `magpylib-studio.pythonPath` setting → workspace/.venv →
     repo-root/.venv → `python3`. Engine stderr → output channel.
   - Verified via `node` smoke test driving compiled `EngineClient` against the
@@ -86,13 +92,12 @@ check that `../magpylib` is on `feat/improve-style` and installed `-e`.
 ## Next steps (pick one)
 
 - **Try it live**: open `vscode-extension/` in VS Code, F5, run
-  "magpylib Studio: Open Studio"; in Copilot chat try `make the cube green #magpyEdit`.
+  "magpylib Studio: Open Studio"; in Copilot chat try `make the cube green
+  #magpyEdit` or `add a green sphere at [0,2,0] #magpyAdd`.
 - **Schema-driven inspector**: replace the raw-JSON schema pane + free-text
   path/value form with real widgets generated from `get_schema()` (the Solara
   POC shows the mapping: enum → dropdown, number → slider/input, color → picker).
-- **Extend the engine**: `add_object` / `remove_object` / `move`,
-  `load_scene(path)` from a `.py`/JSON file, `get_defaults`/reset. All pure
-  Python, testable now. Then surface as more LM tools.
+  Add scene load/save UI on top of `load_scene`/`to_dict`/`to_script`.
 - **Chat Participant `@magpy`** if richer chat UX than plain tools is wanted.
 
 ## Gotchas

@@ -23,6 +23,11 @@ _PUBLIC = {
     "get_values",
     "get_figure",
     "apply_edit",
+    "add_object",
+    "remove_object",
+    "set_param",
+    "reset_style",
+    "load_scene",
     "to_dict",
     "to_script",
 }

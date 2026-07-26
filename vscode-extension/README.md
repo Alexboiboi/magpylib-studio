@@ -12,8 +12,10 @@ newline-delimited JSON-RPC over stdio.
   form.
 - **Language Model Tools** (native Copilot chat, no API key):
   `#magpyObjects` (list scene objects), `#magpySchema` (style JSON Schema for
-  an object), `#magpyEdit` (set one dotted style path, validated by magpylib).
-  A successful `#magpyEdit` auto-refreshes the open Studio panel.
+  an object), `#magpyEdit` (set one dotted style path, validated by magpylib),
+  `#magpyAdd` / `#magpyRemove` (add/remove scene objects), `#magpyParam`
+  (constructor params: move, resize, repolarize). Successful edits
+  auto-refresh the open Studio panel.
 
 Both the webview and the LM tools share one engine process
 ([src/engineClient.ts](src/engineClient.ts) — promise-based RPC client that
