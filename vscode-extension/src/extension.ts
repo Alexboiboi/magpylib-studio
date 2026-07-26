@@ -48,7 +48,7 @@ function getEngine(context: vscode.ExtensionContext): EngineClient {
   }
   const pythonPath = findPython(context);
   const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? repoRoot(context);
-  engineOutput ??= vscode.window.createOutputChannel('magpylib Studio Engine');
+  engineOutput ??= vscode.window.createOutputChannel('Magpylib Studio Engine');
   const client = new EngineClient(pythonPath, cwd);
   client.onStderr = (text) => engineOutput?.append(text);
   client.onExit = (code) => {
@@ -76,7 +76,7 @@ function openStudioPanel(context: vscode.ExtensionContext): void {
   }
   const panel = vscode.window.createWebviewPanel(
     'magpylibStudio',
-    'magpylib Studio',
+    'Magpylib Studio',
     vscode.ViewColumn.One,
     {
       enableScripts: true,
@@ -209,11 +209,11 @@ export function activate(context: vscode.ExtensionContext): void {
         error?: string;
       };
       if (!result.ok) {
-        vscode.window.showErrorMessage(`magpylib Studio: ${result.error}`);
+        vscode.window.showErrorMessage(`Magpylib Studio: ${result.error}`);
       }
     } catch (err) {
       vscode.window.showErrorMessage(
-        `magpylib Studio: ${err instanceof Error ? err.message : err}`,
+        `Magpylib Studio: ${err instanceof Error ? err.message : err}`,
       );
     }
     broadcastMutation();
@@ -274,7 +274,7 @@ function createWebviewHtml(
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} data: blob:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' ${webview.cspSource}; font-src ${webview.cspSource};" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>magpylib Studio</title>
+  <title>Magpylib Studio</title>
   <style>
     html, body { margin: 0; height: 100%; font-family: var(--vscode-font-family, sans-serif); color: var(--vscode-foreground); }
     body { display: flex; flex-direction: column; }

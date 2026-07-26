@@ -111,7 +111,7 @@ check that `../magpylib` is on `feat/improve-style` and installed `-e`.
 ## Next steps (pick one)
 
 - **Try it live**: open `vscode-extension/` in VS Code, F5, run
-  "magpylib Studio: Open Studio"; in Copilot chat try `make the cube green
+  "Magpylib Studio: Open Studio"; in Copilot chat try `make the cube green
   #magpyEdit` or `add a green sphere at [0,2,0] #magpyAdd`.
 - **Scene load/save UI** on top of `load_scene`/`to_dict`/`to_script`
   (commands + file pickers; "export as Python script" is a one-liner).

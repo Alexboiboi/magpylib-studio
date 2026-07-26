@@ -1,4 +1,4 @@
-# magpylib Studio VS Code Extension
+# Magpylib Studio VS Code Extension
 
 VS Code shell for the headless `magpylib-studio` engine (the Python package in
 the repo root). It spawns `python -m magpylib_studio` and talks
@@ -6,7 +6,7 @@ newline-delimited JSON-RPC over stdio.
 
 ## What it provides
 
-- **Command** `magpylib Studio: Open Studio` — the live plotly 3D view
+- **Command** `Magpylib Studio: Open Studio` — the live plotly 3D view
   (camera held across edits via `uirevision`). Just the plot: selection and
   editing live in the sidebar.
 - **Scene view** — the magpylib-logo icon in the activity bar opens a sidebar
@@ -47,7 +47,7 @@ npm run compile     # or: npm run watch
 ```
 
 Then open **this folder** in VS Code and press `F5` (launch config included).
-In the Extension Development Host run the `magpylib Studio: Open Studio`
+In the Extension Development Host run the `Magpylib Studio: Open Studio`
 command, or ask Copilot chat e.g. `make the cube green #magpyEdit`.
 
 ## Python interpreter resolution
@@ -64,4 +64,4 @@ root `CONTINUE.md`); the repo-root `.venv` has it installed.
 
 - plotly.js is bundled from `plotly.js-dist-min` (3.x, matching Python
   plotly 6.x) and loaded via a webview URI — no CDN, works offline, CSP-clean.
-- Engine stderr goes to the "magpylib Studio Engine" output channel.
+- Engine stderr goes to the "Magpylib Studio Engine" output channel.
