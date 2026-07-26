@@ -69,7 +69,7 @@
     "viewsWelcome": [
       {
         "view": "magpylib-studio.sceneView",
-        "contents": "The scene is empty.\n[Load Example Scene](command:magpylib-studio.loadExample)\nA Halbach ring with a coil pair and a sensor.\nOr ask Copilot chat to add objects with #magpyAdd."
+        "contents": "The scene is empty.\n[Load Example Scene](command:magpylib-studio.loadExample)\nTwo stacked Halbach rings and a sensor path along the bore.\nOr ask Copilot chat to add objects with #magpyAdd."
       }
     ],
     "menus": {
@@ -156,7 +156,7 @@
         "displayName": "Add magpylib object",
         "toolReferenceName": "magpyAdd",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "Add ONE new object to the Magpylib Studio scene; to create several objects use the batch tool in a single call instead. 'type' is a dotted magpylib class path like 'magnet.Cuboid', 'magnet.Cylinder', 'magnet.Sphere', 'current.Circle' or 'Sensor'. 'params' are the constructor kwargs (e.g. polarization, dimension/diameter, position); 'style' maps dotted style paths to values. On failure the result contains the constructor/validation error - fix and retry. Note: on magnets the default magnetization coloring masks the base 'color' style - for a visible solid color also include 'magnetization.mode': 'arrow'.",
+        "modelDescription": "Add ONE new object to the Magpylib Studio scene; to create several objects use the batch tool in a single call instead. 'type' is a dotted magpylib class path like 'magnet.Cuboid', 'magnet.Cylinder', 'magnet.Sphere', 'current.Circle' or 'Sensor'. 'params' are the constructor kwargs (e.g. polarization, dimension/diameter, position; a Sensor position may be a list of [x,y,z] points forming a path). 'rotations' optionally rotates the object after construction (e.g. Halbach arrangements: orbit with anchor 0, then spin in place). On failure the result contains the constructor/validation error - fix and retry. Note: on magnets the default magnetization coloring masks the base 'color' style - for a visible solid color also include 'magnetization.mode': 'arrow'.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -175,6 +175,26 @@
             "style": {
               "type": "object",
               "description": "Optional style, dotted paths to values, e.g. {\"label\": \"Ball\", \"color\": \"green\"}."
+            },
+            "rotations": {
+              "type": "array",
+              "description": "Optional rotations applied in order after construction. Each: {\"angle\": degrees, \"axis\": \"x\"|\"y\"|\"z\", \"anchor\": 0 or [x,y,z]}; omit 'anchor' to spin in place, anchor 0 orbits the origin.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "angle": {
+                    "type": "number"
+                  },
+                  "axis": {
+                    "type": "string"
+                  },
+                  "anchor": {}
+                },
+                "required": [
+                  "angle",
+                  "axis"
+                ]
+              }
             }
           },
           "required": [

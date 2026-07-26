@@ -195,14 +195,35 @@ def test_load_example():
     s = MagpylibStudioSession()
     assert s.load_example() == {"ok": True}
     objs = s.list_objects()
-    types = {o["type"] for o in objs}
-    assert {"magnet.Cuboid", "current.Circle", "Sensor"} <= types
-    assert len(objs) == 15  # 12 ring magnets + 2 coils + sensor
+    assert {o["type"] for o in objs} == {"magnet.Cuboid", "Sensor"}
+    assert len(objs) == 21  # 2 Halbach rings x 10 rotated cuboids + sensor
     assert len(s.get_figure()["data"]) > 0
     # the example round-trips through the generated script
     ns = {}
     exec(s.to_script().replace("scene.show(backend='plotly')", ""), ns)  # noqa: S102
-    assert ns["sensor"].position.tolist() == [0, 0, 0]
+    assert ns["sensor"].position.shape == (25, 3)  # path along the bore axis
+    assert ns["r2m01"].position.round(6).tolist() == [2.3, 0, 1.5]  # second ring above
+
+
+def test_rotations_build_and_round_trip():
+    doc = {"objects": [{
+        "id": "m", "type": "magnet.Cuboid",
+        "params": {"dimension": [1, 1, 1], "polarization": [1, 0, 0],
+                   "position": [2.3, 0, 0]},
+        "rotations": [{"angle": 90, "axis": "z", "anchor": 0},
+                      {"angle": 90, "axis": "z"}],
+    }]}
+    s = MagpylibStudioSession(json.loads(json.dumps(doc)))
+    assert s._objs["m"].position.round(6).tolist() == [0, 2.3, 0]  # orbited 90°
+    # generated script replays the rotations: same position, 180° total spin
+    ns = {}
+    exec(s.to_script().replace("scene.show(backend='plotly')", ""), ns)  # noqa: S102
+    assert ns["m"].position.round(6).tolist() == [0, 2.3, 0]
+    zrot = ns["m"].orientation.as_euler("xyz", degrees=True)[2]
+    assert abs(round(abs(zrot), 3)) == 180
+    # rebuild from the exported doc reproduces the same scene
+    rebuilt = MagpylibStudioSession(json.loads(json.dumps(s.to_dict())))
+    assert rebuilt._objs["m"].position.round(6).tolist() == [0, 2.3, 0]
 
 
 def test_clear_scene(session):

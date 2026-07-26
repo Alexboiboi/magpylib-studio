@@ -19,10 +19,13 @@ and drives it.
   `load_scene` (dict or JSON file path), `load_example`, `clear_scene`,
   `batch` (list of mutating ops in one call, continues past failures,
   per-op results), `to_dict`, `to_script`. **Sessions start empty**;
-  `example_scene()` builds the showcase doc (Halbach ring of 12 cuboids +
-  coil pair + sensor). Structural edits go through `_mutate_doc`: mutate
-  doc → rebuild scene; on failure the old doc is restored and the error
-  reported (`{"ok": false, ...}`).
+  `example_scene()` builds the showcase doc: two stacked Halbach rings of 10
+  rotated cuboids + a sensor path along the bore. Object specs support an
+  optional `"rotations"` list ({angle, axis, anchor?}, applied in order via
+  `rotate_from_angax`; no anchor = spin in place) — how orientation is
+  expressed in the JSON doc; `to_script` replays them. Structural edits go
+  through `_mutate_doc`: mutate doc → rebuild scene; on failure the old doc
+  is restored and the error reported (`{"ok": false, ...}`).
 - `magpylib_studio/rpc.py` — JSON-RPC stdio loop (`serve`), method allow-list.
 - `magpylib_studio/__main__.py` — `python -m magpylib_studio`.
 - `tests/test_session.py` — 21 tests, **all green**, ruff clean (`uvx ruff check`).

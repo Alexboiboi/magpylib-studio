@@ -12,7 +12,7 @@ Protocol surface (all JSON-serializable in/out):
   get_values(object_id)                -> {"set": {...}, "resolved": {...}}
   get_figure()                         -> plotly figure JSON of the whole scene
   apply_edit(object_id, path, value)   -> {"ok": bool, "error"?: str}
-  add_object(object_id, type, params?, style?) -> {"ok": bool, "error"?: str}
+  add_object(object_id, type, params?, style?, rotations?) -> {"ok": bool, ...}
   remove_object(object_id)             -> {"ok": bool, "error"?: str}
   set_param(object_id, name, value)    -> {"ok": bool, "error"?: str}
   reset_style(object_id, path?)        -> {"ok": bool, "error"?: str}
@@ -27,7 +27,6 @@ Protocol surface (all JSON-serializable in/out):
 from __future__ import annotations
 
 import json
-import math
 
 import magpylib as magpy
 from magpylib._src.defaults.defaults_classes import default_settings
@@ -35,46 +34,37 @@ from magpylib._src.style import get_style
 
 
 def example_scene():
-    """The built-in showcase scene: a Halbach-style ring of 12 cuboids
-    (polarization rotating at twice the ring angle, after the magpylib docs
-    Halbach examples), a coil pair, and a central sensor."""
+    """The built-in showcase scene: two stacked Halbach rings of 10 rotated
+    cuboids each (each cuboid orbited AND spun by the ring angle, the classic
+    magpylib docs pattern), plus a sensor path along the bore axis."""
     objects = []
-    for i in range(12):
-        a = 2 * math.pi * i / 12
-        objects.append(
-            {
-                "id": f"mag{i + 1:02d}",
-                "type": "magnet.Cuboid",
-                "params": {
-                    "polarization": [
-                        round(math.cos(2 * a), 4),
-                        round(math.sin(2 * a), 4),
-                        0,
+    n = 10
+    for ring, z in ((1, 0.0), (2, 1.5)):
+        for i in range(n):
+            angle = 360 * i / n
+            objects.append(
+                {
+                    "id": f"r{ring}m{i + 1:02d}",
+                    "type": "magnet.Cuboid",
+                    "params": {
+                        "dimension": [1, 1, 1],
+                        "polarization": [1, 0, 0],
+                        "position": [2.3, 0, z],
+                    },
+                    "rotations": [
+                        {"angle": angle, "axis": "z", "anchor": 0},
+                        {"angle": angle, "axis": "z"},
                     ],
-                    "dimension": [1, 1, 1],
-                    "position": [
-                        round(3 * math.cos(a), 4),
-                        round(3 * math.sin(a), 4),
-                        0,
-                    ],
-                },
-                "style": {"label": f"Halbach {i + 1:02d}"},
-            }
-        )
-    for sign, name in ((1, "top"), (-1, "bottom")):
-        objects.append(
-            {
-                "id": f"coil_{name}",
-                "type": "current.Circle",
-                "params": {"current": 200, "diameter": 9, "position": [0, 0, 2 * sign]},
-                "style": {"label": f"Coil {name}"},
-            }
-        )
+                    "style": {"label": f"Ring{ring} {i + 1:02d}"},
+                }
+            )
     objects.append(
         {
             "id": "sensor",
             "type": "Sensor",
-            "params": {"position": [0, 0, 0]},
+            "params": {
+                "position": [[0, 0, round(-1.5 + 4.5 * i / 24, 3)] for i in range(25)]
+            },
             "style": {"label": "Sensor"},
         }
     )
@@ -126,6 +116,11 @@ class MagpylibStudioSession:
         for spec in self.doc["objects"]:
             cls = _resolve_type(spec["type"])
             obj = cls(**dict(spec.get("params", {})))
+            # optional post-construction rotations, applied in order:
+            # {"angle": deg, "axis": "z", "anchor": 0 | [x,y,z]}; no anchor
+            # rotates in place (how Halbach-style patterns are expressed)
+            for rot in spec.get("rotations", []):
+                obj.rotate_from_angax(rot["angle"], rot["axis"], anchor=rot.get("anchor"))
             for path, value in spec.get("style", {}).items():
                 obj.style.set(path, value)  # dotted-path set (same as the GUI/LLM)
             self._objs[spec["id"]] = obj
@@ -192,19 +187,20 @@ class MagpylibStudioSession:
         return {"ok": True}
 
     # --- scene structure ---------------------------------------------------
-    def add_object(self, object_id, type, params=None, style=None):
+    def add_object(self, object_id, type, params=None, style=None, rotations=None):
         if any(s["id"] == object_id for s in self.doc["objects"]):
             return {"ok": False, "error": f"object id {object_id!r} already exists"}
 
         def mutate(doc):
-            doc["objects"].append(
-                {
-                    "id": object_id,
-                    "type": type,
-                    "params": params or {},
-                    "style": style or {},
-                }
-            )
+            spec = {
+                "id": object_id,
+                "type": type,
+                "params": params or {},
+                "style": style or {},
+            }
+            if rotations:
+                spec["rotations"] = rotations
+            doc["objects"].append(spec)
 
         return self._mutate_doc(mutate)
 
@@ -297,6 +293,12 @@ class MagpylibStudioSession:
             if s.get("style"):
                 parts.append(f"style={_nest(s['style'])!r}")
             lines.append(f"{name} = magpy.{s['type']}({', '.join(parts)})")
+            for rot in s.get("rotations", []):
+                args = f"{rot['angle']!r}, {rot['axis']!r}"
+                anchor = rot.get("anchor")
+                if anchor is not None:
+                    args += f", anchor={tuple(anchor) if isinstance(anchor, list) else anchor!r}"
+                lines.append(f"{name}.rotate_from_angax({args})")
         lines += ["", f"scene = magpy.Collection({', '.join(names)})",
                   "scene.show(backend='plotly')"]
         return "\n".join(lines)
