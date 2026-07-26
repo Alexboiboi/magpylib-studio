@@ -29,8 +29,10 @@ edit, whatever its origin — inspector widget, chat tool, or tree context menu.
   `#magpyObjects` (list scene objects), `#magpySchema` (style JSON Schema for
   an object), `#magpyEdit` (set one dotted style path, validated by magpylib),
   `#magpyAdd` / `#magpyRemove` (add/remove scene objects), `#magpyParam`
-  (constructor params: move, resize, repolarize). Successful edits
-  auto-refresh the open Studio panel.
+  (constructor params: move, resize, repolarize), `#magpyClear` (empty the
+  scene in one call), `#magpyBatch` (many operations in one call — the tool
+  descriptions steer the model to it for multi-object work). Edits
+  auto-refresh all surfaces, debounced so bursts redraw once.
 
 Both the webview and the LM tools share one engine process
 ([src/engineClient.ts](src/engineClient.ts) — promise-based RPC client that

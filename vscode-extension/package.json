@@ -156,7 +156,7 @@
         "displayName": "Add magpylib object",
         "toolReferenceName": "magpyAdd",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "Add a new object to the magpylib Studio scene. 'type' is a dotted magpylib class path like 'magnet.Cuboid', 'magnet.Cylinder', 'magnet.Sphere', 'current.Circle' or 'Sensor'. 'params' are the constructor kwargs (e.g. polarization, dimension/diameter, position); 'style' maps dotted style paths to values. On failure the result contains the constructor/validation error - fix and retry. Note: on magnets the default magnetization coloring masks the base 'color' style - for a visible solid color also include 'magnetization.mode': 'arrow'.",
+        "modelDescription": "Add ONE new object to the magpylib Studio scene; to create several objects use the batch tool in a single call instead. 'type' is a dotted magpylib class path like 'magnet.Cuboid', 'magnet.Cylinder', 'magnet.Sphere', 'current.Circle' or 'Sensor'. 'params' are the constructor kwargs (e.g. polarization, dimension/diameter, position); 'style' maps dotted style paths to values. On failure the result contains the constructor/validation error - fix and retry. Note: on magnets the default magnetization coloring masks the base 'color' style - for a visible solid color also include 'magnetization.mode': 'arrow'.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -188,7 +188,7 @@
         "displayName": "Remove magpylib object",
         "toolReferenceName": "magpyRemove",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "Remove one object from the magpylib Studio scene by id.",
+        "modelDescription": "Remove one object from the magpylib Studio scene by id. To empty the whole scene use the clear scene tool; to remove several (but not all) objects use the batch tool - never chain single removals.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -231,11 +231,64 @@
         }
       },
       {
+        "name": "magpylib-studio_clearScene",
+        "displayName": "Clear magpylib scene",
+        "toolReferenceName": "magpyClear",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "Remove ALL objects from the magpylib Studio scene in one call. Always use this instead of removing objects one by one when the user wants to clear/clean/empty the scene.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "magpylib-studio_batch",
+        "displayName": "Batch magpylib operations",
+        "toolReferenceName": "magpyBatch",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "Apply several magpylib Studio scene operations in ONE call - always prefer this over chaining single tool calls when creating, editing, or removing multiple objects (e.g. building an array of magnets). Operations run in order; failures don't stop the rest. The result lists per-operation outcomes ({ok, error?}) - fix failed ones and retry only those. Batchable methods: add_object, remove_object, apply_edit, set_param, reset_style, clear_scene (their params match the corresponding single tools).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "operations": {
+              "type": "array",
+              "description": "Operations to apply in order.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "method": {
+                    "type": "string",
+                    "enum": [
+                      "add_object",
+                      "remove_object",
+                      "apply_edit",
+                      "set_param",
+                      "reset_style",
+                      "clear_scene"
+                    ]
+                  },
+                  "params": {
+                    "type": "object",
+                    "description": "Arguments for the method, same shape as the corresponding single tool (e.g. {\"object_id\": \"m1\", \"type\": \"magnet.Cuboid\", \"params\": {...}} for add_object)."
+                  }
+                },
+                "required": [
+                  "method"
+                ]
+              }
+            }
+          },
+          "required": [
+            "operations"
+          ]
+        }
+      },
+      {
         "name": "magpylib-studio_applyEdit",
         "displayName": "Edit magpylib style",
         "toolReferenceName": "magpyEdit",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "Set one style property on a magpylib scene object using a dotted path (e.g. 'color', 'magnetization.arrow.width'). The value is validated by magpylib; on failure the result contains the validation error - correct the path/value and retry. The Studio view refreshes automatically. Note: on magnets, magnetization coloring (a blue-white-red gradient) is shown by default and masks the base 'color' - when the user wants a visible solid color, also set 'magnetization.mode' to 'arrow' (or 'magnetization.show' to false).",
+        "modelDescription": "Set one style property on a magpylib scene object using a dotted path (e.g. 'color', 'magnetization.arrow.width'); for several style edits at once prefer the batch tool. The value is validated by magpylib; on failure the result contains the validation error - correct the path/value and retry. The Studio view refreshes automatically. Note: on magnets, magnetization coloring (a blue-white-red gradient) is shown by default and masks the base 'color' - when the user wants a visible solid color, also set 'magnetization.mode' to 'arrow' (or 'magnetization.show' to false).",
         "inputSchema": {
           "type": "object",
           "properties": {

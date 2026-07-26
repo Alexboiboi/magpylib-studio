@@ -18,6 +18,8 @@ Protocol surface (all JSON-serializable in/out):
   reset_style(object_id, path?)        -> {"ok": bool, "error"?: str}
   load_scene(scene | path)             -> {"ok": bool, "error"?: str}
   load_example()                       -> {"ok": bool, "error"?: str}
+  clear_scene()                        -> {"ok": bool, "error"?: str}
+  batch(operations)                    -> {"ok": bool, "results": [...]}
   to_dict()                            -> the scene document
   to_script()                          -> equivalent magpylib Python code
 """
@@ -77,6 +79,17 @@ def example_scene():
         }
     )
     return {"objects": objects}
+
+
+# Operations allowed inside batch() — mutating, per-object (plus clear).
+_BATCHABLE = {
+    "apply_edit",
+    "add_object",
+    "remove_object",
+    "set_param",
+    "reset_style",
+    "clear_scene",
+}
 
 
 def _resolve_type(type_str):
@@ -245,6 +258,27 @@ class MagpylibStudioSession:
     def load_example(self):
         """Load the built-in example scene (Halbach ring, coil pair, sensor)."""
         return self.load_scene(example_scene())
+
+    def clear_scene(self):
+        """Remove every object at once."""
+        return self.load_scene({"objects": []})
+
+    def batch(self, operations):
+        """Apply several mutating operations in one call, e.g.
+        [{"method": "add_object", "params": {...}}, ...]. Continues past
+        failures; per-operation results let the caller fix and retry."""
+        results = []
+        for op in operations:
+            method = op.get("method")
+            params = op.get("params") or {}
+            if method not in _BATCHABLE:
+                results.append({"ok": False, "error": f"method {method!r} not batchable"})
+                continue
+            try:
+                results.append(getattr(self, method)(**params))
+            except Exception as e:  # noqa: BLE001 - keep going, report per op
+                results.append({"ok": False, "error": str(e)})
+        return {"ok": all(r["ok"] for r in results), "results": results}
 
     # --- serialization / round-trip ---------------------------------------
     def to_dict(self):

@@ -205,6 +205,42 @@ def test_load_example():
     assert ns["sensor"].position.tolist() == [0, 0, 0]
 
 
+def test_clear_scene(session):
+    assert session.clear_scene() == {"ok": True}
+    assert session.list_objects() == []
+    assert session.get_figure()["data"] == []
+
+
+def test_batch_applies_all_and_reports_per_op(session):
+    res = session.batch([
+        {"method": "clear_scene"},
+        {"method": "add_object", "params": {
+            "object_id": "s1", "type": "magnet.Sphere",
+            "params": {"polarization": [0, 0, 1], "diameter": 1}}},
+        {"method": "add_object", "params": {
+            "object_id": "s2", "type": "magnet.Sphere",
+            "params": {"polarization": [0, 0, 1], "diameter": 1, "position": [2, 0, 0]}}},
+        {"method": "apply_edit", "params": {
+            "object_id": "s1", "path": "color", "value": "green"}},
+    ])
+    assert res["ok"] is True
+    assert all(r["ok"] for r in res["results"])
+    assert [o["id"] for o in session.list_objects()] == ["s1", "s2"]
+    assert session._objs["s1"].style.color == "green"
+
+
+def test_batch_continues_past_failures(session):
+    res = session.batch([
+        {"method": "apply_edit", "params": {
+            "object_id": "cube", "path": "opacity", "value": 5}},  # invalid
+        {"method": "to_script"},  # not batchable
+        {"method": "remove_object", "params": {"object_id": "cyl"}},  # fine
+    ])
+    assert res["ok"] is False
+    assert [r["ok"] for r in res["results"]] == [False, False, True]
+    assert [o["id"] for o in session.list_objects()] == ["cube"]
+
+
 def test_jsonrpc_roundtrip():
     """Drive the stdio server end to end through pipes."""
     requests = [

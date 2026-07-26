@@ -121,11 +121,19 @@ function selectObjectInStudio(context: vscode.ExtensionContext, objectId: string
 }
 
 /** An edit happened somewhere (inspector, chat tool, tree action, panel):
- *  bring every surface back in sync. */
+ *  bring every surface back in sync. Debounced so a burst of edits (an LLM
+ *  chaining tool calls, a slider drag) causes one redraw, not one each. */
+let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 function broadcastMutation(): void {
-  currentPanel?.webview.postMessage({ type: 'refresh' });
-  sceneTree?.refresh();
-  inspector?.refresh();
+  if (refreshTimer) {
+    clearTimeout(refreshTimer);
+  }
+  refreshTimer = setTimeout(() => {
+    refreshTimer = undefined;
+    currentPanel?.webview.postMessage({ type: 'refresh' });
+    sceneTree?.refresh();
+    inspector?.refresh();
+  }, 150);
 }
 
 function toolResult(payload: unknown): vscode.LanguageModelToolResult {
@@ -147,7 +155,8 @@ function registerLmTools(context: vscode.ExtensionContext): void {
         );
       },
     });
-  /** Mutating tool: same, but refresh the Studio panel when the edit sticks. */
+  /** Mutating tool: same, but refresh all surfaces afterwards. A partially
+   *  failed batch still changed the scene, so refresh regardless of ok. */
   const editTool = (toolName: string, method: string) =>
     vscode.lm.registerTool(toolName, {
       async invoke(options: vscode.LanguageModelToolInvocationOptions<object>) {
@@ -155,9 +164,7 @@ function registerLmTools(context: vscode.ExtensionContext): void {
           method,
           options.input as Record<string, unknown>,
         )) as { ok: boolean; error?: string };
-        if (result.ok) {
-          broadcastMutation();
-        }
+        broadcastMutation();
         return toolResult(result);
       },
     });
@@ -168,6 +175,8 @@ function registerLmTools(context: vscode.ExtensionContext): void {
     editTool('magpylib-studio_addObject', 'add_object'),
     editTool('magpylib-studio_removeObject', 'remove_object'),
     editTool('magpylib-studio_setParam', 'set_param'),
+    editTool('magpylib-studio_clearScene', 'clear_scene'),
+    editTool('magpylib-studio_batch', 'batch'),
   );
 }
 
