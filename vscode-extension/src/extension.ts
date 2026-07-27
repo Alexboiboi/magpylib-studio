@@ -327,6 +327,11 @@ function getNonce(): string {
   ).join('');
 }
 
+/** The magpylib logo, shared by the activity bar and the panel tabs. */
+function logoUri(context: vscode.ExtensionContext): vscode.Uri {
+  return vscode.Uri.joinPath(context.extensionUri, 'media', 'magnet.svg');
+}
+
 /** Route webview 'rpcRequest' messages through the shared engine. */
 function wireRpcRouter(context: vscode.ExtensionContext, webview: vscode.Webview): void {
   webview.onDidReceiveMessage(async (message) => {
@@ -364,6 +369,7 @@ function openStudioPanel(context: vscode.ExtensionContext): void {
     },
   );
   currentPanel = panel;
+  panel.iconPath = logoUri(context); // tabs render icons in full colour
   panel.webview.html = createWebviewHtml(context, panel.webview);
   wireRpcRouter(context, panel.webview);
   panel.webview.onDidReceiveMessage((message) => {
@@ -392,6 +398,7 @@ function openFieldPanel(context: vscode.ExtensionContext): void {
     },
   );
   fieldPanel = panel;
+  panel.iconPath = logoUri(context);
   panel.webview.html = createFieldViewHtml(context, panel.webview);
   wireRpcRouter(context, panel.webview);
   panel.onDidDispose(() => {
