@@ -39,6 +39,14 @@ newline-delimited JSON-RPC over stdio.
 - **Right-click → Transform** — Set Position…, Move By…, Rotate… (spin or
   orbit the origin), Clear Path. Move/Rotate accept `× N` at the end of the
   value to spread the operation over an N-step animation path, e.g. `360 × 36`.
+- **Field maps** — the Field panel's *Plane map* mode: a heatmap of |B| (or a
+  signed component) on the xy/xz/yz plane at any offset, with a log option
+  because field spans orders of magnitude. Colour follows the data's job —
+  one hue light→dark for magnitude, blue↔grey↔red anchored at zero for signed
+  components — and the axes are locked 1:1 so geometry is not distorted.
+  Right-click a Sensor → **Transform → Pixel Grid…** builds magpylib's own
+  pixel grid instead: the measurement plane is then a real object, visible in
+  the 3D view, tilting with the sensor and exported in the script.
 - **Transforms** — the Inspector's `transform` section: absolute position and
   rotation-vector fields, relative *rotate* (with "orbit origin" for
   Halbach-style arrangements) and *move*, each with a step count that turns

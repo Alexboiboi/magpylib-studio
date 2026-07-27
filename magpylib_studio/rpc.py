@@ -24,6 +24,8 @@ _PUBLIC = {
     "get_figure",
     "get_field",
     "get_field_figure",
+    "get_field_map",
+    "set_pixel_grid",
     "apply_edit",
     "add_object",
     "remove_object",

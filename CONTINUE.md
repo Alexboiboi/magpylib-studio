@@ -60,6 +60,15 @@ and drives it.
   icons** (move, rotate, + on collections) and a **Transform** submenu; move
   and rotate first ask *single step or N-step path*. LM tools `#magpyMove`,
   `#magpyRotate`, `#magpyPose`.
+- **Field maps**: `get_field_map(plane?, offset?, component?, log?, sensor_id?)`
+  — plotly heatmap on a plane. Colour by job (dataviz skill): sequential
+  one-hue blue for magnitude, diverging blue↔grey↔red with `zmid=0` for signed
+  components, never a rainbow; axes locked 1:1; `log` for the orders-of-
+  magnitude falloff. With `sensor_id` it reads a **Sensor's pixel grid**
+  instead (`set_pixel_grid(id, plane, size, resolution)`) — magpylib's own
+  mechanism, so the plane is a real scene object that tilts with the sensor
+  and exports to the script. Sensor paths add a leading dimension to `getB`;
+  the map uses the last path step.
 - **Field evaluation**: `get_field(sensor_id?, points?, field?)` — summed
   B/H of all leaf sources (SI units) along a sensor path or explicit points
   (numeric, for `#magpyField`). `get_field_figure(output?, animation?,
@@ -188,9 +197,13 @@ check that `../magpylib` is on `feat/improve-style` and installed `-e`.
 - **Try it live**: open `vscode-extension/` in VS Code, F5, run
   "Magpylib Studio: Open Scene View"; in Copilot chat try `make the cube green
   #magpyEdit` or `add a green sphere at [0,2,0] #magpyAdd`.
-- **Field maps**: `get_field` covers points/paths; a 2D plane-slice heatmap /
-  streamline figure would complete the analysis story.
-- **Package a .vsix** (vsce) once features settle, for real installs.
+- **Click-to-select in the 3D view** — needs solving magpylib's merged traces
+  first (one mesh per collection, so hit-testing needs per-object rendering or
+  a vertex-range → object map). Spike before promising.
+- **Package a .vsix** (vsce) once features settle, for real installs — also
+  needs an install story for the engine (unreleased magpylib branch).
+- **No TypeScript tests** — ~1.5k lines verified only by `tsc` + manual F5;
+  a `@vscode/test-electron` harness would cover tree/clipboard/commands.
 - **Chat Participant `@magpy`** if richer chat UX than plain tools is wanted.
 
 ## Gotchas

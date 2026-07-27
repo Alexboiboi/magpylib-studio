@@ -991,6 +991,45 @@ export function activate(context: vscode.ExtensionContext): void {
       mutateFromTree('clear_path', { object_id: obj.id }),
     ),
     vscode.commands.registerCommand(
+      'magpylib-studio.pixelGrid',
+      async (obj?: SceneObject) => {
+        const target = obj ?? treeSelection();
+        if (!target) {
+          return;
+        }
+        const plane = await vscode.window.showQuickPick(['xy', 'xz', 'yz'], {
+          placeHolder: `Pixel grid plane for "${target.label}" (in its own frame)`,
+        });
+        if (!plane) {
+          return;
+        }
+        const sizeText = await vscode.window.showInputBox({
+          prompt: 'Grid size (m) — the plane spans ± half of this',
+          value: '4',
+          validateInput: (v) => (Number(v) > 0 ? undefined : 'A positive number'),
+        });
+        if (!sizeText) {
+          return;
+        }
+        const resText = await vscode.window.showInputBox({
+          prompt: 'Pixels per side',
+          value: '30',
+          validateInput: (v) =>
+            Number.isInteger(Number(v)) && Number(v) >= 2 ? undefined : 'At least 2',
+        });
+        if (!resText) {
+          return;
+        }
+        await mutateFromTree('set_pixel_grid', {
+          object_id: target.id,
+          plane,
+          size: Number(sizeText),
+          resolution: Number(resText),
+        });
+        openFieldPanel(context); // the map is the point of making a grid
+      },
+    ),
+    vscode.commands.registerCommand(
       'magpylib-studio.toggleVisibility',
       (obj: SceneObject) =>
         mutateFromTree('set_visible', { object_id: obj.id, visible: !obj.visible }),
@@ -1241,14 +1280,42 @@ function createFieldViewHtml(
 <body>
   <div id="canvas"></div>
   <div id="statusbar">
-    <label>Output
-      <select id="output">
-        <option>B</option><option>Bx</option><option>By</option><option>Bz</option>
-        <option>Bxy</option>
-        <option>H</option><option>Hx</option><option>Hy</option><option>Hz</option>
+    <label>
+      <select id="mode">
+        <option value="path">Along sensor path</option>
+        <option value="map">Plane map</option>
       </select>
     </label>
-    <label><input type="checkbox" id="animate" /> Animate path</label>
+    <span class="path-only">
+      <label>Output
+        <select id="output">
+          <option>B</option><option>Bx</option><option>By</option><option>Bz</option>
+          <option>Bxy</option>
+          <option>H</option><option>Hx</option><option>Hy</option><option>Hz</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="animate" /> Animate path</label>
+    </span>
+    <span class="map-only" hidden>
+      <label>Plane
+        <select id="plane">
+          <option>xy</option><option>xz</option><option>yz</option>
+        </select>
+      </label>
+      <label>at <input type="number" id="offset" step="any" value="0" /> m</label>
+      <label>
+        <select id="component">
+          <option value="magnitude">magnitude</option>
+          <option value="x">x</option><option value="y">y</option>
+          <option value="z">z</option>
+        </select>
+      </label>
+      <label>of
+        <select id="quantity"><option>B</option><option>H</option></select>
+      </label>
+      <label><input type="checkbox" id="log" checked /> log</label>
+      <label>res <input type="number" id="resolution" min="5" max="200" value="50" /></label>
+    </span>
     <span id="status">Loading…</span>
   </div>
   <script nonce="${nonce}">
@@ -1259,6 +1326,13 @@ function createFieldViewHtml(
     const canvasEl = document.getElementById('canvas');
     const outputEl = document.getElementById('output');
     const animateEl = document.getElementById('animate');
+    const modeEl = document.getElementById('mode');
+    const planeEl = document.getElementById('plane');
+    const offsetEl = document.getElementById('offset');
+    const componentEl = document.getElementById('component');
+    const quantityEl = document.getElementById('quantity');
+    const logEl = document.getElementById('log');
+    const resolutionEl = document.getElementById('resolution');
     let nextReqId = 1;
     const pending = new Map();
 
@@ -1277,17 +1351,33 @@ function createFieldViewHtml(
       return dark ? 'plotly_dark' : 'plotly_white';
     }
 
+    function isMap() { return modeEl.value === 'map'; }
+
     async function refreshField() {
+      const mapMode = isMap();
+      for (const el of document.querySelectorAll('.path-only')) el.hidden = mapMode;
+      for (const el of document.querySelectorAll('.map-only')) el.hidden = !mapMode;
+      statusEl.textContent = 'Computing…';
       try {
-        const fig = await rpc('get_field_figure', {
-          output: outputEl.value,
-          animation: animateEl.checked,
-          template: plotTemplate(),
-        });
+        const fig = mapMode
+          ? await rpc('get_field_map', {
+              plane: planeEl.value,
+              offset: parseFloat(offsetEl.value) || 0,
+              component: componentEl.value,
+              field: quantityEl.value,
+              log: logEl.checked && componentEl.value === 'magnitude',
+              resolution: Math.min(200, Math.max(5, parseInt(resolutionEl.value, 10) || 50)),
+              template: plotTemplate(),
+            })
+          : await rpc('get_field_figure', {
+              output: outputEl.value,
+              animation: animateEl.checked,
+              template: plotTemplate(),
+            });
         const layout = fig.layout || {};
-        layout.uirevision = 'magpylib-field';
+        layout.uirevision = 'magpylib-field-' + modeEl.value;
         layout.autosize = true;
-        layout.margin = { l: 55, r: 15, t: 15, b: 40 };
+        layout.margin = { l: 55, r: 15, t: mapMode ? 30 : 15, b: 40 };
         layout.paper_bgcolor = 'rgba(0,0,0,0)';
         layout.plot_bgcolor = 'rgba(0,0,0,0)';
         await Plotly.react(canvasEl, {
@@ -1298,12 +1388,16 @@ function createFieldViewHtml(
         });
         statusEl.textContent = 'Ready';
       } catch (err) {
-        statusEl.textContent = 'No field to plot - the scene needs a source and a sensor. (' + err + ')';
+        statusEl.textContent = mapMode
+          ? 'No field to map - the scene needs at least one source. (' + err + ')'
+          : 'No field to plot - the scene needs a source and a sensor. (' + err + ')';
       }
     }
 
-    outputEl.addEventListener('change', refreshField);
-    animateEl.addEventListener('change', refreshField);
+    for (const el of [outputEl, animateEl, modeEl, planeEl, offsetEl,
+                      componentEl, quantityEl, logEl, resolutionEl]) {
+      el.addEventListener('change', refreshField);
+    }
 
     new MutationObserver(refreshField)
       .observe(document.body, { attributes: true, attributeFilter: ['class'] });

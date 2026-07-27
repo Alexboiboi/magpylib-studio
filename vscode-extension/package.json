@@ -118,6 +118,10 @@
         "title": "Clear Path"
       },
       {
+        "command": "magpylib-studio.pixelGrid",
+        "title": "Pixel Grid..."
+      },
+      {
         "command": "magpylib-studio.toggleVisibility",
         "title": "Toggle Visibility",
         "icon": "$(eye)"
@@ -242,6 +246,10 @@
         {
           "command": "magpylib-studio.clearPath",
           "group": "2_path@1"
+        },
+        {
+          "command": "magpylib-studio.pixelGrid",
+          "group": "2_path@2"
         }
       ],
       "view/title": [
@@ -434,6 +442,10 @@
           "when": "false"
         },
         {
+          "command": "magpylib-studio.pixelGrid",
+          "when": "false"
+        },
+        {
           "command": "magpylib-studio.resetStyle",
           "when": "false"
         }
@@ -588,7 +600,7 @@
         "displayName": "Compute magnetic field",
         "toolReferenceName": "magpyField",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "Compute the total magnetic field of all sources in the Magpylib Studio scene, in SI units (B in tesla, H in A/m, coordinates in meters). With no input it evaluates along the scene's sensor path; pass 'points' [[x,y,z], ...] to evaluate at specific locations instead. Returns {field, unit, points, values ([Bx,By,Bz] per point), magnitude}. Use this for quantitative questions ('what is B at the center?') and to MEASURE the effect of scene edits - after editing, call it again and compare.",
+        "modelDescription": "Compute the total magnetic field of all sources in the Magpylib Studio scene, in SI units (B in tesla, H in A/m, coordinates in meters). With no input it evaluates along the scene's sensor path; pass 'points' [[x,y,z], ...] to evaluate at specific locations instead - a list of points on a plane gives you a field map to reason about. Returns {field, unit, points, values ([Bx,By,Bz] per point), magnitude}. Use this for quantitative questions ('what is B at the center?', 'how uniform is the bore?') and to MEASURE the effect of scene edits - after editing, call it again and compare.",
         "inputSchema": {
           "type": "object",
           "properties": {

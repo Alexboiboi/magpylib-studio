@@ -516,6 +516,66 @@ def test_get_figure_template(session):
         session.get_figure(template="not_a_template")
 
 
+def test_field_map_plane():
+    import numpy as np
+
+    s = MagpylibStudioSession()
+    s.load_example()
+    fig = s.get_field_map(plane="xy", offset=0.75, resolution=12)
+    trace = fig["data"][0]
+    assert trace["type"] == "heatmap"
+    assert np.array(trace["z"]).shape == (12, 12)
+    assert fig["layout"]["yaxis"]["scaleanchor"] == "x"  # undistorted geometry
+    assert "zmid" not in trace  # magnitude is sequential, no diverging midpoint
+    json.dumps(fig)
+
+    # a signed component gets a diverging scale anchored at zero
+    signed = s.get_field_map(plane="xz", component="z", resolution=8)["data"][0]
+    assert signed["zmid"] == 0.0
+    values = np.array(signed["z"])
+    assert values.min() < 0 < values.max()
+
+    # log only applies to the magnitude, and compresses the range
+    linear = np.array(s.get_field_map(resolution=8)["data"][0]["z"])
+    logged = np.array(s.get_field_map(resolution=8, log=True)["data"][0]["z"])
+    assert np.allclose(logged, np.log10(linear))
+
+    with pytest.raises(ValueError, match="plane must be"):
+        s.get_field_map(plane="ab")
+    with pytest.raises(ValueError, match="component"):
+        s.get_field_map(component="q")
+
+
+def test_field_map_from_sensor_pixel_grid():
+    """magpylib's own mechanism: the plane is a Sensor's pixel grid, so it is
+    visible in the 3D view and follows the sensor's pose."""
+    import numpy as np
+
+    s = MagpylibStudioSession()
+    s.load_example()
+    assert s.set_pixel_grid("sensor", plane="xy", size=6, resolution=10) == {"ok": True}
+    pixel = np.array(
+        next(p["value"] for p in s.get_params("sensor") if p["name"] == "pixel")
+    )
+    assert pixel.shape == (10, 10, 3)
+
+    fig = s.get_field_map(sensor_id="sensor")
+    assert np.array(fig["data"][0]["z"]).shape == (10, 10)  # path dim collapsed
+    assert "10×10 pixels" in fig["layout"]["title"]["text"]
+
+    # the measurement plane follows the sensor
+    before = np.array(fig["data"][0]["z"])
+    s.rotate("sensor", 30, "x")
+    assert not np.allclose(np.array(s.get_field_map(sensor_id="sensor")["data"][0]["z"]),
+                           before)
+    assert "pixel" in s.to_script()  # exported like any other magpylib scene
+
+    assert s.set_pixel_grid("r1m01", plane="xy")["ok"] is False  # not a sensor
+    s.add_object("bare", "Sensor")
+    with pytest.raises(ValueError, match="no pixel grid"):
+        s.get_field_map(sensor_id="bare")
+
+
 def test_get_figure_animation():
     s = MagpylibStudioSession()
     s.load_example()

@@ -14,6 +14,8 @@ Protocol surface (all JSON-serializable in/out):
   get_figure(animation?, template?)    -> plotly figure JSON (frames if animated)
   get_field(sensor_id?, points?, field?) -> {field, unit, points, values, magnitude}
   get_field_figure(output?, animation?, template?) -> 2D plotly JSON (magpylib-rendered)
+  get_field_map(plane?, offset?, component?, log?, sensor_id?, …) -> heatmap JSON
+  set_pixel_grid(object_id, plane?, size?, resolution?, offset?) -> {"ok": bool}
   apply_edit(object_id, path, value)   -> {"ok": bool, "error"?: str}
   add_object(object_id, type, params?, style?, rotations?, parent?) -> {"ok": ...}
   remove_object(object_id)             -> {"ok": bool, ...} (subtree if Collection)
@@ -45,6 +47,7 @@ import re
 
 import magpylib as magpy
 import numpy as np
+import plotly.graph_objects as go
 from magpylib._src.defaults.defaults_classes import default_settings
 from magpylib._src.style import get_style
 from scipy.spatial.transform import Rotation as R
@@ -462,6 +465,173 @@ class MagpylibStudioSession:
             "values": values.tolist(),
             "magnitude": np.linalg.norm(values, axis=-1).tolist(),
         }
+
+    def _scene_extent(self):
+        """A square in-plane extent covering the sources, with margin."""
+        points = [
+            np.atleast_2d(np.array(obj.position, dtype=float))
+            for obj in self._objs.values()
+        ]
+        if not points:
+            return 1.0, np.zeros(3)
+        stacked = np.vstack(points)
+        centre = (stacked.max(axis=0) + stacked.min(axis=0)) / 2
+        span = float(np.max(stacked.max(axis=0) - stacked.min(axis=0)))
+        return max(span, 1.0) * 1.2, centre
+
+    def set_pixel_grid(self, object_id, plane="xy", size=2.0, resolution=20,
+                       offset=0.0):
+        """Give a Sensor a regular grid of pixels — magpylib's own way to map a
+        field. The grid is in the sensor's LOCAL frame, so moving or rotating
+        the sensor carries the measurement plane with it (any orientation, not
+        just the axis planes), and it is drawn in the 3D view."""
+        obj = self._objs[object_id]
+        if not isinstance(obj, magpy.Sensor):
+            return {"ok": False, "error": f"{object_id!r} is not a Sensor"}
+        axes = {"xy": (0, 1, 2), "xz": (0, 2, 1), "yz": (1, 2, 0)}
+        if plane not in axes:
+            return {"ok": False, "error": f"plane must be one of {sorted(axes)}"}
+        iu, iv, inormal = axes[plane]
+        n = max(2, int(resolution))
+        span = np.linspace(-size / 2, size / 2, n)
+        grid_u, grid_v = np.meshgrid(span, span)
+        pixel = np.zeros((n, n, 3))
+        pixel[:, :, iu] = grid_u
+        pixel[:, :, iv] = grid_v
+        pixel[:, :, inormal] = offset
+        return self.set_param(object_id, "pixel", pixel.round(9).tolist())
+
+    def get_field_map(self, plane="xy", offset=0.0, extent=None, resolution=40,
+                      field="B", component="magnitude", log=False,
+                      sensor_id=None, template=None):
+        """Field on a plane as a plotly heatmap — the 2D map complementing the
+        sensor-path plot. `plane` is 'xy' | 'xz' | 'yz' (offset is along the
+        remaining axis), `component` is 'magnitude' | 'x' | 'y' | 'z'.
+        `extent` is [umin, umax, vmin, vmax]; omitted it covers the scene.
+        `log` plots log10 of the magnitude — near a magnet the field spans
+        orders of magnitude and a linear scale flattens everything else.
+        With `sensor_id`, the map is read off that Sensor's pixel grid instead
+        (see set_pixel_grid) — the plane then follows the sensor's own pose."""
+        if sensor_id is not None:
+            return self._sensor_field_map(
+                sensor_id, field=field, component=component, log=log,
+                template=template,
+            )
+        axes = {"xy": (0, 1, 2), "xz": (0, 2, 1), "yz": (1, 2, 0)}
+        if plane not in axes:
+            raise ValueError(f"plane must be one of {sorted(axes)}, got {plane!r}")
+        if component not in ("magnitude", "x", "y", "z"):
+            raise ValueError(f"unknown component {component!r}")
+        iu, iv, inormal = axes[plane]
+
+        if extent is None:
+            size, centre = self._scene_extent()
+            extent = [
+                centre[iu] - size, centre[iu] + size,
+                centre[iv] - size, centre[iv] + size,
+            ]
+        u = np.linspace(extent[0], extent[1], int(resolution))
+        v = np.linspace(extent[2], extent[3], int(resolution))
+        grid_u, grid_v = np.meshgrid(u, v)
+        points = np.zeros((grid_u.size, 3))
+        points[:, iu] = grid_u.ravel()
+        points[:, iv] = grid_v.ravel()
+        points[:, inormal] = offset
+
+        data = self.get_field(points=points.tolist(), field=field)
+        values = np.array(data["values"]).reshape(len(v), len(u), 3)
+        return self._heatmap(
+            u, v, values, data["unit"], field, component, log, template,
+            labels=(f"{plane[0]} (m)", f"{plane[1]} (m)"),
+            subtitle=f"on {plane} at {'xyz'[inormal]} = {offset:g} m",
+        )
+
+    def _sensor_field_map(self, sensor_id, field="B", component="magnitude",
+                          log=False, template=None):
+        """Field over a Sensor's pixel grid — magpylib computes it directly on
+        the sensor, so the plane follows the sensor's position/orientation."""
+        sensor = self._objs[sensor_id]
+        if not isinstance(sensor, magpy.Sensor):
+            # ValueError like the rest of the surface: RPC reports the type name
+            raise ValueError(f"{sensor_id!r} is not a Sensor")  # noqa: TRY004
+        pixel = np.array(sensor.pixel, dtype=float) if sensor.pixel is not None else None
+        if pixel is None or pixel.ndim != 3:
+            raise ValueError(
+                f"sensor {sensor_id!r} has no pixel grid — use set_pixel_grid first"
+            )
+        sources = self._leaf_sources()
+        if not sources:
+            raise ValueError("scene has no field sources")
+        func = magpy.getB if field == "B" else magpy.getH
+        values = np.array(func(sources, sensor, sumup=True), dtype=float)
+        path_note = ""
+        if values.ndim == 4:  # the sensor also has a path: map its last step
+            path_note = f", path step {len(values) - 1}"
+            values = values[-1]
+        # local grid coordinates: the two axes the pixels actually vary along
+        spread = np.ptp(pixel.reshape(-1, 3), axis=0)
+        iu, iv = np.argsort(spread)[::-1][:2]
+        iu, iv = sorted((int(iu), int(iv)))
+        u = pixel[0, :, iu]
+        v = pixel[:, 0, iv]
+        return self._heatmap(
+            u, v, values, "T" if field == "B" else "A/m", field, component, log,
+            template,
+            labels=(f"sensor {'xyz'[iu]} (m)", f"sensor {'xyz'[iv]} (m)"),
+            subtitle=f"over {sensor.style.label or sensor_id} "
+                     f"({pixel.shape[0]}×{pixel.shape[1]} pixels{path_note})",
+        )
+
+    def _heatmap(self, u, v, values, unit, field, component, log, template,
+                 labels, subtitle):
+        """Shared heatmap builder for both field-map sources."""
+        if component == "magnitude":
+            z = np.linalg.norm(values, axis=-1)
+            # sequential: one hue light -> dark, lightest reads as "near zero"
+            colorscale = [
+                [0.0, "#cde2fb"], [0.25, "#86b6ef"], [0.5, "#3987e5"],
+                [0.75, "#1c5cab"], [1.0, "#0d366b"],
+            ]
+            zmid = None
+            title = f"|{field}| ({unit})"
+            if log:
+                z = np.log10(np.maximum(z, np.finfo(float).tiny))
+                title = f"log₁₀ |{field}| ({unit})"
+        else:
+            z = values[:, :, "xyz".index(component)]
+            # diverging: two poles with a neutral midpoint anchored at zero
+            colorscale = [
+                [0.0, "#0d366b"], [0.25, "#3987e5"], [0.5, "#f0efec"],
+                [0.75, "#d03b3b"], [1.0, "#6b1111"],
+            ]
+            zmid = 0.0
+            title = f"{field}{component} ({unit})"
+
+        heatmap = {
+            "type": "heatmap",
+            "x": np.asarray(u).tolist(),
+            "y": np.asarray(v).tolist(),
+            "z": z.tolist(),
+            "colorscale": colorscale,
+            "colorbar": {"title": {"text": title}},
+            "hovertemplate": (
+                f"{labels[0].split(' ')[-2] if ' ' in labels[0] else 'x'}"
+                "=%{x:.3g}<br>y=%{y:.3g}<br>"
+                f"{title.split(' ')[0]}=%{{z:.4g}} {unit}<extra></extra>"
+            ),
+        }
+        if zmid is not None:
+            heatmap["zmid"] = zmid
+        fig = go.Figure(data=[heatmap])
+        fig.update_layout(
+            xaxis_title=labels[0],
+            yaxis_title=labels[1],
+            yaxis={"scaleanchor": "x", "scaleratio": 1},  # undistorted geometry
+            title={"text": f"{title} {subtitle}"},
+        )
+        if template:
+            fig.layout.template = template
+        return json.loads(fig.to_json())
 
     def get_field_figure(self, output="B", animation=False, template=None):
         """2D field plot rendered by magpylib itself (`show(output=...)`):
