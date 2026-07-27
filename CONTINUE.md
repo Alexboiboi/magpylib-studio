@@ -30,6 +30,13 @@ and drives it.
   anchor = spin in place; on a Collection rotates the whole group).
   Structural edits go through `_mutate_doc`: mutate doc → rebuild scene; on
   failure the old doc is restored and the error reported (`{"ok": false}`).
+- **Clipboard & visibility**: `copy_object(id, parent?)` duplicates a spec
+  (subtree included) with magpylib's label convention (`Cube_01`, `Cube_02`)
+  and unique ids; `set_visible(id, bool)` sets a doc-level `visible` flag
+  that only `get_figure` honours (via `_visible_leaves`) — hidden sources
+  still contribute to `get_field`, like a plotly legend toggle. Tree: rename
+  (F2/Enter), copy/cut/paste (Cmd+C/X/V), delete, and an inline eye toggle;
+  hidden items show an eye-closed icon and "· hidden".
 - **Physics properties**: `get_params(object_id)` introspects the live object
   for the editable constructor params (polarization, dimension, diameter,
   current, moment, vertices, faces, pixel) with value, kind

@@ -276,6 +276,47 @@ def test_transform_paths(session):
     assert session.get_transform("cube")["path_length"] == 1
 
 
+def test_copy_object_follows_magpylib_label_convention(session):
+    res = session.copy_object("cube")
+    assert res["ok"] is True
+    copied = {o["id"]: o for o in session.list_objects()}[res["id"]]
+    assert copied["label"] == "Cube_01"  # magpylib's suffix convention
+    assert copied["parent"] is None
+    # copying the copy increments, ids stay unique
+    second = session.copy_object(res["id"])
+    assert {o["id"]: o["label"] for o in session.list_objects()}[second["id"]] == (
+        "Cube_02"
+    )
+    assert len({o["id"] for o in session.list_objects()}) == 4
+
+    # a copied collection brings its subtree, and can be pasted into a group
+    session.add_object("grp", "Collection")
+    session.add_object("inner", "magnet.Sphere",
+                       params={"polarization": [0, 0, 1], "diameter": 1},
+                       parent="grp")
+    grp_copy = session.copy_object("grp", parent="grp")
+    parents = {o["id"]: o["parent"] for o in session.list_objects()}
+    assert parents[grp_copy["id"]] == "grp"
+    assert sum(1 for p in parents.values() if p == grp_copy["id"]) == 1
+    session.get_figure()  # the duplicated scene still renders
+
+
+def test_set_visible_filters_the_figure_only(session):
+    traces = len(session.get_figure()["data"])
+    assert session.set_visible("cyl", False) == {"ok": True}
+    assert {o["id"]: o["visible"] for o in session.list_objects()}["cyl"] is False
+    assert len(session.get_figure()["data"]) < traces
+    # hidden objects still contribute to the field (display-only flag)
+    assert session.get_field(points=[[0, 0, 5]])["magnitude"][0] > 0
+    assert session.set_visible("cyl", True) == {"ok": True}
+    assert len(session.get_figure()["data"]) == traces
+    # hiding a collection hides its subtree
+    session.add_object("grp", "Collection")
+    session.move_object("cube", "grp")
+    session.set_visible("grp", False)
+    assert len(session.get_figure()["data"]) < traces
+
+
 def test_get_params_exposes_physics_properties(session):
     params = {p["name"]: p for p in session.get_params("cube")}
     assert params["polarization"]["value"] == [0, 0, 1]

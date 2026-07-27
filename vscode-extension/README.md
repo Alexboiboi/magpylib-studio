@@ -28,6 +28,14 @@ newline-delimited JSON-RPC over stdio.
   dipole, sensor, collection), then set each of its properties — prefilled
   with defaults and labelled with units — and it opens selected in the
   Inspector.
+- **Editing in the tree** — Rename (`F2`, `Enter` on macOS), Copy / Cut /
+  Paste (`Cmd/Ctrl+C` / `X` / `V`) and Delete (`Delete`, `Cmd+Backspace`)
+  while the Scene view has focus, plus the same items on right-click. A copy
+  follows magpylib's own convention (`Cube` → `Cube_01` → `Cube_02`) and
+  copies a collection's whole subtree; pasting onto a collection puts the
+  object inside it. The eye icon on hover hides an object from the 3D view
+  (dimmed in the tree, like toggling a plotly trace) — hidden sources still
+  count in field calculations.
 - **Right-click → Transform** — Set Position…, Move By…, Rotate… (spin or
   orbit the origin), Clear Path. Move/Rotate accept `× N` at the end of the
   value to spread the operation over an N-step animation path, e.g. `360 × 36`.

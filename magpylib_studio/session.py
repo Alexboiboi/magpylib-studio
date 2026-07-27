@@ -41,6 +41,7 @@ Protocol surface (all JSON-serializable in/out):
 from __future__ import annotations
 
 import json
+import re
 
 import magpylib as magpy
 import numpy as np
@@ -341,6 +342,7 @@ class MagpylibStudioSession:
                 "type": s["type"],
                 "label": self._objs[s["id"]].style.label or s["type"],
                 "parent": p["id"] if p else None,
+                "visible": s.get("visible", True),
             }
             for s, p in self._iter_specs()
         ]
@@ -393,13 +395,30 @@ class MagpylibStudioSession:
             "resolved": resolved.as_dict(flatten=True),  # effective values
         }
 
+    def _visible_leaves(self, specs=None):
+        """Live objects to draw: leaves whose whole ancestry is visible."""
+        out = []
+        for spec in self.doc["objects"] if specs is None else specs:
+            if not spec.get("visible", True):
+                continue
+            if spec["type"] == "Collection":
+                out += self._visible_leaves(spec.get("children", []))
+            else:
+                out.append(self._objs[spec["id"]])
+        return out
+
     def get_figure(self, animation=False, template=None):
         """Figure JSON; animation=True animates paths (plotly frames + play
         button). magpylib falls back to a static plot if nothing has a path.
         template is a plotly template name ('plotly_dark', 'plotly_white', …) —
-        resolved here because plotly.js has no named-template registry."""
+        resolved here because plotly.js has no named-template registry.
+        Objects hidden via set_visible are left out."""
+        visible = self._visible_leaves()
         fig = magpy.show(
-            self.scene, backend="plotly", animation=animation, return_fig=True
+            *visible if visible else [magpy.Collection()],
+            backend="plotly",
+            animation=animation,
+            return_fig=True,
         )
         if template:
             fig.layout.template = template
@@ -638,6 +657,71 @@ class MagpylibStudioSession:
             ],
             f"clear path {object_id}",
         )
+
+    def _unique_id(self, base):
+        used = {s["id"] for s, _ in self._iter_specs()}
+        stem = re.sub(r"_\d+$", "", base) or "obj"
+        n = 1
+        while f"{stem}_{n}" in used:
+            n += 1
+        return f"{stem}_{n}"
+
+    def _next_label(self, label):
+        """magpylib's copy convention: 'Cube' -> 'Cube_01' -> 'Cube_02'."""
+        match = re.match(r"^(.*)_(\d+)$", label or "")
+        stem, n = (match.group(1), int(match.group(2))) if match else (label or "obj", 0)
+        used = {o["label"] for o in self.list_objects()}
+        while True:
+            n += 1
+            candidate = f"{stem}_{n:02d}"
+            if candidate not in used:
+                return candidate
+
+    def copy_object(self, object_id, parent=None):
+        """Duplicate an object (a Collection copies its whole subtree). The
+        copy's label gets magpylib's iteration suffix."""
+        src = self._spec(object_id)
+        if parent is not None and self._spec(parent)["type"] != "Collection":
+            return {"ok": False, "error": f"parent {parent!r} is not a Collection"}
+        new_id = self._unique_id(object_id)
+        label = self._next_label(self._objs[object_id].style.label or src["type"])
+
+        def clone(spec, top):
+            new = json.loads(json.dumps(spec))
+            new["id"] = new_id if top else self._unique_id(spec["id"])
+            if top:
+                new.setdefault("style", {})["label"] = label
+            new["children"] = [
+                clone(child, False) for child in spec.get("children", [])
+            ] if spec["type"] == "Collection" else new.get("children", [])
+            return new
+
+        def mutate(doc):
+            target = (
+                doc["objects"] if parent is None
+                else self._spec(parent).setdefault("children", [])
+            )
+            target.append(clone(src, True))
+
+        result = self._mutate_doc(mutate, f"copy {object_id}")
+        if result["ok"]:
+            result["id"] = new_id
+        return result
+
+    def set_visible(self, object_id, visible=True):
+        """Show/hide an object in the 3D view (display only — hidden sources
+        still contribute to field computations, like a plotly legend toggle).
+        Hiding a Collection hides its subtree."""
+        spec = self._spec(object_id)
+
+        def mutate(doc):
+            if visible:
+                spec.pop("visible", None)
+            else:
+                spec["visible"] = False
+
+        state = "show" if visible else "hide"
+        return self._mutate_doc(mutate, f"{state} {object_id}")
 
     def move_object(self, object_id, parent=None):
         """Reparent an object: into a Collection, or to the root

@@ -5,6 +5,7 @@ export interface SceneObject {
   type: string;
   label: string;
   parent: string | null;
+  visible: boolean;
 }
 
 // Wireframe SVGs in media/icons, one per magpylib class, colored by
@@ -73,10 +74,15 @@ export class SceneTreeProvider
         : vscode.TreeItemCollapsibleState.None,
     );
     item.id = obj.id;
-    item.description = obj.type;
-    item.tooltip = `${obj.id} — ${obj.type}`;
-    item.contextValue = obj.type === 'Collection' ? 'magpyCollection' : 'magpyObject';
-    item.iconPath = iconFor(obj.type, this.extensionUri);
+    item.description = obj.visible ? obj.type : `${obj.type} · hidden`;
+    item.tooltip = `${obj.id} — ${obj.type}${obj.visible ? '' : ' (hidden)'}`;
+    // visibility is part of contextValue so the inline eye can flip its icon
+    item.contextValue =
+      (obj.type === 'Collection' ? 'magpyCollection' : 'magpyObject') +
+      (obj.visible ? 'Visible' : 'Hidden');
+    item.iconPath = obj.visible
+      ? iconFor(obj.type, this.extensionUri)
+      : new vscode.ThemeIcon('eye-closed', new vscode.ThemeColor('disabledForeground'));
     item.command = {
       command: 'magpylib-studio.selectObject',
       title: 'Select in Studio',

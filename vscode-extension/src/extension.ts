@@ -12,6 +12,8 @@ let currentPanel: vscode.WebviewPanel | undefined;
 let fieldPanel: vscode.WebviewPanel | undefined;
 let selectedObjectId: string | undefined;
 let sceneTree: SceneTreeProvider | undefined;
+let sceneTreeView: vscode.TreeView<SceneObject> | undefined;
+let clipboard: { id: string; cut: boolean } | undefined;
 let historyTree: HistoryTreeProvider | undefined;
 let inspector: InspectorViewProvider | undefined;
 let engineOutput: vscode.OutputChannel | undefined;
@@ -369,6 +371,11 @@ function getNonce(): string {
   ).join('');
 }
 
+/** The tree item a keyboard shortcut should act on (menus pass it directly). */
+function treeSelection(): SceneObject | undefined {
+  return sceneTreeView?.selection[0];
+}
+
 /** The magpylib logo, shared by the activity bar and the panel tabs. */
 function logoUri(context: vscode.ExtensionContext): vscode.Uri {
   return vscode.Uri.joinPath(context.extensionUri, 'media', 'magnet.svg');
@@ -665,11 +672,13 @@ export function activate(context: vscode.ExtensionContext): void {
         : JSON.stringify(await getEngine(context).request('to_dict'), null, 2),
   };
 
+  sceneTreeView = vscode.window.createTreeView('magpylib-studio.sceneView', {
+    treeDataProvider: tree,
+    dragAndDropController: tree,
+  });
+
   context.subscriptions.push(
-    vscode.window.createTreeView('magpylib-studio.sceneView', {
-      treeDataProvider: tree,
-      dragAndDropController: tree,
-    }),
+    sceneTreeView,
     vscode.window.registerWebviewViewProvider(InspectorViewProvider.viewId, inspector, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
@@ -757,8 +766,14 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('magpylib-studio.selectObject', (objectId: string) =>
       selectObjectInStudio(context, objectId),
     ),
-    vscode.commands.registerCommand('magpylib-studio.removeObject', (obj: SceneObject) =>
-      mutateFromTree('remove_object', { object_id: obj.id }),
+    vscode.commands.registerCommand(
+      'magpylib-studio.removeObject',
+      (obj?: SceneObject) => {
+        const target = obj ?? treeSelection();
+        return target
+          ? mutateFromTree('remove_object', { object_id: target.id })
+          : undefined;
+      },
     ),
     vscode.commands.registerCommand('magpylib-studio.resetStyle', (obj: SceneObject) =>
       mutateFromTree('reset_style', { object_id: obj.id }),
@@ -974,6 +989,71 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('magpylib-studio.clearPath', (obj: SceneObject) =>
       mutateFromTree('clear_path', { object_id: obj.id }),
+    ),
+    vscode.commands.registerCommand(
+      'magpylib-studio.toggleVisibility',
+      (obj: SceneObject) =>
+        mutateFromTree('set_visible', { object_id: obj.id, visible: !obj.visible }),
+    ),
+    vscode.commands.registerCommand('magpylib-studio.copyObject', (obj?: SceneObject) => {
+      const target = obj ?? treeSelection();
+      if (target) {
+        clipboard = { id: target.id, cut: false };
+        vscode.window.setStatusBarMessage(
+          `Magpylib Studio: copied "${target.label}"`,
+          2000,
+        );
+      }
+    }),
+    vscode.commands.registerCommand('magpylib-studio.cutObject', (obj?: SceneObject) => {
+      const target = obj ?? treeSelection();
+      if (target) {
+        clipboard = { id: target.id, cut: true };
+        vscode.window.setStatusBarMessage(`Magpylib Studio: cut "${target.label}"`, 2000);
+      }
+    }),
+    vscode.commands.registerCommand(
+      'magpylib-studio.pasteObject',
+      async (obj?: SceneObject) => {
+        if (!clipboard) {
+          vscode.window.setStatusBarMessage('Magpylib Studio: nothing to paste', 2000);
+          return;
+        }
+        // Paste into a collection when one is targeted, else at the scene root.
+        const target = obj ?? treeSelection();
+        const parent =
+          target?.type === 'Collection' ? target.id : (target?.parent ?? null);
+        if (clipboard.cut) {
+          await mutateFromTree('move_object', {
+            object_id: clipboard.id,
+            parent,
+          });
+          clipboard = undefined; // a cut object can only land once
+        } else {
+          await mutateFromTree('copy_object', { object_id: clipboard.id, parent });
+        }
+      },
+    ),
+    vscode.commands.registerCommand(
+      'magpylib-studio.renameObject',
+      async (obj?: SceneObject) => {
+        const target = obj ?? treeSelection();
+        if (!target) {
+          return;
+        }
+        const label = await vscode.window.showInputBox({
+          prompt: `Name for "${target.id}"`,
+          value: target.label,
+          validateInput: (v) => (v.trim() ? undefined : 'The name cannot be empty'),
+        });
+        if (label && label !== target.label) {
+          await mutateFromTree('apply_edit', {
+            object_id: target.id,
+            path: 'label',
+            value: label,
+          });
+        }
+      },
     ),
     vscode.commands.registerCommand(
       'magpylib-studio.newCollection',

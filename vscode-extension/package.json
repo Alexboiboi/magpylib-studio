@@ -116,9 +116,60 @@
       {
         "command": "magpylib-studio.clearPath",
         "title": "Clear Path"
+      },
+      {
+        "command": "magpylib-studio.toggleVisibility",
+        "title": "Toggle Visibility",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "magpylib-studio.copyObject",
+        "title": "Copy"
+      },
+      {
+        "command": "magpylib-studio.cutObject",
+        "title": "Cut"
+      },
+      {
+        "command": "magpylib-studio.pasteObject",
+        "title": "Paste"
+      },
+      {
+        "command": "magpylib-studio.renameObject",
+        "title": "Rename..."
       }
     ],
     "keybindings": [
+      {
+        "command": "magpylib-studio.copyObject",
+        "key": "ctrl+c",
+        "mac": "cmd+c",
+        "when": "focusedView == magpylib-studio.sceneView"
+      },
+      {
+        "command": "magpylib-studio.cutObject",
+        "key": "ctrl+x",
+        "mac": "cmd+x",
+        "when": "focusedView == magpylib-studio.sceneView"
+      },
+      {
+        "command": "magpylib-studio.pasteObject",
+        "key": "ctrl+v",
+        "mac": "cmd+v",
+        "when": "focusedView == magpylib-studio.sceneView"
+      },
+      {
+        "command": "magpylib-studio.renameObject",
+        "key": "f2",
+        "mac": "enter",
+        "when": "focusedView == magpylib-studio.sceneView"
+      },
+      {
+        "command": "magpylib-studio.removeObject",
+        "key": "delete",
+        "mac": "cmd+backspace",
+        "when": "focusedView == magpylib-studio.sceneView"
+      },
       {
         "command": "magpylib-studio.undo",
         "key": "ctrl+z",
@@ -275,6 +326,11 @@
       ],
       "view/item/context": [
         {
+          "command": "magpylib-studio.toggleVisibility",
+          "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpy/",
+          "group": "inline@0"
+        },
+        {
           "command": "magpylib-studio.moveBy",
           "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpy/",
           "group": "inline@1"
@@ -286,8 +342,28 @@
         },
         {
           "command": "magpylib-studio.addObject",
-          "when": "view == magpylib-studio.sceneView && viewItem == magpyCollection",
+          "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpyCollection/",
           "group": "inline@3"
+        },
+        {
+          "command": "magpylib-studio.renameObject",
+          "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpy/",
+          "group": "0_edit@1"
+        },
+        {
+          "command": "magpylib-studio.copyObject",
+          "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpy/",
+          "group": "0_edit@2"
+        },
+        {
+          "command": "magpylib-studio.cutObject",
+          "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpy/",
+          "group": "0_edit@3"
+        },
+        {
+          "command": "magpylib-studio.pasteObject",
+          "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpy/",
+          "group": "0_edit@4"
         },
         {
           "submenu": "magpylib-studio.transformSubmenu",
@@ -296,7 +372,7 @@
         },
         {
           "command": "magpylib-studio.addObject",
-          "when": "view == magpylib-studio.sceneView && viewItem == magpyCollection",
+          "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpyCollection/",
           "group": "1_move@3"
         },
         {
@@ -306,7 +382,7 @@
         },
         {
           "command": "magpylib-studio.newCollection",
-          "when": "view == magpylib-studio.sceneView && viewItem == magpyCollection",
+          "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpyCollection/",
           "group": "1_move@2"
         },
         {

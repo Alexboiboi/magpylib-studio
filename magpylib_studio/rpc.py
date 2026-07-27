@@ -28,6 +28,8 @@ _PUBLIC = {
     "add_object",
     "remove_object",
     "move_object",
+    "copy_object",
+    "set_visible",
     "set_param",
     "get_params",
     "get_transform",
