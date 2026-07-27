@@ -101,9 +101,7 @@ const OBJECT_TEMPLATES: {
  * path, the number of steps and magpylib's `start` (passed through verbatim:
  * "auto" appends the new path, an index applies from there).
  */
-async function askPathOrSingle(
-  title: string,
-): Promise<{ steps: number; start?: number } | undefined> {
+async function askPathOrSingle(title: string): Promise<{ steps: number } | undefined> {
   const pick = await vscode.window.showQuickPick(
     [
       { label: 'Scalar', detail: 'apply once', path: false },
@@ -125,15 +123,21 @@ async function askPathOrSingle(
         ? undefined
         : 'A whole number of steps, 1 or more',
   });
-  if (!stepText) {
-    return undefined;
-  }
-  // magpylib's own `start` parameter, passed through unchanged.
-  const startPick = await vscode.window.showQuickPick(
+  return stepText ? { steps: Number(stepText) } : undefined;
+}
+
+/**
+ * Last step of a path transform: magpylib's `start`, passed through verbatim.
+ * Returns {} for "auto" (magpylib's default) or {start: index}; undefined if
+ * the user escaped.
+ */
+async function askStart(): Promise<{ start?: number } | undefined> {
+  const pick = await vscode.window.showQuickPick(
     [
       {
         label: 'auto',
-        detail: "magpylib default — the new path is appended after the object's current one",
+        detail:
+          "magpylib default — the new path is appended after the object's current one",
         custom: false,
       },
       {
@@ -144,11 +148,11 @@ async function askPathOrSingle(
     ],
     { placeHolder: 'start' },
   );
-  if (!startPick) {
+  if (!pick) {
     return undefined;
   }
-  if (!startPick.custom) {
-    return { steps: Number(stepText) }; // omitted => engine passes "auto"
+  if (!pick.custom) {
+    return {}; // omitted => engine passes "auto"
   }
   const indexText = await vscode.window.showInputBox({
     prompt: 'start — path index (negative counts from the end)',
@@ -157,7 +161,7 @@ async function askPathOrSingle(
   });
   return indexText === undefined || indexText === ''
     ? undefined
-    : { steps: Number(stepText), start: Number(indexText) };
+    : { start: Number(indexText) };
 }
 
 /** Units shown in the Add Object prompts. */
@@ -901,10 +905,18 @@ export function activate(context: vscode.ExtensionContext): void {
             : Array.from({ length: kind.steps }, (_, i) =>
                 d.map((c) => (c * (i + 1)) / kind.steps),
               );
+        let startArg: { start?: number } = {};
+        if (kind.steps > 1) {
+          const chosen = await askStart();
+          if (!chosen) {
+            return;
+          }
+          startArg = chosen;
+        }
         await mutateFromTree('move', {
           object_id: obj.id,
           displacement,
-          ...(kind.start !== undefined ? { start: kind.start } : {}),
+          ...startArg,
         });
       },
     ),
@@ -943,12 +955,20 @@ export function activate(context: vscode.ExtensionContext): void {
                 { length: kind.steps },
                 (_, i) => (total * (i + 1)) / kind.steps,
               );
+        let startArg: { start?: number } = {};
+        if (kind.steps > 1) {
+          const chosen = await askStart();
+          if (!chosen) {
+            return;
+          }
+          startArg = chosen;
+        }
         await mutateFromTree('rotate', {
           object_id: obj.id,
           angle,
           axis,
           ...(anchor.value !== undefined ? { anchor: anchor.value } : {}),
-          ...(kind.start !== undefined ? { start: kind.start } : {}),
+          ...startArg,
         });
       },
     ),
