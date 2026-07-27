@@ -48,9 +48,9 @@ import re
 import magpylib as magpy
 import numpy as np
 import plotly.graph_objects as go
-from magpylib._src.defaults.defaults_classes import default_settings
-from magpylib._src.style import get_style
 from scipy.spatial.transform import Rotation as R
+
+from magpylib_studio import style_compat
 
 
 def example_scene():
@@ -289,7 +289,7 @@ class MagpylibStudioSession:
         # and rotates the whole group exactly as it would in a script.
         _replay(obj, _spec_ops(spec))
         for path, value in spec.get("style", {}).items():
-            obj.style.set(path, value)  # dotted-path set (same as the GUI/LLM)
+            style_compat.set_style(obj, path, value)  # same call the GUI/LLM makes
         if spec["id"] in self._objs:
             raise ValueError(f"duplicate object id {spec['id']!r}")
         self._objs[spec["id"]] = obj
@@ -356,7 +356,7 @@ class MagpylibStudioSession:
         ]
 
     def get_schema(self, object_id):
-        return type(self._objs[object_id].style).schema()
+        return style_compat.schema(self._objs[object_id])
 
     def get_params(self, object_id):
         """The object's physics parameters (polarization, dimension, current,
@@ -397,10 +397,9 @@ class MagpylibStudioSession:
 
     def get_values(self, object_id):
         obj = self._objs[object_id]
-        resolved = get_style(obj, default_settings)
         return {
-            "set": obj.style.set_values(),  # explicitly set (dotted keys)
-            "resolved": resolved.as_dict(flatten=True),  # effective values
+            "set": style_compat.set_values(obj),  # explicitly set (dotted keys)
+            "resolved": style_compat.resolved_values(obj),  # effective values
         }
 
     def get_figure(self, animation=False, template=None):
@@ -659,10 +658,10 @@ class MagpylibStudioSession:
         obj = self._objs[object_id]
         before = json.loads(json.dumps(self.doc))
         try:
-            obj.style.set(path, value)
+            style_compat.set_style(obj, path, value)
         except Exception as e:  # noqa: BLE001 - report validation errors, don't crash
             return {"ok": False, "error": str(e)}
-        self._spec(object_id)["style"] = dict(obj.style.set_values())  # keep doc synced
+        self._spec(object_id)["style"] = style_compat.set_values(obj)  # keep doc synced
         self._record_state(f"edit {object_id} {path}", before)
         return {"ok": True}
 

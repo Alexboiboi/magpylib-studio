@@ -3,9 +3,11 @@ name = "magpylib-studio"
 version = "0.1.0"
 description = "Headless magpylib editing engine for GUI/LLM frontends (e.g. a VS Code extension backend)."
 requires-python = ">=3.11"
-# magpylib must currently be the property-tree branch (schema()/set()/observe());
-# install it editable: `uv pip install -e ../magpylib`
-dependencies = ["plotly>=5"]
+# Works with released magpylib; `magpylib_studio/style_compat.py` fills in the
+# style APIs (schema/set/set_values) that only the property-tree branch has.
+# That branch additionally enables path-valued properties (current=[...]):
+#   pip install "magpylib @ git+https://github.com/magpylib/magpylib@feat/improve-style"
+dependencies = ["magpylib>=5.2", "plotly>=5"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]

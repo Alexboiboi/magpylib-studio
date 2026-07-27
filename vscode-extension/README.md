@@ -79,17 +79,58 @@ Both the webview and the LM tools share one engine process
 ([src/engineClient.ts](src/engineClient.ts) — promise-based RPC client that
 owns the request-id space).
 
-## Development
+## Try it out
+
+**1. Install the engine.** The extension is only the UI; it spawns
+`python -m magpylib_studio`, so any interpreter with the engine installed works
+(Python ≥ 3.11):
+
+```sh
+python3 -m venv ~/magpylib-studio-venv
+~/magpylib-studio-venv/bin/pip install \
+  "magpylib-studio @ git+https://github.com/Alexboiboi/magpylib-studio.git"
+```
+
+That pulls released magpylib and works fully. The [property-tree branch][branch]
+is optional and adds path-valued physics properties (`current=[100, 200, 300]`):
+
+```sh
+~/magpylib-studio-venv/bin/pip install \
+  "magpylib @ git+https://github.com/magpylib/magpylib@feat/improve-style"
+```
+
+**2. Run the extension**, either way:
+
+*From source* — clone the repo, then:
 
 ```sh
 cd vscode-extension
 npm install
-npm run compile     # or: npm run watch
+npm run compile          # or: npm run watch
 ```
 
-Then open **this folder** in VS Code and press `F5` (launch config included).
-In the Extension Development Host run the `Magpylib Studio: Open Scene View`
-command, or ask Copilot chat e.g. `make the cube green #magpyEdit`.
+Open **this folder** in VS Code and press `F5`; a second window opens (the
+Extension Development Host) with the extension loaded.
+
+*From a package* — build a `.vsix` and install it into your normal VS Code:
+
+```sh
+npx @vscode/vsce package
+code --install-extension magpylib-studio-vscode-0.0.1.vsix
+```
+
+**3. Point it at the interpreter.** Settings → `magpylib-studio.pythonPath` →
+`~/magpylib-studio-venv/bin/python`. Skip this only if your workspace has a
+`.venv` with the engine in it. If nothing usable is found you get an error with
+an *Open Settings* button, not a silent failure.
+
+**4. Open it.** Click the magpylib icon in the activity bar and press
+**Load Example Scene** — two Halbach rings and a sensor path. From there: click
+objects in the tree to inspect and edit them, open the Field view for the map,
+and (with GitHub Copilot installed) ask chat things like
+`make the cube green #magpyEdit` or `what is B at the bore centre? #magpyField`.
+
+[branch]: https://github.com/magpylib/magpylib/tree/feat/improve-style
 
 ## Python interpreter resolution
 
@@ -98,8 +139,8 @@ command, or ask Copilot chat e.g. `make the cube green #magpyEdit`.
    the repo root next to this folder;
 3. `python3` on PATH.
 
-The engine requires magpylib from the `feat/improve-style` branch (see repo
-root `CONTINUE.md`); the repo-root `.venv` has it installed.
+The probe checks each candidate can actually `import magpylib_studio`, so a
+workspace `.venv` without the engine cannot shadow a working interpreter.
 
 ## Notes
 

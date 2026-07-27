@@ -1,0 +1,1524 @@
+{
+ "BaseStyle": {
+  "additionalProperties": false,
+  "properties": {
+   "color": {
+    "description": "A valid css color.",
+    "format": "color",
+    "type": [
+     "string",
+     "null"
+    ]
+   },
+   "description": {
+    "additionalProperties": false,
+    "description": "Object description properties.",
+    "properties": {
+     "show": {
+      "description": "If True, adds legend entry suffix based on value.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     },
+     "text": {
+      "description": "Description text.",
+      "type": [
+       "string",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "label": {
+    "description": "Label of the class instance.",
+    "type": [
+     "string",
+     "null"
+    ]
+   },
+   "legend": {
+    "additionalProperties": false,
+    "description": "Object legend properties.",
+    "properties": {
+     "show": {
+      "description": "If True, adds legend entry based on value.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     },
+     "text": {
+      "description": "Legend text.",
+      "type": [
+       "string",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "model3d": {
+    "additionalProperties": false,
+    "description": "3d object representation properties.",
+    "properties": {
+     "data": {
+      "default": [],
+      "description": "Data of 3d object representation (trace or list of traces)."
+     },
+     "showdefault": {
+      "default": true,
+      "description": "Shows/hides default 3d-model.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "opacity": {
+    "description": "Object opacity between 0 and 1.",
+    "maximum": 1,
+    "minimum": 0,
+    "type": [
+     "number",
+     "null"
+    ]
+   },
+   "path": {
+    "additionalProperties": false,
+    "description": "Object path marker and path line properties.",
+    "properties": {
+     "frames": {
+      "description": "Show copies of the 3D-model along the given path indices."
+     },
+     "line": {
+      "additionalProperties": false,
+      "description": "Path line properties.",
+      "properties": {
+       "color": {
+        "description": "Line color.",
+        "format": "color",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "style": {
+        "description": "Line style.",
+        "enum": [
+         "solid",
+         "dashed",
+         "dotted",
+         "dashdot",
+         "loosely dotted",
+         "loosely dashdotted",
+         "-",
+         "--",
+         "-.",
+         ".",
+         ":",
+         [
+          0,
+          [
+           1,
+           1
+          ]
+         ],
+         null
+        ]
+       },
+       "width": {
+        "description": "Positive number that defines the line width.",
+        "minimum": 0,
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      },
+      "type": "object"
+     },
+     "marker": {
+      "additionalProperties": false,
+      "description": "Path marker properties.",
+      "properties": {
+       "color": {
+        "description": "Marker color.",
+        "format": "color",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "size": {
+        "description": "Marker size.",
+        "minimum": 0,
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "symbol": {
+        "description": "Marker symbol.",
+        "enum": [
+         ".",
+         "+",
+         "D",
+         "d",
+         "s",
+         "x",
+         "o",
+         null
+        ]
+       }
+      },
+      "type": "object"
+     },
+     "numbering": {
+      "description": "Show/hide numbering on path positions.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     },
+     "show": {
+      "description": "Show/hide path.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   }
+  },
+  "type": "object"
+ },
+ "CurrentStyle": {
+  "additionalProperties": false,
+  "properties": {
+   "arrow": {
+    "additionalProperties": false,
+    "description": "Current arrow properties.",
+    "properties": {
+     "color": {
+      "description": "Line color.",
+      "format": "color",
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "offset": {
+      "description": "Arrow offset between 0 and 1.",
+      "maximum": 1,
+      "minimum": 0,
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "show": {
+      "description": "Show/hide arrow.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     },
+     "size": {
+      "description": "Positive number defining the size of the arrows.",
+      "minimum": 0,
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "sizemode": {
+      "description": "Sizemode of the arrows.",
+      "enum": [
+       "scaled",
+       "absolute",
+       null
+      ]
+     },
+     "style": {
+      "description": "Line style.",
+      "enum": [
+       "solid",
+       "dashed",
+       "dotted",
+       "dashdot",
+       "loosely dotted",
+       "loosely dashdotted",
+       "-",
+       "--",
+       "-.",
+       ".",
+       ":",
+       [
+        0,
+        [
+         1,
+         1
+        ]
+       ],
+       null
+      ]
+     },
+     "width": {
+      "description": "Positive number that defines the line width.",
+      "minimum": 0,
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "color": {
+    "description": "A valid css color.",
+    "format": "color",
+    "type": [
+     "string",
+     "null"
+    ]
+   },
+   "description": {
+    "additionalProperties": false,
+    "description": "Object description properties.",
+    "properties": {
+     "show": {
+      "description": "If True, adds legend entry suffix based on value.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     },
+     "text": {
+      "description": "Description text.",
+      "type": [
+       "string",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "label": {
+    "description": "Label of the class instance.",
+    "type": [
+     "string",
+     "null"
+    ]
+   },
+   "legend": {
+    "additionalProperties": false,
+    "description": "Object legend properties.",
+    "properties": {
+     "show": {
+      "description": "If True, adds legend entry based on value.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     },
+     "text": {
+      "description": "Legend text.",
+      "type": [
+       "string",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "line": {
+    "additionalProperties": false,
+    "description": "Current line properties.",
+    "properties": {
+     "color": {
+      "description": "Line color.",
+      "format": "color",
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "show": {
+      "description": "Show/hide current line.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     },
+     "style": {
+      "description": "Line style.",
+      "enum": [
+       "solid",
+       "dashed",
+       "dotted",
+       "dashdot",
+       "loosely dotted",
+       "loosely dashdotted",
+       "-",
+       "--",
+       "-.",
+       ".",
+       ":",
+       [
+        0,
+        [
+         1,
+         1
+        ]
+       ],
+       null
+      ]
+     },
+     "width": {
+      "description": "Positive number that defines the line width.",
+      "minimum": 0,
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "model3d": {
+    "additionalProperties": false,
+    "description": "3d object representation properties.",
+    "properties": {
+     "data": {
+      "default": [],
+      "description": "Data of 3d object representation (trace or list of traces)."
+     },
+     "showdefault": {
+      "default": true,
+      "description": "Shows/hides default 3d-model.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "opacity": {
+    "description": "Object opacity between 0 and 1.",
+    "maximum": 1,
+    "minimum": 0,
+    "type": [
+     "number",
+     "null"
+    ]
+   },
+   "path": {
+    "additionalProperties": false,
+    "description": "Object path marker and path line properties.",
+    "properties": {
+     "frames": {
+      "description": "Show copies of the 3D-model along the given path indices."
+     },
+     "line": {
+      "additionalProperties": false,
+      "description": "Path line properties.",
+      "properties": {
+       "color": {
+        "description": "Line color.",
+        "format": "color",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "style": {
+        "description": "Line style.",
+        "enum": [
+         "solid",
+         "dashed",
+         "dotted",
+         "dashdot",
+         "loosely dotted",
+         "loosely dashdotted",
+         "-",
+         "--",
+         "-.",
+         ".",
+         ":",
+         [
+          0,
+          [
+           1,
+           1
+          ]
+         ],
+         null
+        ]
+       },
+       "width": {
+        "description": "Positive number that defines the line width.",
+        "minimum": 0,
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      },
+      "type": "object"
+     },
+     "marker": {
+      "additionalProperties": false,
+      "description": "Path marker properties.",
+      "properties": {
+       "color": {
+        "description": "Marker color.",
+        "format": "color",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "size": {
+        "description": "Marker size.",
+        "minimum": 0,
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "symbol": {
+        "description": "Marker symbol.",
+        "enum": [
+         ".",
+         "+",
+         "D",
+         "d",
+         "s",
+         "x",
+         "o",
+         null
+        ]
+       }
+      },
+      "type": "object"
+     },
+     "numbering": {
+      "description": "Show/hide numbering on path positions.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     },
+     "show": {
+      "description": "Show/hide path.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   }
+  },
+  "type": "object"
+ },
+ "DipoleStyle": {
+  "additionalProperties": false,
+  "properties": {
+   "color": {
+    "description": "A valid css color.",
+    "format": "color",
+    "type": [
+     "string",
+     "null"
+    ]
+   },
+   "description": {
+    "additionalProperties": false,
+    "description": "Object description properties.",
+    "properties": {
+     "show": {
+      "description": "If True, adds legend entry suffix based on value.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     },
+     "text": {
+      "description": "Description text.",
+      "type": [
+       "string",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "label": {
+    "description": "Label of the class instance.",
+    "type": [
+     "string",
+     "null"
+    ]
+   },
+   "legend": {
+    "additionalProperties": false,
+    "description": "Object legend properties.",
+    "properties": {
+     "show": {
+      "description": "If True, adds legend entry based on value.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     },
+     "text": {
+      "description": "Legend text.",
+      "type": [
+       "string",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "model3d": {
+    "additionalProperties": false,
+    "description": "3d object representation properties.",
+    "properties": {
+     "data": {
+      "default": [],
+      "description": "Data of 3d object representation (trace or list of traces)."
+     },
+     "showdefault": {
+      "default": true,
+      "description": "Shows/hides default 3d-model.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "opacity": {
+    "description": "Object opacity between 0 and 1.",
+    "maximum": 1,
+    "minimum": 0,
+    "type": [
+     "number",
+     "null"
+    ]
+   },
+   "path": {
+    "additionalProperties": false,
+    "description": "Object path marker and path line properties.",
+    "properties": {
+     "frames": {
+      "description": "Show copies of the 3D-model along the given path indices."
+     },
+     "line": {
+      "additionalProperties": false,
+      "description": "Path line properties.",
+      "properties": {
+       "color": {
+        "description": "Line color.",
+        "format": "color",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "style": {
+        "description": "Line style.",
+        "enum": [
+         "solid",
+         "dashed",
+         "dotted",
+         "dashdot",
+         "loosely dotted",
+         "loosely dashdotted",
+         "-",
+         "--",
+         "-.",
+         ".",
+         ":",
+         [
+          0,
+          [
+           1,
+           1
+          ]
+         ],
+         null
+        ]
+       },
+       "width": {
+        "description": "Positive number that defines the line width.",
+        "minimum": 0,
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      },
+      "type": "object"
+     },
+     "marker": {
+      "additionalProperties": false,
+      "description": "Path marker properties.",
+      "properties": {
+       "color": {
+        "description": "Marker color.",
+        "format": "color",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "size": {
+        "description": "Marker size.",
+        "minimum": 0,
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "symbol": {
+        "description": "Marker symbol.",
+        "enum": [
+         ".",
+         "+",
+         "D",
+         "d",
+         "s",
+         "x",
+         "o",
+         null
+        ]
+       }
+      },
+      "type": "object"
+     },
+     "numbering": {
+      "description": "Show/hide numbering on path positions.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     },
+     "show": {
+      "description": "Show/hide path.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "pivot": {
+    "description": "Part of the arrow anchored to the grid, about which it rotates.",
+    "enum": [
+     "tail",
+     "middle",
+     "tip",
+     null
+    ]
+   },
+   "size": {
+    "description": "Positive float for ratio of dipole to canvas size.",
+    "minimum": 0,
+    "type": [
+     "number",
+     "null"
+    ]
+   },
+   "sizemode": {
+    "description": "Sizemode of the dipole.",
+    "enum": [
+     "scaled",
+     "absolute",
+     null
+    ]
+   }
+  },
+  "type": "object"
+ },
+ "MagnetStyle": {
+  "additionalProperties": false,
+  "properties": {
+   "color": {
+    "description": "A valid css color.",
+    "format": "color",
+    "type": [
+     "string",
+     "null"
+    ]
+   },
+   "description": {
+    "additionalProperties": false,
+    "description": "Object description properties.",
+    "properties": {
+     "show": {
+      "description": "If True, adds legend entry suffix based on value.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     },
+     "text": {
+      "description": "Description text.",
+      "type": [
+       "string",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "label": {
+    "description": "Label of the class instance.",
+    "type": [
+     "string",
+     "null"
+    ]
+   },
+   "legend": {
+    "additionalProperties": false,
+    "description": "Object legend properties.",
+    "properties": {
+     "show": {
+      "description": "If True, adds legend entry based on value.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     },
+     "text": {
+      "description": "Legend text.",
+      "type": [
+       "string",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "magnetization": {
+    "additionalProperties": false,
+    "description": "Magnetization styling properties.",
+    "properties": {
+     "arrow": {
+      "additionalProperties": false,
+      "description": "Magnetization arrow properties.",
+      "properties": {
+       "color": {
+        "description": "Line color.",
+        "format": "color",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "offset": {
+        "description": "Arrow offset between 0 and 1.",
+        "maximum": 1,
+        "minimum": 0,
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "show": {
+        "description": "Show/hide arrow.",
+        "type": [
+         "boolean",
+         "null"
+        ]
+       },
+       "size": {
+        "description": "Positive number defining the size of the arrows.",
+        "minimum": 0,
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "sizemode": {
+        "description": "Sizemode of the arrows.",
+        "enum": [
+         "scaled",
+         "absolute",
+         null
+        ]
+       },
+       "style": {
+        "description": "Line style.",
+        "enum": [
+         "solid",
+         "dashed",
+         "dotted",
+         "dashdot",
+         "loosely dotted",
+         "loosely dashdotted",
+         "-",
+         "--",
+         "-.",
+         ".",
+         ":",
+         [
+          0,
+          [
+           1,
+           1
+          ]
+         ],
+         null
+        ]
+       },
+       "width": {
+        "description": "Positive number that defines the line width.",
+        "minimum": 0,
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      },
+      "type": "object"
+     },
+     "color": {
+      "additionalProperties": false,
+      "description": "Magnetization color properties.",
+      "properties": {
+       "middle": {
+        "description": "Color between the magnetic poles.",
+        "format": "color",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "mode": {
+        "description": "Coloring mode for the magnetization.",
+        "enum": [
+         "bicolor",
+         "tricolor",
+         "tricycle",
+         null
+        ]
+       },
+       "north": {
+        "description": "Color of the magnetic north pole.",
+        "format": "color",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "south": {
+        "description": "Color of the magnetic south pole.",
+        "format": "color",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "transition": {
+        "description": "Transition smoothness between pole colors.",
+        "maximum": 1,
+        "minimum": 0,
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      },
+      "type": "object"
+     },
+     "mode": {
+      "description": "Magnetization display mode.",
+      "enum": [
+       "auto",
+       "arrow",
+       "color",
+       "arrow+color",
+       "color+arrow",
+       null
+      ]
+     },
+     "show": {
+      "description": "If True, show magnetization direction.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "model3d": {
+    "additionalProperties": false,
+    "description": "3d object representation properties.",
+    "properties": {
+     "data": {
+      "default": [],
+      "description": "Data of 3d object representation (trace or list of traces)."
+     },
+     "showdefault": {
+      "default": true,
+      "description": "Shows/hides default 3d-model.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "opacity": {
+    "description": "Object opacity between 0 and 1.",
+    "maximum": 1,
+    "minimum": 0,
+    "type": [
+     "number",
+     "null"
+    ]
+   },
+   "path": {
+    "additionalProperties": false,
+    "description": "Object path marker and path line properties.",
+    "properties": {
+     "frames": {
+      "description": "Show copies of the 3D-model along the given path indices."
+     },
+     "line": {
+      "additionalProperties": false,
+      "description": "Path line properties.",
+      "properties": {
+       "color": {
+        "description": "Line color.",
+        "format": "color",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "style": {
+        "description": "Line style.",
+        "enum": [
+         "solid",
+         "dashed",
+         "dotted",
+         "dashdot",
+         "loosely dotted",
+         "loosely dashdotted",
+         "-",
+         "--",
+         "-.",
+         ".",
+         ":",
+         [
+          0,
+          [
+           1,
+           1
+          ]
+         ],
+         null
+        ]
+       },
+       "width": {
+        "description": "Positive number that defines the line width.",
+        "minimum": 0,
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      },
+      "type": "object"
+     },
+     "marker": {
+      "additionalProperties": false,
+      "description": "Path marker properties.",
+      "properties": {
+       "color": {
+        "description": "Marker color.",
+        "format": "color",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "size": {
+        "description": "Marker size.",
+        "minimum": 0,
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "symbol": {
+        "description": "Marker symbol.",
+        "enum": [
+         ".",
+         "+",
+         "D",
+         "d",
+         "s",
+         "x",
+         "o",
+         null
+        ]
+       }
+      },
+      "type": "object"
+     },
+     "numbering": {
+      "description": "Show/hide numbering on path positions.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     },
+     "show": {
+      "description": "Show/hide path.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   }
+  },
+  "type": "object"
+ },
+ "SensorStyle": {
+  "additionalProperties": false,
+  "properties": {
+   "arrows": {
+    "additionalProperties": false,
+    "description": "Coordinate system arrows properties.",
+    "properties": {
+     "x": {
+      "additionalProperties": false,
+      "description": "x-direction arrow properties.",
+      "properties": {
+       "color": {
+        "description": "Arrow color.",
+        "format": "color",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "show": {
+        "default": true,
+        "description": "Show/hide arrow.",
+        "type": [
+         "boolean",
+         "null"
+        ]
+       }
+      },
+      "type": "object"
+     },
+     "y": {
+      "additionalProperties": false,
+      "description": "y-direction arrow properties.",
+      "properties": {
+       "color": {
+        "description": "Arrow color.",
+        "format": "color",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "show": {
+        "default": true,
+        "description": "Show/hide arrow.",
+        "type": [
+         "boolean",
+         "null"
+        ]
+       }
+      },
+      "type": "object"
+     },
+     "z": {
+      "additionalProperties": false,
+      "description": "z-direction arrow properties.",
+      "properties": {
+       "color": {
+        "description": "Arrow color.",
+        "format": "color",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "show": {
+        "default": true,
+        "description": "Show/hide arrow.",
+        "type": [
+         "boolean",
+         "null"
+        ]
+       }
+      },
+      "type": "object"
+     }
+    },
+    "type": "object"
+   },
+   "color": {
+    "description": "A valid css color.",
+    "format": "color",
+    "type": [
+     "string",
+     "null"
+    ]
+   },
+   "description": {
+    "additionalProperties": false,
+    "description": "Object description properties.",
+    "properties": {
+     "show": {
+      "description": "If True, adds legend entry suffix based on value.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     },
+     "text": {
+      "description": "Description text.",
+      "type": [
+       "string",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "label": {
+    "description": "Label of the class instance.",
+    "type": [
+     "string",
+     "null"
+    ]
+   },
+   "legend": {
+    "additionalProperties": false,
+    "description": "Object legend properties.",
+    "properties": {
+     "show": {
+      "description": "If True, adds legend entry based on value.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     },
+     "text": {
+      "description": "Legend text.",
+      "type": [
+       "string",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "model3d": {
+    "additionalProperties": false,
+    "description": "3d object representation properties.",
+    "properties": {
+     "data": {
+      "default": [],
+      "description": "Data of 3d object representation (trace or list of traces)."
+     },
+     "showdefault": {
+      "default": true,
+      "description": "Shows/hides default 3d-model.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "opacity": {
+    "description": "Object opacity between 0 and 1.",
+    "maximum": 1,
+    "minimum": 0,
+    "type": [
+     "number",
+     "null"
+    ]
+   },
+   "path": {
+    "additionalProperties": false,
+    "description": "Object path marker and path line properties.",
+    "properties": {
+     "frames": {
+      "description": "Show copies of the 3D-model along the given path indices."
+     },
+     "line": {
+      "additionalProperties": false,
+      "description": "Path line properties.",
+      "properties": {
+       "color": {
+        "description": "Line color.",
+        "format": "color",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "style": {
+        "description": "Line style.",
+        "enum": [
+         "solid",
+         "dashed",
+         "dotted",
+         "dashdot",
+         "loosely dotted",
+         "loosely dashdotted",
+         "-",
+         "--",
+         "-.",
+         ".",
+         ":",
+         [
+          0,
+          [
+           1,
+           1
+          ]
+         ],
+         null
+        ]
+       },
+       "width": {
+        "description": "Positive number that defines the line width.",
+        "minimum": 0,
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      },
+      "type": "object"
+     },
+     "marker": {
+      "additionalProperties": false,
+      "description": "Path marker properties.",
+      "properties": {
+       "color": {
+        "description": "Marker color.",
+        "format": "color",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "size": {
+        "description": "Marker size.",
+        "minimum": 0,
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "symbol": {
+        "description": "Marker symbol.",
+        "enum": [
+         ".",
+         "+",
+         "D",
+         "d",
+         "s",
+         "x",
+         "o",
+         null
+        ]
+       }
+      },
+      "type": "object"
+     },
+     "numbering": {
+      "description": "Show/hide numbering on path positions.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     },
+     "show": {
+      "description": "Show/hide path.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "pixel": {
+    "additionalProperties": false,
+    "description": "Pixel styling properties.",
+    "properties": {
+     "color": {
+      "description": "Pixel color.",
+      "format": "color",
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "field": {
+      "additionalProperties": false,
+      "description": "Pixel field styling properties.",
+      "properties": {
+       "colormap": {
+        "description": "Colormap used with source.",
+        "enum": [
+         "Viridis",
+         "Jet",
+         "Rainbow",
+         "Plasma",
+         "Inferno",
+         "Magma",
+         "Cividis",
+         "Greys",
+         "Purples",
+         "Blues",
+         "Greens",
+         "Oranges",
+         "Reds",
+         "YlOrBr",
+         "YlOrRd",
+         "OrRd",
+         "PuRd",
+         "RdPu",
+         "BuPu",
+         "GnBu",
+         "PuBu",
+         "YlGnBu",
+         "PuBuGn",
+         "BuGn",
+         "YlGn",
+         null
+        ]
+       },
+       "colorscaling": {
+        "description": "Color scale scaling relative to field.",
+        "pattern": "^(uniform|linear|(log)+|log\\^[2-9])$",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "shownull": {
+        "description": "Show/hide null or invalid field values.",
+        "type": [
+         "boolean",
+         "null"
+        ]
+       },
+       "sizemin": {
+        "description": "Minimum relative size of field symbols.",
+        "maximum": 1,
+        "minimum": 0,
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "sizescaling": {
+        "description": "Symbol size scaling relative to field.",
+        "pattern": "^(uniform|linear|(log)+|log\\^[2-9])$",
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "source": {
+        "description": "Pixel field source."
+       },
+       "symbol": {
+        "description": "Orientation symbol for field vector.",
+        "enum": [
+         "cone",
+         "arrow",
+         "arrow3d",
+         "none",
+         null
+        ]
+       }
+      },
+      "type": "object"
+     },
+     "size": {
+      "default": 1,
+      "description": "Positive float for relative pixel size.",
+      "minimum": 0,
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "sizemode": {
+      "description": "Sizemode of the pixel.",
+      "enum": [
+       "scaled",
+       "absolute",
+       null
+      ]
+     },
+     "symbol": {
+      "description": "Pixel symbol.",
+      "enum": [
+       "cube",
+       ".",
+       "+",
+       "D",
+       "d",
+       "s",
+       "x",
+       "o",
+       null
+      ]
+     }
+    },
+    "type": "object"
+   },
+   "size": {
+    "description": "Positive float for ratio of sensor to canvas size.",
+    "minimum": 0,
+    "type": [
+     "number",
+     "null"
+    ]
+   },
+   "sizemode": {
+    "description": "Sizemode of the sensor.",
+    "enum": [
+     "scaled",
+     "absolute",
+     null
+    ]
+   }
+  },
+  "type": "object"
+ }
+}

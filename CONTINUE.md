@@ -150,14 +150,25 @@ Already set up: `.venv/` exists with the above installed. Git repo on `main`.
 For the extension: `cd vscode-extension && npm install && npm run compile`
 (node installed via Homebrew).
 
-## CRITICAL dependency
+## magpylib versions — BOTH work
 
-Depends on the **property-tree branch of magpylib**, installed editable from the
-sibling repo `../magpylib` (branch `feat/improve-style`). That branch adds the
-`PropertyNode` API this engine relies on:
-`schema()`, `set(path, value)`, `observe()`, `is_set`/`set_values`, `merged()`,
-plus `get_style`. Released PyPI magpylib does NOT have these. If imports fail,
-check that `../magpylib` is on `feat/improve-style` and installed `-e`.
+`magpylib_studio/style_compat.py` abstracts the only four branch-specific APIs
+(`schema()`, `set(path,value)`, `set_values()`, resolved `get_style`):
+
+- **Released magpylib (≥5.2)** — `pip install magpylib-studio` and done. The
+  shim rebuilds set/set_values from `style.update()` / `style.as_dict()`
+  (diffing a pristine style so defaults don't pollute the doc), and serves
+  `style_schemas.json` — the branch's schema, generated once — as the schema.
+  The two style trees match on 32 of 33 paths, so the inspector keeps real
+  widgets. **Regenerate that file** (see its generation snippet in git history)
+  if the branch's style tree changes.
+- **Property-tree branch** (`feat/improve-style`, on the *official* magpylib
+  repo) — adds path-valued physics properties (`current=[100,200,300]`), the
+  only feature the released version lacks.
+
+Run the suite against both: `.venv/bin/python -m pytest -q` (branch) and a
+second venv with released magpylib (49 passed, 1 skipped — the property-path
+test skips via `supports_property_paths()`).
 
 ## Key design decisions (keep these)
 
