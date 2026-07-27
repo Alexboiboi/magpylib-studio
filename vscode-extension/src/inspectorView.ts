@@ -437,6 +437,9 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
       orbit.append(orbitBox, document.createTextNode(' orbit origin'));
       const steps = document.createElement('input');
       steps.type = 'number'; steps.min = '1'; steps.value = '1'; steps.title = 'path steps';
+      const start = document.createElement('input');
+      start.type = 'text'; start.value = 'auto'; start.style.width = '46px';
+      start.title = "magpylib start: 'auto' appends the new path, or a path index";
       const go = document.createElement('button');
       go.textContent = 'Rotate';
       go.addEventListener('click', () => {
@@ -447,11 +450,14 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
           : Array.from({ length: n }, (_, i) => (total * (i + 1)) / n);
         const params = { angle: value, axis: axis.value };
         if (orbitBox.checked) params.anchor = 0;
-        if (n > 1) params.start = -1;
+        if (n > 1 && start.value.trim() !== 'auto' && start.value.trim() !== '') {
+          params.start = parseInt(start.value, 10);
+        }
         transformOp('rotate', params);
       });
       row.append(document.createTextNode('rotate'), angle, axis, orbit,
-                 document.createTextNode('steps'), steps, go);
+                 document.createTextNode('steps'), steps,
+                 document.createTextNode('start'), start, go);
       box.appendChild(row);
 
       // relative move, optionally as a path
@@ -464,6 +470,9 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
       });
       const msteps = document.createElement('input');
       msteps.type = 'number'; msteps.min = '1'; msteps.value = '1'; msteps.title = 'path steps';
+      const mstart = document.createElement('input');
+      mstart.type = 'text'; mstart.value = 'auto'; mstart.style.width = '46px';
+      mstart.title = "magpylib start: 'auto' appends the new path, or a path index";
       const mgo = document.createElement('button');
       mgo.textContent = 'Move';
       mgo.addEventListener('click', () => {
@@ -473,11 +482,14 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
           ? d
           : Array.from({ length: n }, (_, i) => d.map((c) => (c * (i + 1)) / n));
         const params = { displacement: value };
-        if (n > 1) params.start = -1;
+        if (n > 1 && mstart.value.trim() !== 'auto' && mstart.value.trim() !== '') {
+          params.start = parseInt(mstart.value, 10);
+        }
         transformOp('move', params);
       });
       mrow.append(document.createTextNode('move'), ...dxyz,
-                  document.createTextNode('steps'), msteps, mgo);
+                  document.createTextNode('steps'), msteps,
+                  document.createTextNode('start'), mstart, mgo);
       box.appendChild(mrow);
 
       if (t.path_length > 1) {

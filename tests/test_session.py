@@ -235,6 +235,25 @@ def test_transforms(session):
     assert np.allclose(session._objs["cube"].position, [0, 1, 2])
 
 
+def test_start_matches_magpylib(session):
+    """`start` is passed through to magpylib unchanged, including its default."""
+    import magpylib as magpy
+    import numpy as np
+
+    for kwargs in ({}, {"start": 0}, {"start": -1}):
+        s = MagpylibStudioSession(make_scene())
+        s.move("cube", [[0, 0, 10], [0, 0, 20]])
+        s.move("cube", [[1, 0, 0], [2, 0, 0]], **kwargs)
+
+        ref = magpy.magnet.Cuboid(polarization=(0, 0, 1), dimension=(1, 1, 1))
+        ref.move([[0, 0, 10], [0, 0, 20]])
+        ref.move([[1, 0, 0], [2, 0, 0]], **kwargs)
+
+        assert np.allclose(
+            np.atleast_2d(s._objs["cube"].position), np.atleast_2d(ref.position)
+        ), kwargs
+
+
 def test_transform_paths(session):
     import numpy as np
 

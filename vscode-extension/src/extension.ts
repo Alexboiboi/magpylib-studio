@@ -96,8 +96,14 @@ const OBJECT_TEMPLATES: {
   { label: 'Collection', type: 'Collection', detail: 'empty group', params: {} },
 ];
 
-/** Ask whether a transform applies once or builds an animation path. */
-async function askPathOrSingle(title: string): Promise<{ steps: number } | undefined> {
+/**
+ * Ask whether a transform applies once or builds an animation path; for a
+ * path, the number of steps and magpylib's `start` (passed through verbatim:
+ * "auto" appends the new path, an index applies from there).
+ */
+async function askPathOrSingle(
+  title: string,
+): Promise<{ steps: number; start?: number } | undefined> {
   const pick = await vscode.window.showQuickPick(
     [
       { label: 'Scalar', detail: 'apply once', path: false },
@@ -111,7 +117,7 @@ async function askPathOrSingle(title: string): Promise<{ steps: number } | undef
   if (!pick.path) {
     return { steps: 1 };
   }
-  const text = await vscode.window.showInputBox({
+  const stepText = await vscode.window.showInputBox({
     prompt: 'Number of path steps',
     value: '20',
     validateInput: (v) =>
@@ -119,7 +125,39 @@ async function askPathOrSingle(title: string): Promise<{ steps: number } | undef
         ? undefined
         : 'A whole number of steps, 1 or more',
   });
-  return text ? { steps: Number(text) } : undefined;
+  if (!stepText) {
+    return undefined;
+  }
+  // magpylib's own `start` parameter, passed through unchanged.
+  const startPick = await vscode.window.showQuickPick(
+    [
+      {
+        label: 'auto',
+        detail: "magpylib default — the new path is appended after the object's current one",
+        custom: false,
+      },
+      {
+        label: 'index…',
+        detail: 'apply from a path index instead (0 = first step, -1 = last step)',
+        custom: true,
+      },
+    ],
+    { placeHolder: 'start' },
+  );
+  if (!startPick) {
+    return undefined;
+  }
+  if (!startPick.custom) {
+    return { steps: Number(stepText) }; // omitted => engine passes "auto"
+  }
+  const indexText = await vscode.window.showInputBox({
+    prompt: 'start — path index (negative counts from the end)',
+    value: '0',
+    validateInput: (v) => (Number.isInteger(Number(v)) ? undefined : 'A whole number'),
+  });
+  return indexText === undefined || indexText === ''
+    ? undefined
+    : { steps: Number(stepText), start: Number(indexText) };
 }
 
 /** Units shown in the Add Object prompts. */
@@ -866,7 +904,7 @@ export function activate(context: vscode.ExtensionContext): void {
         await mutateFromTree('move', {
           object_id: obj.id,
           displacement,
-          ...(kind.steps > 1 ? { start: -1 } : {}),
+          ...(kind.start !== undefined ? { start: kind.start } : {}),
         });
       },
     ),
@@ -910,7 +948,7 @@ export function activate(context: vscode.ExtensionContext): void {
           angle,
           axis,
           ...(anchor.value !== undefined ? { anchor: anchor.value } : {}),
-          ...(kind.steps > 1 ? { start: -1 } : {}),
+          ...(kind.start !== undefined ? { start: kind.start } : {}),
         });
       },
     ),
