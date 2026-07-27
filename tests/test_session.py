@@ -301,20 +301,48 @@ def test_copy_object_follows_magpylib_label_convention(session):
     session.get_figure()  # the duplicated scene still renders
 
 
-def test_set_visible_filters_the_figure_only(session):
-    traces = len(session.get_figure()["data"])
+def _geometry(session):
+    """Per-trace (name, type, colour, point count) of the current figure."""
+    out = []
+    for trace in session.get_figure()["data"]:
+        x = trace.get("x")
+        size = len(x["bdata"]) if isinstance(x, dict) else len(x or [])
+        out.append((trace.get("name"), trace.get("type"), trace.get("color"), size))
+    return out
+
+
+def test_set_visible_hides_without_disturbing_colours(session):
+    """Hiding uses magpylib's own switches, so the object keeps its slot in
+    the colour sequence and the others cannot be recoloured."""
+    baseline = _geometry(session)
     assert session.set_visible("cyl", False) == {"ok": True}
     assert {o["id"]: o["visible"] for o in session.list_objects()}["cyl"] is False
-    assert len(session.get_figure()["data"]) < traces
-    # hidden objects still contribute to the field (display-only flag)
+
+    hidden = _geometry(session)
+    assert [t[:3] for t in hidden] == [t[:3] for t in baseline]  # same traces/colours
+    assert sum(t[3] for t in hidden) < sum(t[3] for t in baseline)  # less geometry
+    # display-only: hidden sources still contribute to the field
     assert session.get_field(points=[[0, 0, 5]])["magnitude"][0] > 0
+
     assert session.set_visible("cyl", True) == {"ok": True}
-    assert len(session.get_figure()["data"]) == traces
-    # hiding a collection hides its subtree
+    assert _geometry(session) == baseline
+    assert "hidden_style" not in session._spec("cyl")
+    assert "model3d.showdefault" not in session._spec("cyl").get("style", {})
+
+
+def test_set_visible_preserves_user_style_and_paths(session):
+    session.apply_edit("cube", "path.show", False)  # user's own setting
+    session.set_visible("cube", False)
+    session.set_visible("cube", True)
+    assert session._spec("cube")["style"]["path.show"] is False  # not clobbered
+
+    # hiding a collection hides every leaf beneath it, path lines included
     session.add_object("grp", "Collection")
-    session.move_object("cube", "grp")
-    session.set_visible("grp", False)
-    assert len(session.get_figure()["data"]) < traces
+    session.move_object("cyl", "grp")
+    before = sum(t[3] for t in _geometry(session))
+    assert session.set_visible("grp", False) == {"ok": True}
+    assert sum(t[3] for t in _geometry(session)) < before
+    assert session._spec("cyl")["style"]["model3d.showdefault"] is False
 
 
 def test_get_params_exposes_physics_properties(session):

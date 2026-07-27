@@ -133,6 +133,11 @@ _PARAM_DOCS = {
 }
 
 
+# Style switches that hide an object without removing it from the figure —
+# magpylib still assigns it a colour, so the others keep theirs.
+_HIDE_STYLE = {"model3d.showdefault": False, "path.show": False}
+
+
 # Operations allowed inside batch() — mutating, per-object (plus clear).
 _BATCHABLE = {
     "apply_edit",
@@ -395,30 +400,15 @@ class MagpylibStudioSession:
             "resolved": resolved.as_dict(flatten=True),  # effective values
         }
 
-    def _visible_leaves(self, specs=None):
-        """Live objects to draw: leaves whose whole ancestry is visible."""
-        out = []
-        for spec in self.doc["objects"] if specs is None else specs:
-            if not spec.get("visible", True):
-                continue
-            if spec["type"] == "Collection":
-                out += self._visible_leaves(spec.get("children", []))
-            else:
-                out.append(self._objs[spec["id"]])
-        return out
-
     def get_figure(self, animation=False, template=None):
         """Figure JSON; animation=True animates paths (plotly frames + play
         button). magpylib falls back to a static plot if nothing has a path.
         template is a plotly template name ('plotly_dark', 'plotly_white', …) —
         resolved here because plotly.js has no named-template registry.
-        Objects hidden via set_visible are left out."""
-        visible = self._visible_leaves()
+        The whole scene is always drawn: objects hidden via set_visible carry
+        magpylib's own hide switches, keeping every colour assignment stable."""
         fig = magpy.show(
-            *visible if visible else [magpy.Collection()],
-            backend="plotly",
-            animation=animation,
-            return_fig=True,
+            self.scene, backend="plotly", animation=animation, return_fig=True
         )
         if template:
             fig.layout.template = template
@@ -709,16 +699,39 @@ class MagpylibStudioSession:
         return result
 
     def set_visible(self, object_id, visible=True):
-        """Show/hide an object in the 3D view (display only — hidden sources
-        still contribute to field computations, like a plotly legend toggle).
-        Hiding a Collection hides its subtree."""
+        """Show/hide an object in the 3D view. Implemented with magpylib's own
+        style switches (`model3d.showdefault`, `path.show`) rather than by
+        leaving the object out of the figure: the object still takes its slot
+        in magpylib's colour sequence, so hiding one thing cannot recolour the
+        others. Display only — hidden sources still contribute to the field.
+        Hiding a Collection hides every leaf beneath it."""
         spec = self._spec(object_id)
+        leaves = [
+            s
+            for s, _ in self._iter_specs([spec])
+            if s["type"] != "Collection"
+        ]
 
         def mutate(doc):
             if visible:
                 spec.pop("visible", None)
             else:
                 spec["visible"] = False
+            for leaf in leaves:
+                style = leaf.setdefault("style", {})
+                if visible:
+                    restore = leaf.pop("hidden_style", {})
+                    for path in _HIDE_STYLE:
+                        if path in restore:
+                            style[path] = restore[path]
+                        else:
+                            style.pop(path, None)
+                else:
+                    if "hidden_style" not in leaf:
+                        leaf["hidden_style"] = {
+                            p: style[p] for p in _HIDE_STYLE if p in style
+                        }
+                    style.update(_HIDE_STYLE)
 
         state = "show" if visible else "hide"
         return self._mutate_doc(mutate, f"{state} {object_id}")

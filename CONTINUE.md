@@ -32,9 +32,12 @@ and drives it.
   failure the old doc is restored and the error reported (`{"ok": false}`).
 - **Clipboard & visibility**: `copy_object(id, parent?)` duplicates a spec
   (subtree included) with magpylib's label convention (`Cube_01`, `Cube_02`)
-  and unique ids; `set_visible(id, bool)` sets a doc-level `visible` flag
-  that only `get_figure` honours (via `_visible_leaves`) — hidden sources
-  still contribute to `get_field`, like a plotly legend toggle. Tree: rename
+  and unique ids; `set_visible(id, bool)` hides via magpylib's own switches
+  (`_HIDE_STYLE` = `model3d.showdefault: False` + `path.show: False`, applied
+  to leaf specs, prior values kept in `hidden_style` for exact restore) —
+  **not** by dropping objects from the figure, so the object keeps its slot in
+  magpylib's colour sequence and nothing else is recoloured. Hidden sources
+  still contribute to `get_field`. Tree: rename
   (F2/Enter), copy/cut/paste (Cmd+C/X/V), delete, and an inline eye toggle;
   hidden items show an eye-closed icon and "· hidden".
 - **Physics properties**: `get_params(object_id)` introspects the live object
