@@ -166,6 +166,11 @@ _BATCHABLE = {
     "clear_path",
     "reset_style",
     "clear_scene",
+    # a parametric scene is built in one go: variables, then the objects
+    # written in terms of them, then the arrangements
+    "set_variable",
+    "remove_variable",
+    "duplicate_around",
 }
 
 

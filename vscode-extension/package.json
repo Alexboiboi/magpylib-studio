@@ -562,7 +562,7 @@
         "displayName": "Add magpylib object",
         "toolReferenceName": "magpyAdd",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "Add ONE new object to the Magpylib Studio scene; to create several objects use the batch tool in a single call instead. 'type' is a dotted magpylib class path like 'magnet.Cuboid', 'magnet.Cylinder', 'magnet.Sphere', 'current.Circle' or 'Sensor'. 'params' are the constructor kwargs (e.g. polarization, dimension/diameter, position; a Sensor position may be a list of [x,y,z] points forming a path). 'rotations' optionally rotates the object after construction (e.g. Halbach arrangements: orbit with anchor 0, then spin in place). Type 'Collection' creates a group; pass 'parent' (a Collection id) to nest an object inside a group - rotations on a Collection rotate the whole group. On failure the result contains the constructor/validation error - fix and retry. Note: on magnets the default magnetization coloring masks the base 'color' style - for a visible solid color also include 'magnetization.mode': 'arrow'.",
+        "modelDescription": "Add ONE new object to the Magpylib Studio scene; to create several objects use the batch tool in a single call instead. 'type' is a dotted magpylib class path like 'magnet.Cuboid', 'magnet.Cylinder', 'magnet.Sphere', 'current.Circle' or 'Sensor'. 'params' are the constructor kwargs (e.g. polarization, dimension/diameter, position; a Sensor position may be a list of [x,y,z] points forming a path). 'rotations' optionally rotates the object after construction (e.g. Halbach arrangements: orbit with anchor 0, then spin in place). Type 'Collection' creates a group; pass 'parent' (a Collection id) to nest an object inside a group - rotations on a Collection rotate the whole group. On failure the result contains the constructor/validation error - fix and retry. Note: on magnets the default magnetization coloring masks the base 'color' style - for a visible solid color also include 'magnetization.mode': 'arrow'. VALUES MAY BE EXPRESSIONS: any number here can instead be a string starting with '=' naming the scene's variables, e.g. \"=gap\" or [0, 0, \"=gap*2\"] - use one whenever the user describes a quantity as a parameter or repeats it across objects, so changing it later moves everything at once. The variable must already exist (set variable tool). Strings without '=' stay literal, so an axis is still 'z'. For a ring, a circular array or a Halbach arrangement, do NOT add the magnets one by one: add ONE magnet inside a Collection and call the duplicate around tool, which keeps the count editable.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -637,7 +637,7 @@
         "displayName": "Set magpylib object parameter",
         "toolReferenceName": "magpyParam",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "Set a constructor parameter of a magpylib scene object - position, dimension, diameter, polarization, ... Use this to move or resize objects (style edits use the apply edit tool instead). On failure the result contains the error - fix and retry.",
+        "modelDescription": "Set a constructor parameter of a magpylib scene object - position, dimension, diameter, polarization, ... Use this to move or resize objects (style edits use the apply edit tool instead). On failure the result contains the error - fix and retry. VALUES MAY BE EXPRESSIONS: any number here can instead be a string starting with '=' naming the scene's variables, e.g. \"=gap\" or [0, 0, \"=gap*2\"] - use one whenever the user describes a quantity as a parameter or repeats it across objects, so changing it later moves everything at once. The variable must already exist (set variable tool). Strings without '=' stay literal, so an axis is still 'z'.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -715,7 +715,7 @@
         "displayName": "Rotate magpylib object",
         "toolReferenceName": "magpyRotate",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "Rotate a scene object by 'angle' degrees about 'axis'. Pass anchor 0 (or [x,y,z]) to ORBIT that point instead of spinning in place - Halbach-style arrangements orbit and spin by the same angle. A list of angles creates an animation path (use start: -1 to append to the existing path). Works on Collections too, rotating the whole group. Prefer the batch tool for many objects.",
+        "modelDescription": "Rotate a scene object by 'angle' degrees about 'axis'. Pass anchor 0 (or [x,y,z]) to ORBIT that point instead of spinning in place - Halbach-style arrangements orbit and spin by the same angle. A list of angles creates an animation path (use start: -1 to append to the existing path). Works on Collections too, rotating the whole group. Prefer the batch tool for many objects. VALUES MAY BE EXPRESSIONS: any number here can instead be a string starting with '=' naming the scene's variables, e.g. \"=gap\" or [0, 0, \"=gap*2\"] - use one whenever the user describes a quantity as a parameter or repeats it across objects, so changing it later moves everything at once. The variable must already exist (set variable tool). Strings without '=' stay literal, so an axis is still 'z'.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -747,7 +747,7 @@
         "displayName": "Move magpylib object",
         "toolReferenceName": "magpyMove",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "Move a scene object by a RELATIVE displacement [dx,dy,dz] in meters. A list of displacements creates an animation path (use start: -1 to append). To set an absolute position instead, use the set position tool. Works on Collections, moving the whole group.",
+        "modelDescription": "Move a scene object by a RELATIVE displacement [dx,dy,dz] in meters. A list of displacements creates an animation path (use start: -1 to append). To set an absolute position instead, use the set position tool. Works on Collections, moving the whole group. VALUES MAY BE EXPRESSIONS: any number here can instead be a string starting with '=' naming the scene's variables, e.g. \"=gap\" or [0, 0, \"=gap*2\"] - use one whenever the user describes a quantity as a parameter or repeats it across objects, so changing it later moves everything at once. The variable must already exist (set variable tool). Strings without '=' stay literal, so an axis is still 'z'.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -773,7 +773,7 @@
         "displayName": "Set magpylib object pose",
         "toolReferenceName": "magpyPose",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "Set an object's ABSOLUTE position and/or orientation in world coordinates (meters, degrees). 'position' is [x,y,z] or a path [[x,y,z],...]; 'orientation' is a rotation vector [rx,ry,rz] in degrees. Use the move/rotate tools for relative changes.",
+        "modelDescription": "Set an object's ABSOLUTE position and/or orientation in world coordinates (meters, degrees). 'position' is [x,y,z] or a path [[x,y,z],...]; 'orientation' is a rotation vector [rx,ry,rz] in degrees. Use the move/rotate tools for relative changes. VALUES MAY BE EXPRESSIONS: any number here can instead be a string starting with '=' naming the scene's variables, e.g. \"=gap\" or [0, 0, \"=gap*2\"] - use one whenever the user describes a quantity as a parameter or repeats it across objects, so changing it later moves everything at once. The variable must already exist (set variable tool). Strings without '=' stay literal, so an axis is still 'z'.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -808,7 +808,7 @@
         "displayName": "Batch magpylib operations",
         "toolReferenceName": "magpyBatch",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "Apply several Magpylib Studio scene operations in ONE call - always prefer this over chaining single tool calls when creating, editing, or removing multiple objects (e.g. building an array of magnets). Operations run in order; failures don't stop the rest. The result lists per-operation outcomes ({ok, error?}) - fix failed ones and retry only those. Batchable methods: add_object, remove_object, move_object (reparent into/out of Collections: {object_id, parent?}), apply_edit, set_param, move, rotate, set_transform, clear_path, reset_style, clear_scene (their params match the corresponding single tools).",
+        "modelDescription": "Apply several Magpylib Studio scene operations in ONE call - always prefer this over chaining single tool calls when creating, editing, or removing multiple objects (e.g. building an array of magnets). Operations run in order; failures don't stop the rest. The result lists per-operation outcomes ({ok, error?}) - fix failed ones and retry only those. Batchable methods: add_object, remove_object, move_object (reparent into/out of Collections: {object_id, parent?}), apply_edit, set_param, move, rotate, set_transform, clear_path, reset_style, clear_scene (their params match the corresponding single tools). Batchable methods now also include set_variable, remove_variable and duplicate_around, so a whole parametric scene - variables, the objects written in terms of them, then the arrangements - can be built in one undoable call.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -875,6 +875,135 @@
             "object_id",
             "path",
             "value"
+          ]
+        }
+      },
+      {
+        "name": "magpylib-studio_getVariables",
+        "displayName": "List magpylib scene variables",
+        "toolReferenceName": "magpyVars",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "List the scene's variables with what each was written as and what it currently resolves to. Call this before writing an expression, to see which names exist. Any numeric value in this scene may be an EXPRESSION over the document's variables instead of a number: a string starting with '=', e.g. \"=gap\", \"=360/n\", [0, 0, \"=gap*2\"]. Anything without the '=' is a literal, so an axis stays 'z'. Expressions may use + - * / ** and sqrt/sin/cos/atan2/radians/degrees/min/max/abs/round plus pi/e/tau. Every variable used must already exist (create it with the set variable tool first) or the call fails with \"unknown variable\".",
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "magpylib-studio_setVariable",
+        "displayName": "Set a magpylib scene variable",
+        "toolReferenceName": "magpyVar",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "Define or change one named value the scene can be written in terms of, so that editing it moves everything that refers to it. Use this for any quantity the user describes as a parameter, or that repeats across objects (a gap, a radius, a magnet count, a step angle). Values are unitless SI, as magpylib uses: metres, tesla, amperes, degrees. 'value' is a number, or an expression over the OTHER variables (\"=gap*2\"); a variable cannot refer to itself. Changing a variable rebuilds every object written in terms of it. Any numeric value in this scene may be an EXPRESSION over the document's variables instead of a number: a string starting with '=', e.g. \"=gap\", \"=360/n\", [0, 0, \"=gap*2\"]. Anything without the '=' is a literal, so an axis stays 'z'. Expressions may use + - * / ** and sqrt/sin/cos/atan2/radians/degrees/min/max/abs/round plus pi/e/tau. Every variable used must already exist (create it with the set variable tool first) or the call fails with \"unknown variable\".",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Variable name: letters, digits and underscores, not starting with a digit, and not a built-in like 'pi' or 'sqrt'."
+            },
+            "value": {
+              "type": [
+                "number",
+                "string"
+              ],
+              "description": "A number, or an expression over the other variables such as \"=gap*2\"."
+            }
+          },
+          "required": [
+            "name",
+            "value"
+          ]
+        }
+      },
+      {
+        "name": "magpylib-studio_duplicateAround",
+        "displayName": "Duplicate a magpylib object around an axis",
+        "toolReferenceName": "magpyDuplicate",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "Arrange ONE object into a ring of evenly spaced copies about an axis, recorded as a single event rather than as N separate objects - so the count stays one number to change. STRONGLY PREFER this over adding magnets one by one in a loop whenever the user asks for a ring, a circular array, or a Halbach arrangement. 'count' includes the original and may be a variable (\"=n\"). 'spin' is extra rotation in place per copy index: 0 leaves every copy facing the same way, and a Halbach ring is spin = 360/count (pass \"=360/n\" to keep it tied to the count). The object MUST already be inside a Collection - create one and pass it as 'parent' when adding the object - because that is where the copies go. The copies are generated, not listed as editable objects: change the original, the count or the variables instead. Any numeric value in this scene may be an EXPRESSION over the document's variables instead of a number: a string starting with '=', e.g. \"=gap\", \"=360/n\", [0, 0, \"=gap*2\"]. Anything without the '=' is a literal, so an axis stays 'z'. Expressions may use + - * / ** and sqrt/sin/cos/atan2/radians/degrees/min/max/abs/round plus pi/e/tau. Every variable used must already exist (create it with the set variable tool first) or the call fails with \"unknown variable\".",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "object_id": {
+              "type": "string",
+              "description": "Id of the object to arrange. Must be inside a Collection."
+            },
+            "count": {
+              "type": [
+                "number",
+                "string"
+              ],
+              "description": "Total number of copies including the original, or an expression such as \"=n\"."
+            },
+            "axis": {
+              "type": [
+                "string",
+                "array"
+              ],
+              "description": "Axis to arrange about: 'x', 'y', 'z', or a vector [x,y,z]. Default 'z'."
+            },
+            "anchor": {
+              "type": [
+                "number",
+                "array"
+              ],
+              "description": "Point the copies orbit: 0 for the origin, or [x,y,z]. Default 0."
+            },
+            "spin": {
+              "type": [
+                "number",
+                "string"
+              ],
+              "description": "Extra in-place rotation per copy index, in degrees. 0 for a plain ring, \"=360/n\" for a Halbach ring."
+            }
+          },
+          "required": [
+            "object_id",
+            "count"
+          ]
+        }
+      },
+      {
+        "name": "magpylib-studio_sweep",
+        "displayName": "Sweep a magpylib scene variable",
+        "toolReferenceName": "magpySweep",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "Rebuild the scene once per value of a variable and read the field at each, for answering questions like 'how does B at the sensor vary with the gap'. Returns one step per value with the field vectors and their magnitudes (SI: tesla for B, A/m for H). The scene is left on the value it started from and no undo step is recorded. Requires a variable the scene is actually written in terms of - define one with the set variable tool and use it in the objects first, otherwise every step is identical. Observers: 'sensor_id' names a Sensor, 'points' gives explicit [[x,y,z]] positions; without either it uses the first sensor in the scene.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "variable": {
+              "type": "string",
+              "description": "Name of the variable to vary."
+            },
+            "values": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "description": "The values to try, e.g. [0.001, 0.002, 0.005]."
+            },
+            "sensor_id": {
+              "type": "string",
+              "description": "Id of a Sensor to read at. Optional."
+            },
+            "points": {
+              "type": "array",
+              "description": "Explicit observation points [[x,y,z], ...] in metres. Optional."
+            },
+            "field": {
+              "type": "string",
+              "enum": [
+                "B",
+                "H"
+              ],
+              "description": "'B' (tesla, default) or 'H' (A/m)."
+            }
+          },
+          "required": [
+            "variable",
+            "values"
           ]
         }
       }

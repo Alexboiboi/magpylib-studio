@@ -1131,6 +1131,31 @@ def test_variables_drive_the_scene():
     assert s.remove_variable("spare") == {"ok": True}
 
 
+def test_batch_builds_a_parametric_scene_in_one_step():
+    """What an assistant sends for "a Halbach ring of 8": the variables, the
+    one magnet written in terms of them, and the arrangement — one undo."""
+    s = MagpylibStudioSession()
+    result = s.batch([
+        {"method": "set_variable", "params": {"name": "n", "value": 8}},
+        {"method": "set_variable", "params": {"name": "r", "value": 2.3}},
+        {"method": "add_object", "params": {"object_id": "ring",
+                                            "type": "Collection"}},
+        {"method": "add_object", "params": {
+            "object_id": "m", "type": "magnet.Cuboid", "parent": "ring",
+            "params": {"polarization": [1, 0, 0], "dimension": [1, 1, 1],
+                       "position": ["=r", 0, 0]}}},
+        {"method": "duplicate_around", "params": {
+            "object_id": "m", "count": "=n", "axis": "z", "anchor": [0, 0, 0],
+            "spin": "=360/n"}},
+    ])
+    assert result["ok"] is True
+    assert [r["ok"] for r in result["results"]] == [True] * 5
+    assert len(s._leaf_sources()) == 8
+    assert s.get_history()["undo"] == ["batch (5 ops)"]
+    assert s.undo() == {"ok": True}
+    assert s.list_objects() == []
+
+
 def test_unknown_variables_are_reported_before_a_value_is_stored():
     """Typing `a*2` into a field is a way of saying "and let me set a" — the
     UI asks this what to prompt for, rather than storing and failing."""

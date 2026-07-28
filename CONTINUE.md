@@ -199,7 +199,15 @@ and drives it.
     cannot raise an input box, so the ask happens on the way through — which
     covers every prompt, tree command and inspector field at once. Backing
     out of the prompt abandons the whole edit. LM tools deliberately bypass
-    it: there is no one to ask, so Copilot gets the error and fixes it. **Sweep a Variable…** ($(graph-line) in the same
+    it: there is no one to ask, so Copilot gets the error and fixes it.
+  - **LM tools cover the parametric surface**: `#magpyVars`, `#magpyVar`,
+    `#magpyDuplicate`, `#magpySweep`, and the existing add/set/move/rotate
+    descriptions now teach the `=expression` convention (a model that is not
+    told will only ever write literals). `#magpyAdd` is explicitly steered
+    away from adding ring magnets one at a time. `set_variable`,
+    `remove_variable` and `duplicate_around` are batchable, so a whole
+    parametric scene — variables, the object written in terms of them, the
+    arrangement — is one undoable call. **Sweep a Variable…** ($(graph-line) in the same
     title bar) asks for from/to/steps and drives the Field panel's third
     mode, "Against a variable" (`get_sweep_figure`). **Duplicate Around…**
     is in the scene tree's Transform submenu.
@@ -319,9 +327,8 @@ test skips via `supports_property_paths()`).
   and a node smoke test against the real engine. F5 and check: the Variables
   view edits and re-renders, Duplicate Around… produces inert `m#1…` rows,
   the sweep plots, and the script tab still applies on save.
-- **LM tools for the parametric surface** — `#magpyVar`, `#magpySweep`,
-  `#magpyDuplicate` would let Copilot build parametric scenes; today it can
-  only place concrete objects.
+- **Units are still absent, deliberately** (see below) — the one open
+  question on the parametric side.
 - **Units are still absent, deliberately** — everything is bare SI, as
   magpylib wants. If ANSYS-style `5mm` values are ever wanted, that is a
   layer over `expressions.py`, and it needs deciding before variables get
