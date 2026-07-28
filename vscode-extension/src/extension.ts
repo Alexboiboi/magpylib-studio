@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { EngineClient } from './engineClient';
 import { HistoryEntry, HistoryTreeProvider } from './historyView';
-import { Variable, VariablesTreeProvider } from './variablesView';
+import { Variable, VariablesViewProvider } from './variablesView';
 import { InspectorViewProvider } from './inspectorView';
 import { SceneObject, SceneTreeProvider } from './sceneTree';
 
@@ -16,7 +16,7 @@ let sceneTree: SceneTreeProvider | undefined;
 let sceneTreeView: vscode.TreeView<SceneObject> | undefined;
 let clipboard: { id: string; cut: boolean } | undefined;
 let historyTree: HistoryTreeProvider | undefined;
-let variablesTree: VariablesTreeProvider | undefined;
+let variablesTree: VariablesViewProvider | undefined;
 let inspector: InspectorViewProvider | undefined;
 let engineOutput: vscode.OutputChannel | undefined;
 let sceneDocEmitter: vscode.EventEmitter<vscode.Uri> | undefined;
@@ -655,13 +655,24 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   historyTree = history;
 
-  const variables = new VariablesTreeProvider(async () => {
-    try {
-      return await getEngine(context).request<{ variables: Variable[] }>('get_variables');
-    } catch {
-      return { variables: [] };
-    }
-  });
+  const variables = new VariablesViewProvider(
+    (method, params) => getEngine(context).request(method, params),
+    (action, name) => {
+      void (async () => {
+        const found = (
+          await getEngine(context).request<{ variables: Variable[] }>('get_variables')
+        ).variables.find((v) => v.name === name);
+        if (!found) {
+          return;
+        }
+        if (action === 'bounds') {
+          await setVariableBounds(found);
+        } else if (action === 'remove') {
+          await mutateFromTree('remove_variable', { name });
+        }
+      })();
+    },
+  );
   variablesTree = variables;
 
   inspector = new InspectorViewProvider(
@@ -1077,7 +1088,9 @@ export function activate(context: vscode.ExtensionContext): void {
       webviewOptions: { retainContextWhenHidden: true },
     }),
     vscode.window.registerTreeDataProvider('magpylib-studio.historyView', history),
-    vscode.window.registerTreeDataProvider('magpylib-studio.variablesView', variables),
+    vscode.window.registerWebviewViewProvider(VariablesViewProvider.viewId, variables, {
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
     vscode.commands.registerCommand('magpylib-studio.addVariable', async () => {
       const name = await vscode.window.showInputBox({
         prompt: 'Variable name',

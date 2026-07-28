@@ -8,10 +8,6 @@ const MUTATING = new Set([
   'set_transform',
   'clear_path',
   'set_param',
-  // dragging a variable moves whatever is written in terms of it, which is
-  // most of the point — the 3D view and the tree have to hear about it
-  'set_variable',
-  'set_variable_bounds',
 ]);
 
 /**
@@ -128,7 +124,6 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
 </head>
 <body>
   <div id="header"></div>
-  <div id="variables"></div>
   <input id="filter" type="text" placeholder="Filter properties…" />
   <div id="params"></div>
   <div id="transform"></div>
@@ -144,7 +139,6 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
     const emptyEl = document.getElementById('empty');
     const statusEl = document.getElementById('status');
     const filterEl = document.getElementById('filter');
-    const variablesEl = document.getElementById('variables');
     let objectId;
     let schema;
     let values = { set: {}, resolved: {} };
@@ -294,78 +288,6 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
         details.append(summary, ...rows);
         propsEl.appendChild(details);
       }
-    }
-
-    // --- variables section: the scene's parameters, draggable -------------
-    //
-    // Not about the selected object, but this is the only surface in the
-    // sidebar that can hold a slider — and dragging a variable while looking
-    // at what it moves is the whole point of having one.
-    async function loadVariables() {
-      const { variables } = await rpc('get_variables', {});
-      variablesEl.innerHTML = '';
-      if (!variables.length) return;
-      const box = document.createElement('details');
-      box.open = true;
-      const summary = document.createElement('summary');
-      summary.textContent = 'variables';
-      box.appendChild(summary);
-
-      for (const v of variables) {
-        const row = document.createElement('div');
-        row.className = 'row';
-        const label = document.createElement('label');
-        label.textContent = v.name;
-        const isExpression = typeof v.expression === 'string';
-        label.title = isExpression
-          ? v.name + ' = ' + v.expression.slice(1)
-          : v.name;
-        const wrap = document.createElement('div');
-        wrap.className = 'widget';
-
-        const commit = (value) => {
-          statusEl.textContent = '';
-          rpc('set_variable', { name: v.name, value })
-            .then((res) => {
-              if (res && res.ok === false) statusEl.textContent = res.error;
-              return reloadAll();
-            })
-            .catch((err) => { statusEl.textContent = String(err); });
-        };
-
-        // Soft bounds win over hard ones: they are the range worth dragging
-        // through. A variable defined by an expression is not draggable —
-        // its value belongs to the expression, not to the slider.
-        const low = v.bounds && (v.bounds.soft_min ?? v.bounds.min);
-        const high = v.bounds && (v.bounds.soft_max ?? v.bounds.max);
-        const slidable = !isExpression && low !== undefined && high !== undefined
-          && low !== null && high !== null && low < high;
-        const num = document.createElement('input');
-        num.type = 'text';
-        num.spellcheck = false;
-        num.className = 'num';
-        num.value = isExpression ? v.expression.slice(1) : short(v.value);
-        if (isExpression) { num.classList.add('expr'); num.title = 'currently ' + short(v.value); }
-        num.addEventListener('change', () => commit(asValue(num.value)));
-
-        if (slidable) {
-          const slider = document.createElement('input');
-          slider.type = 'range';
-          slider.min = low;
-          slider.max = high;
-          slider.step = (high - low) / 100;
-          slider.value = v.value;
-          slider.title = 'slider ' + short(low) + '..' + short(high);
-          // live text while dragging, one edit when released
-          slider.addEventListener('input', () => { num.value = short(parseFloat(slider.value)); });
-          slider.addEventListener('change', () => commit(parseFloat(slider.value)));
-          wrap.append(slider);
-        }
-        wrap.append(num);
-        row.append(label, wrap, document.createElement('span'));
-        box.appendChild(row);
-      }
-      variablesEl.appendChild(box);
     }
 
     // --- properties section: the object's physics parameters --------------
@@ -636,18 +558,10 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
       await Promise.all([loadParams(), loadTransform()]);
     }
 
-    /** The variables belong to the scene, so they reload with or without a
-     *  selected object — including when nothing is selected at all. */
-    async function reloadAll() {
-      await loadVariables();
-      if (objectId) await reloadValues();
-    }
-
     async function loadObject(id) {
       objectId = id;
       emptyEl.style.display = id ? 'none' : '';
       statusEl.textContent = '';
-      await loadVariables();
       if (!id) {
         headerEl.textContent = '';
         propsEl.innerHTML = '';
@@ -677,7 +591,7 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
       } else if (message.type === 'select') {
         loadObject(message.objectId).catch((err) => { statusEl.textContent = String(err); });
       } else if (message.type === 'refresh') {
-        reloadAll().catch((err) => { statusEl.textContent = String(err); });
+        if (objectId) reloadValues().catch((err) => { statusEl.textContent = String(err); });
       }
     });
 

@@ -31,72 +31,241 @@ export function sliderRange(bounds?: VariableBounds): [number, number] | undefin
 }
 
 /**
- * The document's variables, one row each. Clicking a row edits it — which is
- * the whole point of a variable: change one number and everything defined in
- * terms of it follows on the next rebuild. Expressions show what they were
- * written as *and* what they came out to, since that is exactly what you want
- * to check when a scene lands somewhere unexpected.
+ * The scene's variables, as a webview rather than a tree.
+ *
+ * A TreeItem can hold a label and an icon and nothing else, and the point of
+ * bounding a variable is to be able to *drag* it — so the panel that shows the
+ * variables has to be one that can hold a slider. The cost is that per-row
+ * actions are buttons in the row instead of a context menu; the view's title
+ * bar still carries New Variable… and Sweep…
  */
-export class VariablesTreeProvider implements vscode.TreeDataProvider<Variable> {
-  private emitter = new vscode.EventEmitter<void>();
-  readonly onDidChangeTreeData = this.emitter.event;
+export class VariablesViewProvider implements vscode.WebviewViewProvider {
+  static readonly viewId = 'magpylib-studio.variablesView';
 
-  constructor(private readonly getVariables: () => Promise<{ variables: Variable[] }>) {}
+  private view: vscode.WebviewView | undefined;
+  private ready = false;
+
+  constructor(
+    private readonly request: (
+      method: string,
+      params?: Record<string, unknown>,
+    ) => Promise<unknown>,
+    private readonly onAction: (action: string, name: string) => void,
+  ) {}
+
+  resolveWebviewView(webviewView: vscode.WebviewView): void {
+    this.view = webviewView;
+    this.ready = false;
+    webviewView.webview.options = { enableScripts: true };
+    webviewView.webview.html = this.html();
+
+    webviewView.webview.onDidReceiveMessage(async (message) => {
+      if (message.type === 'ready') {
+        this.ready = true;
+        this.refresh();
+        return;
+      }
+      if (message.type === 'action') {
+        this.onAction(message.action, message.name);
+        return;
+      }
+      if (message.type !== 'rpcRequest') {
+        return;
+      }
+      const { reqId, method, params } = message;
+      try {
+        const result = await this.request(method, params);
+        webviewView.webview.postMessage({ type: 'rpcResult', reqId, method, result });
+      } catch (err) {
+        webviewView.webview.postMessage({
+          type: 'rpcError',
+          reqId,
+          method,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    });
+
+    webviewView.onDidDispose(() => {
+      this.view = undefined;
+      this.ready = false;
+    });
+  }
 
   refresh(): void {
-    this.emitter.fire();
-  }
-
-  getTreeItem(variable: Variable): vscode.TreeItem {
-    const item = new vscode.TreeItem(variable.name, vscode.TreeItemCollapsibleState.None);
-    item.id = `variable-${variable.name}`;
-    const isExpression = typeof variable.expression === 'string';
-    const resolved = variable.value === null ? '?' : formatNumber(variable.value);
-    item.description = isExpression
-      ? `${String(variable.expression).slice(1)} = ${resolved}`
-      : resolved;
-    const b = variable.bounds;
-    item.tooltip = isExpression
-      ? `${variable.name} = ${String(variable.expression).slice(1)}, currently ${resolved}`
-      : `${variable.name} = ${resolved}`;
-    if (b) {
-      const hard = describeRange(b.min, b.max);
-      const soft = describeRange(b.soft_min, b.soft_max);
-      item.description += `   ${hard || soft}`;
-      item.tooltip +=
-        (hard ? `\nallowed ${hard}` : '') + (soft ? `\nslider ${soft}` : '');
+    if (this.view && this.ready) {
+      this.view.webview.postMessage({ type: 'refresh' });
     }
-    item.iconPath = new vscode.ThemeIcon(isExpression ? 'symbol-operator' : 'symbol-number');
-    item.contextValue = 'magpyVariable';
-    item.command = {
-      command: 'magpylib-studio.editVariable',
-      title: 'Edit Variable',
-      arguments: [variable],
-    };
-    return item;
   }
 
-  async getChildren(element?: Variable): Promise<Variable[]> {
-    return element ? [] : (await this.getVariables()).variables;
-  }
-}
+  private html(): string {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';" />
+  <style>
+    body { margin: 0; padding: 4px 8px 8px; font-family: var(--vscode-font-family); font-size: 12px; color: var(--vscode-foreground); }
+    .row { display: grid; grid-template-columns: minmax(52px, auto) 1fr 54px auto; gap: 5px; align-items: center; padding: 2px 0; }
+    .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    input[type=range] { width: 100%; padding: 0; min-width: 40px; }
+    input[type=text] { width: 100%; box-sizing: border-box; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, transparent); }
+    input.expr { font-style: italic; color: var(--vscode-charts-blue, #3987e5); }
+    .acts { display: flex; gap: 2px; }
+    .acts button { background: none; border: none; color: var(--vscode-foreground); opacity: 0.55; cursor: pointer; padding: 0 3px; font-size: 12px; line-height: 1; }
+    .acts button:hover { opacity: 1; }
+    .range { grid-column: 2 / 4; font-size: 10px; opacity: 0.6; margin-top: -3px; }
+    #empty { opacity: 0.75; padding: 6px 0; line-height: 1.4; }
+    #status { color: var(--vscode-errorForeground); min-height: 14px; padding-top: 4px; }
+  </style>
+</head>
+<body>
+  <div id="list"></div>
+  <div id="empty" hidden>
+    No variables yet. A named number any position, dimension or angle can be
+    written in terms of — change it once and the scene follows.
+  </div>
+  <div id="status"></div>
+  <script>
+    const vscodeApi = acquireVsCodeApi();
+    const listEl = document.getElementById('list');
+    const emptyEl = document.getElementById('empty');
+    const statusEl = document.getElementById('status');
+    let nextReqId = 1;
+    const pending = new Map();
 
-/** "0..10", "≥ 0", "≤ 10", or nothing when neither end is set. */
-function describeRange(low?: number, high?: number): string {
-  if (low !== undefined && high !== undefined) {
-    return `${formatNumber(low)}..${formatNumber(high)}`;
-  }
-  if (low !== undefined) {
-    return `≥ ${formatNumber(low)}`;
-  }
-  return high === undefined ? '' : `≤ ${formatNumber(high)}`;
-}
+    function rpc(method, params) {
+      return new Promise((resolve, reject) => {
+        const reqId = nextReqId++;
+        pending.set(reqId, { resolve, reject });
+        vscodeApi.postMessage({ type: 'rpcRequest', reqId, method, params });
+      });
+    }
 
-/** Short but honest: no exponent soup for ordinary values, no lost precision. */
-function formatNumber(value: number): string {
-  if (Number.isInteger(value)) {
-    return String(value);
+    function short(value) {
+      if (value === null || value === undefined) return '?';
+      return Number.isInteger(value) ? String(value) : String(Number(value.toPrecision(6)));
+    }
+
+    /** Typed text -> document value: a number if it is one, else "=expr". */
+    function asValue(text) {
+      const trimmed = String(text).trim();
+      if (!trimmed) return 0;
+      const number = Number(trimmed);
+      return Number.isFinite(number) ? number : '=' + trimmed;
+    }
+
+    function commit(name, value) {
+      statusEl.textContent = '';
+      rpc('set_variable', { name, value })
+        .then((res) => {
+          if (res && res.ok === false) statusEl.textContent = res.error;
+          return load();
+        })
+        .catch((err) => { statusEl.textContent = String(err); });
+    }
+
+    function button(glyph, title, action, name) {
+      const el = document.createElement('button');
+      el.textContent = glyph;
+      el.title = title;
+      el.addEventListener('click', () =>
+        vscodeApi.postMessage({ type: 'action', action, name }));
+      return el;
+    }
+
+    async function load() {
+      const { variables } = await rpc('get_variables', {});
+      listEl.innerHTML = '';
+      emptyEl.hidden = variables.length > 0;
+      for (const v of variables) {
+        const row = document.createElement('div');
+        row.className = 'row';
+
+        const name = document.createElement('span');
+        name.className = 'name';
+        name.textContent = v.name;
+        const isExpression = typeof v.expression === 'string';
+        name.title = isExpression
+          ? v.name + ' = ' + v.expression.slice(1) + ', currently ' + short(v.value)
+          : v.name;
+
+        // Soft bounds win: they are the range worth dragging through. A
+        // variable defined by an expression is not draggable - its value
+        // belongs to the expression, not to the slider.
+        const b = v.bounds || {};
+        const low = b.soft_min !== undefined ? b.soft_min : b.min;
+        const high = b.soft_max !== undefined ? b.soft_max : b.max;
+        const slidable = !isExpression && low !== undefined && high !== undefined
+          && low < high;
+
+        const text = document.createElement('input');
+        text.type = 'text';
+        text.spellcheck = false;
+        text.value = isExpression ? v.expression.slice(1) : short(v.value);
+        if (isExpression) { text.classList.add('expr'); text.title = 'currently ' + short(v.value); }
+        text.addEventListener('change', () => commit(v.name, asValue(text.value)));
+
+        const slot = document.createElement('div');
+        if (slidable) {
+          const slider = document.createElement('input');
+          slider.type = 'range';
+          slider.min = low;
+          slider.max = high;
+          slider.step = (high - low) / 100;
+          slider.value = v.value;
+          slider.title = short(low) + ' .. ' + short(high);
+          // live text while dragging, one edit when released
+          slider.addEventListener('input', () => { text.value = short(parseFloat(slider.value)); });
+          slider.addEventListener('change', () => commit(v.name, parseFloat(slider.value)));
+          slot.appendChild(slider);
+        } else if (!isExpression) {
+          const hint = document.createElement('span');
+          hint.style.opacity = '0.5';
+          hint.style.fontSize = '10px';
+          hint.textContent = 'no range';
+          hint.title = 'Give it a range to get a slider';
+          slot.appendChild(hint);
+        }
+
+        const acts = document.createElement('div');
+        acts.className = 'acts';
+        acts.append(
+          button('⋯', 'Set bounds…', 'bounds', v.name),
+          button('✕', 'Remove ' + v.name, 'remove', v.name),
+        );
+        row.append(name, slot, text, acts);
+        listEl.appendChild(row);
+
+        // hard limits worth seeing when they differ from the slider's span
+        const hard = b.min !== undefined || b.max !== undefined;
+        if (hard && (b.soft_min !== undefined || b.soft_max !== undefined)) {
+          const note = document.createElement('div');
+          note.className = 'range';
+          note.textContent = 'allowed ' +
+            (b.min === undefined ? '−∞' : short(b.min)) + ' .. ' +
+            (b.max === undefined ? '∞' : short(b.max));
+          listEl.appendChild(note);
+        }
+      }
+    }
+
+    window.addEventListener('message', (event) => {
+      const message = event.data;
+      if (message.type === 'rpcResult' || message.type === 'rpcError') {
+        const entry = pending.get(message.reqId);
+        if (!entry) return;
+        pending.delete(message.reqId);
+        if (message.type === 'rpcResult') entry.resolve(message.result);
+        else entry.reject(new Error(message.method + ': ' + message.error));
+      } else if (message.type === 'refresh') {
+        load().catch((err) => { statusEl.textContent = String(err); });
+      }
+    });
+
+    vscodeApi.postMessage({ type: 'ready' });
+  </script>
+</body>
+</html>`;
   }
-  const rounded = Number(value.toPrecision(6));
-  return String(rounded);
 }

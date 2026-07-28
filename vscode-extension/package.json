@@ -240,7 +240,7 @@
           "id": "magpylib-studio.variablesView",
           "name": "Variables",
           "contextualTitle": "magpylib Scene Variables",
-          "visibility": "collapsed"
+          "type": "webview"
         },
         {
           "id": "magpylib-studio.historyView",
@@ -254,10 +254,6 @@
       {
         "view": "magpylib-studio.sceneView",
         "contents": "The scene is empty.\n[Add Object...](command:magpylib-studio.addObject)\nA magnet, current, sensor or collection.\n[Load Example Scene](command:magpylib-studio.loadExample)\nTwo stacked Halbach rings and a sensor path along the bore.\n[Import Python Script...](command:magpylib-studio.importScript)\nRun an existing magpylib script and edit its scene here.\n[Load Scene from File...](command:magpylib-studio.loadScene)\nOr ask Copilot chat to add objects with #magpyAdd."
-      },
-      {
-        "view": "magpylib-studio.variablesView",
-        "contents": "No variables yet.\n[New Variable...](command:magpylib-studio.addVariable)\nA named number any position, dimension or angle can be written in terms of - change it once and the scene follows."
       }
     ],
     "submenus": [
@@ -454,16 +450,6 @@
           "command": "magpylib-studio.resetStyle",
           "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpy/",
           "group": "2_modify@2"
-        },
-        {
-          "command": "magpylib-studio.removeVariable",
-          "when": "view == magpylib-studio.variablesView && viewItem == magpyVariable",
-          "group": "inline"
-        },
-        {
-          "command": "magpylib-studio.setVariableBounds",
-          "when": "view == magpylib-studio.variablesView && viewItem == magpyVariable",
-          "group": "0_edit@1"
         }
       ],
       "commandPalette": [

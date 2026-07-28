@@ -169,13 +169,19 @@ and drives it.
     prefilled, set paths bold + ↺ per-path reset (`reset_style`), filter box.
     '(default)' / empty input resets the path. Skips free-form specs
     (`model3d.data`, `path.frames`).
-  - **Variables view** (`variablesView.ts`, collapsed by default, welcome
-    message when empty): one row per variable showing what it was written as
-    *and* what it resolved to — which is what you want when a scene lands
-    somewhere unexpected. Click a row to edit, `+` to add, inline trash to
-    remove. The input box takes `2.5` or `gap*2`; the `=` marker the document
-    uses is added for you. **Set Bounds…** on the row asks for the allowed
-    range and then the slider range.
+  - **Variables view** (`variablesView.ts`) — a **webview, not a tree**. A
+    TreeItem holds a label and an icon and nothing else, and the point of
+    bounding a variable is to be able to *drag* it, so the panel showing the
+    variables has to be one that can hold a slider. Each row is name, slider
+    (when bounds give it a span), value box, and ⋯ / ✕ buttons; per-row
+    actions are buttons rather than a context menu, which is what the change
+    cost. The title bar keeps `+ New Variable…` and Sweep…, which work for
+    webview views. The value box takes `2.5` or `gap*2`; the `=` marker the
+    document uses is added for you. A variable defined by an expression shows
+    no slider — its value belongs to the expression — and one with no bounds
+    says "no range" rather than silently offering nothing.
+    **Set Bounds…** (the ⋯ button) asks for the allowed range and then the
+    slider range.
   - **A range is offered wherever a variable is born** — after the value, in
     both `+ New Variable…` and the auto-create prompt that fires when a typed
     expression names something new. Enter skips it. Only the *allowed* range
@@ -194,14 +200,10 @@ and drives it.
     carries them across for variables that survived the edit rather than
     dropping them on every save, and `_canonical` deletes any whose variable
     is gone.
-  - **The slider lives in the inspector**, not the variables tree — a
-    TreeItem cannot hold one, and the inspector is the only webview in the
-    sidebar. It gained a `variables` section (above the object's own
-    properties, and shown even with nothing selected) with a text field per
-    variable and a range slider whenever bounds give it a span. Dragging
-    commits on release, and the text updates live during the drag. A variable
-    defined by an expression gets no slider: its value belongs to the
-    expression.
+  - Sliders commit on release, with the value box updating live during the
+    drag. (They lived in the Inspector briefly, as a workaround for the tree;
+    that section is gone now the Variables view can hold them itself — two
+    places to edit the same number was worse than the tree limitation.)
   - **Every numeric field takes an expression**, not just the variables view:
     inspector properties and the transform pose (text inputs now — a number
     input cannot hold `gap*2` at all), the relative rotate/move fields, the
