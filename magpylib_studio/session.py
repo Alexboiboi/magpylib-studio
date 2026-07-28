@@ -1411,7 +1411,15 @@ class MagpylibStudioSession:
         def mutate(doc):
             del doc["variables"][name]
 
-        return self._mutate_doc(mutate, f"remove {name}")
+        result = self._mutate_doc(mutate, f"remove {name}")
+        if not result["ok"] and f"unknown variable {name!r}" in result["error"]:
+            # the rollback's own message, which reads like the variable never
+            # existed — say what actually stopped it
+            result["error"] = (
+                f"{name!r} is still used by the scene; change what refers to "
+                f"it first"
+            )
+        return result
 
     def sweep(self, variable, values, sensor_id=None, points=None, field="B"):
         """Rebuild the scene once per value of a variable and read the field.

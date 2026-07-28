@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { EngineClient } from './engineClient';
 import { HistoryEntry, HistoryTreeProvider } from './historyView';
+import { Variable, VariablesTreeProvider } from './variablesView';
 import { InspectorViewProvider } from './inspectorView';
 import { SceneObject, SceneTreeProvider } from './sceneTree';
 
@@ -15,6 +16,7 @@ let sceneTree: SceneTreeProvider | undefined;
 let sceneTreeView: vscode.TreeView<SceneObject> | undefined;
 let clipboard: { id: string; cut: boolean } | undefined;
 let historyTree: HistoryTreeProvider | undefined;
+let variablesTree: VariablesTreeProvider | undefined;
 let inspector: InspectorViewProvider | undefined;
 let engineOutput: vscode.OutputChannel | undefined;
 let sceneDocEmitter: vscode.EventEmitter<vscode.Uri> | undefined;
@@ -494,6 +496,7 @@ function broadcastMutation(): void {
     fieldPanel?.webview.postMessage({ type: 'refresh' });
     sceneTree?.refresh();
     historyTree?.refresh();
+    variablesTree?.refresh();
     inspector?.refresh();
     refreshScript?.();
     sceneDocEmitter?.fire(SCENE_JSON_URI);
@@ -575,6 +578,15 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   });
   historyTree = history;
+
+  const variables = new VariablesTreeProvider(async () => {
+    try {
+      return await getEngine(context).request<{ variables: Variable[] }>('get_variables');
+    } catch {
+      return { variables: [] };
+    }
+  });
+  variablesTree = variables;
 
   inspector = new InspectorViewProvider(
     context.extensionUri,
@@ -658,6 +670,116 @@ export function activate(context: vscode.ExtensionContext): void {
         `Magpylib Studio: ${err instanceof Error ? err.message : err}`,
       );
     }
+  };
+
+  /**
+   * Set a variable from an input box. A plain number stays a number; anything
+   * else is stored as an expression, so the user types `gap*2` rather than
+   * remembering the document's `=` marker.
+   */
+  const editVariable = async (variable: Variable, prompt?: string) => {
+    const current =
+      typeof variable.expression === 'string'
+        ? variable.expression.slice(1)
+        : String(variable.expression);
+    const text = await vscode.window.showInputBox({
+      prompt: prompt ?? `${variable.name} — value or expression`,
+      value: current,
+      validateInput: (v) => (v.trim() ? undefined : 'A number, or an expression'),
+    });
+    if (text === undefined) {
+      return;
+    }
+    const trimmed = text.trim();
+    const asNumber = Number(trimmed);
+    await mutateFromTree('set_variable', {
+      name: variable.name,
+      value: Number.isFinite(asNumber) && trimmed !== '' ? asNumber : `=${trimmed}`,
+    });
+  };
+
+  /** "N of these around an axis" as one event — see session.duplicate_around. */
+  const duplicateAround = async (obj: SceneObject) => {
+    const count = await vscode.window.showInputBox({
+      prompt: `Copies of "${obj.label}" around the axis, counting the original`,
+      value: '6',
+      validateInput: (v) =>
+        Number(v) >= 2 || /^[A-Za-z_]/.test(v.trim())
+          ? undefined
+          : 'A count of 2 or more, or a variable name',
+    });
+    if (!count) {
+      return;
+    }
+    const axis = await askRotationAxis();
+    if (axis === undefined) {
+      return;
+    }
+    const spin = await vscode.window.showQuickPick(
+      [
+        { label: 'Orbit only', detail: 'each copy keeps its orientation', spin: 0 },
+        {
+          label: 'Orbit and spin (Halbach)',
+          detail: 'each copy also turns by one step in place',
+          spin: 1,
+        },
+      ],
+      { placeHolder: 'How should the copies be oriented?' },
+    );
+    if (!spin) {
+      return;
+    }
+    const asNumber = Number(count);
+    const countValue = Number.isFinite(asNumber) ? asNumber : `=${count.trim()}`;
+    await mutateFromTree('duplicate_around', {
+      object_id: obj.id,
+      count: countValue,
+      axis,
+      anchor: [0, 0, 0],
+      // one step per copy, expressed against the count so it follows it
+      spin: spin.spin ? `=360/(${count.trim()})` : 0,
+    });
+  };
+
+  /** Sweep a variable and show the field against it in the Field panel. */
+  const sweepVariable = async () => {
+    const { variables: available } = await getEngine(context).request<{
+      variables: Variable[];
+    }>('get_variables');
+    if (!available.length) {
+      vscode.window.showInformationMessage(
+        'Magpylib Studio: define a variable first — a sweep varies one.',
+      );
+      return;
+    }
+    const pick = await vscode.window.showQuickPick(
+      available.map((v) => ({ label: v.name, detail: `currently ${v.value}`, v })),
+      { placeHolder: 'Variable to sweep' },
+    );
+    if (!pick) {
+      return;
+    }
+    const range = await vscode.window.showInputBox({
+      prompt: `Values for ${pick.label} — from, to, steps`,
+      value: `${pick.v.value ?? 0}, ${(pick.v.value ?? 0) * 2 || 1}, 20`,
+      validateInput: (v) =>
+        (parseNumbers(v)?.length ?? 0) === 3 ? undefined : 'Three numbers: from, to, steps',
+    });
+    if (!range) {
+      return;
+    }
+    const [from, to, steps] = parseNumbers(range)!;
+    const count = Math.max(2, Math.round(steps));
+    const values = Array.from(
+      { length: count },
+      (_, i) => from + ((to - from) * i) / (count - 1),
+    );
+    openFieldPanel(context);
+    fieldPanel?.webview.postMessage({
+      type: 'sweep',
+      variable: pick.label,
+      values,
+    });
   };
 
   /** Run a mutating engine call from the tree UI, surface failures, refresh. */
@@ -752,6 +874,35 @@ export function activate(context: vscode.ExtensionContext): void {
       webviewOptions: { retainContextWhenHidden: true },
     }),
     vscode.window.registerTreeDataProvider('magpylib-studio.historyView', history),
+    vscode.window.registerTreeDataProvider('magpylib-studio.variablesView', variables),
+    vscode.commands.registerCommand('magpylib-studio.addVariable', async () => {
+      const name = await vscode.window.showInputBox({
+        prompt: 'Variable name',
+        validateInput: (v) =>
+          /^[A-Za-z_]\w*$/.test(v)
+            ? undefined
+            : 'Letters, digits, underscores; must not start with a digit.',
+      });
+      if (!name) {
+        return;
+      }
+      await editVariable({ name, expression: 0, value: 0 }, 'New value or =expression');
+    }),
+    vscode.commands.registerCommand(
+      'magpylib-studio.editVariable',
+      async (variable: Variable) => editVariable(variable),
+    ),
+    vscode.commands.registerCommand(
+      'magpylib-studio.removeVariable',
+      async (variable: Variable) => {
+        await mutateFromTree('remove_variable', { name: variable.name });
+      },
+    ),
+    vscode.commands.registerCommand(
+      'magpylib-studio.duplicateAround',
+      async (obj: SceneObject) => duplicateAround(obj),
+    ),
+    vscode.commands.registerCommand('magpylib-studio.sweep', async () => sweepVariable()),
     vscode.commands.registerCommand(
       'magpylib-studio.gotoHistory',
       async (entry: HistoryEntry) => {
@@ -1378,6 +1529,7 @@ function createFieldViewHtml(
       <select id="mode">
         <option value="path">Along sensor path</option>
         <option value="map">Plane map</option>
+        <option value="sweep">Against a variable</option>
       </select>
     </label>
     <span class="path-only">
@@ -1410,6 +1562,19 @@ function createFieldViewHtml(
       <label><input type="checkbox" id="log" checked /> log</label>
       <label>res <input type="number" id="resolution" min="5" max="200" value="50" /></label>
     </span>
+    <span class="sweep-only" hidden>
+      <label>
+        <select id="sweepComponent">
+          <option value="magnitude">magnitude</option>
+          <option value="x">x</option><option value="y">y</option>
+          <option value="z">z</option>
+        </select>
+      </label>
+      <label>of
+        <select id="sweepField"><option>B</option><option>H</option></select>
+      </label>
+      <span id="sweepRange"></span>
+    </span>
     <span id="status">Loading…</span>
   </div>
   <script nonce="${nonce}">
@@ -1427,6 +1592,10 @@ function createFieldViewHtml(
     const quantityEl = document.getElementById('quantity');
     const logEl = document.getElementById('log');
     const resolutionEl = document.getElementById('resolution');
+    const sweepComponentEl = document.getElementById('sweepComponent');
+    const sweepFieldEl = document.getElementById('sweepField');
+    const sweepRangeEl = document.getElementById('sweepRange');
+    let sweep = null; // {variable, values}, set by the Sweep Variable command
     let nextReqId = 1;
     const pending = new Map();
 
@@ -1448,12 +1617,28 @@ function createFieldViewHtml(
     function isMap() { return modeEl.value === 'map'; }
 
     async function refreshField() {
-      const mapMode = isMap();
-      for (const el of document.querySelectorAll('.path-only')) el.hidden = mapMode;
+      const mode = modeEl.value;
+      const mapMode = mode === 'map';
+      const sweepMode = mode === 'sweep';
+      for (const el of document.querySelectorAll('.path-only')) el.hidden = mode !== 'path';
       for (const el of document.querySelectorAll('.map-only')) el.hidden = !mapMode;
+      for (const el of document.querySelectorAll('.sweep-only')) el.hidden = !sweepMode;
+      if (sweepMode && !sweep) {
+        statusEl.textContent = 'Run "Sweep a Variable…" to choose one and its range.';
+        Plotly.purge(canvasEl);
+        return;
+      }
       statusEl.textContent = 'Computing…';
       try {
-        const fig = mapMode
+        const fig = sweepMode
+          ? await rpc('get_sweep_figure', {
+              variable: sweep.variable,
+              values: sweep.values,
+              component: sweepComponentEl.value,
+              field: sweepFieldEl.value,
+              template: plotTemplate(),
+            })
+          : mapMode
           ? await rpc('get_field_map', {
               plane: planeEl.value,
               offset: parseFloat(offsetEl.value) || 0,
@@ -1482,14 +1667,17 @@ function createFieldViewHtml(
         });
         statusEl.textContent = 'Ready';
       } catch (err) {
-        statusEl.textContent = mapMode
+        statusEl.textContent = sweepMode
+          ? 'Could not sweep ' + sweep.variable + '. (' + err + ')'
+          : mapMode
           ? 'No field to map - the scene needs at least one source. (' + err + ')'
           : 'No field to plot - the scene needs a source and a sensor. (' + err + ')';
       }
     }
 
     for (const el of [outputEl, animateEl, modeEl, planeEl, offsetEl,
-                      componentEl, quantityEl, logEl, resolutionEl]) {
+                      componentEl, quantityEl, logEl, resolutionEl,
+                      sweepComponentEl, sweepFieldEl]) {
       el.addEventListener('change', refreshField);
     }
 
@@ -1504,6 +1692,14 @@ function createFieldViewHtml(
         pending.delete(message.reqId);
         if (message.type === 'rpcResult') entry.resolve(message.result);
         else entry.reject(new Error(message.method + ': ' + message.error));
+      } else if (message.type === 'sweep') {
+        sweep = { variable: message.variable, values: message.values };
+        const first = sweep.values[0], last = sweep.values[sweep.values.length - 1];
+        sweepRangeEl.textContent =
+          sweep.variable + ': ' + first + ' → ' + last +
+          ' (' + sweep.values.length + ' steps)';
+        modeEl.value = 'sweep';
+        refreshField();
       } else if (message.type === 'refresh') {
         refreshField();
       }

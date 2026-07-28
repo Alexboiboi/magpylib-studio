@@ -1120,10 +1120,15 @@ def test_variables_drive_the_scene():
     assert [v["value"] for v in s.get_variables()["variables"]] == [3.0, 6.0]
     assert s.set_variable("twice", "=twice + 1")["ok"] is False  # self-reference
     assert s.set_variable("pi", 3)["ok"] is False  # built-in name
-    assert s.remove_variable("nope")["ok"] is False
-    # removing a variable something still uses is rejected, scene untouched
-    assert s.remove_variable("twice")["ok"] is False
+    assert s.remove_variable("nope")["error"] == "unknown variable 'nope'"
+    # removing a variable something still uses is rejected, and says why —
+    # not the rollback's "unknown variable", which reads like it never existed
+    used = s.remove_variable("twice")
+    assert used["ok"] is False and "still used by the scene" in used["error"]
     assert list(s._objs["m"].position) == [0, 0, 6.0]
+    # and one nothing refers to goes cleanly
+    assert s.set_variable("spare", 1) == {"ok": True}
+    assert s.remove_variable("spare") == {"ok": True}
 
 
 def test_sweep_reads_the_field_and_leaves_the_scene_where_it_found_it():

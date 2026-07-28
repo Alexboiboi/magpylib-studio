@@ -141,6 +141,29 @@
       {
         "command": "magpylib-studio.renameObject",
         "title": "Rename..."
+      },
+      {
+        "command": "magpylib-studio.addVariable",
+        "title": "New Variable...",
+        "icon": "$(add)"
+      },
+      {
+        "command": "magpylib-studio.editVariable",
+        "title": "Edit Variable..."
+      },
+      {
+        "command": "magpylib-studio.removeVariable",
+        "title": "Remove Variable",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "magpylib-studio.duplicateAround",
+        "title": "Duplicate Around..."
+      },
+      {
+        "command": "magpylib-studio.sweep",
+        "title": "Magpylib Studio: Sweep a Variable...",
+        "icon": "$(graph-line)"
       }
     ],
     "keybindings": [
@@ -210,6 +233,12 @@
           "contextualTitle": "magpylib Inspector"
         },
         {
+          "id": "magpylib-studio.variablesView",
+          "name": "Variables",
+          "contextualTitle": "magpylib Scene Variables",
+          "visibility": "collapsed"
+        },
+        {
           "id": "magpylib-studio.historyView",
           "name": "History",
           "contextualTitle": "magpylib Scene History",
@@ -221,6 +250,10 @@
       {
         "view": "magpylib-studio.sceneView",
         "contents": "The scene is empty.\n[Add Object...](command:magpylib-studio.addObject)\nA magnet, current, sensor or collection.\n[Load Example Scene](command:magpylib-studio.loadExample)\nTwo stacked Halbach rings and a sensor path along the bore.\n[Import Python Script...](command:magpylib-studio.importScript)\nRun an existing magpylib script and edit its scene here.\n[Load Scene from File...](command:magpylib-studio.loadScene)\nOr ask Copilot chat to add objects with #magpyAdd."
+      },
+      {
+        "view": "magpylib-studio.variablesView",
+        "contents": "No variables yet.\n[New Variable...](command:magpylib-studio.addVariable)\nA named number any position, dimension or angle can be written in terms of - change it once and the scene follows."
       }
     ],
     "submenus": [
@@ -250,6 +283,11 @@
         {
           "command": "magpylib-studio.pixelGrid",
           "group": "2_path@2"
+        },
+        {
+          "command": "magpylib-studio.duplicateAround",
+          "when": "viewItem =~ /^magpy/",
+          "group": "navigation@6"
         }
       ],
       "view/title": [
@@ -317,6 +355,16 @@
           "command": "magpylib-studio.newCollection",
           "when": "view == magpylib-studio.sceneView",
           "group": "scene@4"
+        },
+        {
+          "command": "magpylib-studio.addVariable",
+          "when": "view == magpylib-studio.variablesView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "magpylib-studio.sweep",
+          "when": "view == magpylib-studio.variablesView",
+          "group": "navigation@2"
         }
       ],
       "explorer/context": [
@@ -402,6 +450,11 @@
           "command": "magpylib-studio.resetStyle",
           "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpy/",
           "group": "2_modify@2"
+        },
+        {
+          "command": "magpylib-studio.removeVariable",
+          "when": "view == magpylib-studio.variablesView && viewItem == magpyVariable",
+          "group": "inline"
         }
       ],
       "commandPalette": [
@@ -447,6 +500,18 @@
         },
         {
           "command": "magpylib-studio.resetStyle",
+          "when": "false"
+        },
+        {
+          "command": "magpylib-studio.editVariable",
+          "when": "false"
+        },
+        {
+          "command": "magpylib-studio.removeVariable",
+          "when": "false"
+        },
+        {
+          "command": "magpylib-studio.duplicateAround",
           "when": "false"
         }
       ]

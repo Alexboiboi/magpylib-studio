@@ -169,6 +169,23 @@ and drives it.
     prefilled, set paths bold + ↺ per-path reset (`reset_style`), filter box.
     '(default)' / empty input resets the path. Skips free-form specs
     (`model3d.data`, `path.frames`).
+  - **Variables view** (`variablesView.ts`, collapsed by default, welcome
+    message when empty): one row per variable showing what it was written as
+    *and* what it resolved to — which is what you want when a scene lands
+    somewhere unexpected. Click a row to edit, `+` to add, inline trash to
+    remove. The input box takes `2.5` or `gap*2`; the `=` marker the document
+    uses is added for you. **Sweep a Variable…** ($(graph-line) in the same
+    title bar) asks for from/to/steps and drives the Field panel's third
+    mode, "Against a variable" (`get_sweep_figure`). **Duplicate Around…**
+    is in the scene tree's Transform submenu.
+  - **Generated copies are inert in the tree**: they come back from
+    `list_objects` with a `derived` key, and get `contextValue =
+    'derivedCopy'` — deliberately outside the `magpy*` namespace that all 14
+    scene-view menu entries are gated on, so none of them match. They are
+    also not selectable and not draggable. Without that they rendered as
+    ordinary objects whose every command failed on the engine (and whose
+    inspector *read* fine, since `get_params` reads the live object, so they
+    looked editable and silently weren't).
   - Layout: tree click → host `selectedObjectId` → inspector loads it; the
     Studio panel is **plot-only** now (with an "Animate paths" toggle; plot
     template follows the VS Code theme). `broadcastMutation()` (debounced
@@ -271,14 +288,15 @@ test skips via `supports_property_paths()`).
 
 ## Next steps (pick one)
 
-- **Give the parametric engine a UI** (branch `parametric-scene`). The
-  engine has variables, sweeps and generator events; the extension has no
-  widgets for any of them, and reaches them only through the script tab.
-  Worth adding, roughly in value order: a **variables panel** (name/value
-  rows, editing one re-renders the scene), a **sweep view** (pick variable +
-  range → `get_sweep_figure` in the Field panel), and **Duplicate Around…**
-  on the tree context menu. LM tools for the same three would let Copilot
-  build parametric scenes.
+- **Run it in an Extension Development Host** — overdue. The document schema
+  changed twice (events, variables) and the UI gained a view, three commands
+  and a Field-panel mode, all verified only by `tsc`, the engine test suite
+  and a node smoke test against the real engine. F5 and check: the Variables
+  view edits and re-renders, Duplicate Around… produces inert `m#1…` rows,
+  the sweep plots, and the script tab still applies on save.
+- **LM tools for the parametric surface** — `#magpyVar`, `#magpySweep`,
+  `#magpyDuplicate` would let Copilot build parametric scenes; today it can
+  only place concrete objects.
 - **Units are still absent, deliberately** — everything is bare SI, as
   magpylib wants. If ANSYS-style `5mm` values are ever wanted, that is a
   layer over `expressions.py`, and it needs deciding before variables get
