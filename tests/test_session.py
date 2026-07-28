@@ -233,6 +233,38 @@ def test_load_example():
     assert len(ns["ring1"].children) == 10
     # ring 2 is staggered by an 18 deg group rotation
     assert ns["r2m01"].position.round(3).tolist() != [2.3, 0, 1.5]
+    # the script carries the variables, not the numbers they resolve to
+    assert "radius = 2.3" in s.to_script()
+    assert "position=(radius, 0, 0.0)" in s.to_script()
+
+
+def test_example_arrives_parametric():
+    """The example is the first thing anyone opens, so it is the place to
+    find out that a scene can be driven by a variable."""
+    import numpy as np
+
+    s = MagpylibStudioSession()
+    s.load_example()
+    variables = {v["name"]: v for v in s.get_variables()["variables"]}
+    assert variables["radius"]["value"] == 2.3
+    assert variables["gap"]["value"] == 1.5
+    # bounded, so both arrive with a working slider
+    assert variables["radius"]["bounds"]["soft_min"] == 1.6  # 2πr = 10 unit cubes
+    assert variables["gap"]["bounds"]["min"] == 0
+
+    # one number moves twenty magnets, in both rings
+    assert s.set_variable("radius", 3.5) == {"ok": True}
+    assert np.allclose(s._objs["r1m01"].position, [3.5, 0, 0])
+    assert np.linalg.norm(s._objs["r2m05"].position[:2]).round(6) == 3.5
+    # and the rings stay where they belong on z
+    assert s.set_variable("gap", 3) == {"ok": True}
+    assert s._objs["r2m01"].position[2] == 3
+    assert s._objs["r1m01"].position[2] == 0
+
+    refused = s.set_variable("radius", 9)
+    assert refused["ok"] is False and "above its maximum" in refused["error"]
+    assert np.allclose(s._objs["r1m01"].position, [3.5, 0, 0])  # unmoved
+    assert len(s.get_figure()["data"]) > 0  # still renders
 
 
 def test_transforms(session):

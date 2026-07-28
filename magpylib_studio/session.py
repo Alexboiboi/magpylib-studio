@@ -70,7 +70,15 @@ def example_scene():
     """The built-in showcase scene: a nested Halbach stack — two rings of 10
     rotated cuboids each (each cuboid orbited AND spun by the ring angle, the
     classic magpylib docs pattern), ring 2 staggered by a group rotation —
-    plus a sensor path along the bore axis."""
+    plus a sensor path along the bore axis.
+
+    Both rings are written in terms of `radius`, and the upper one sits at
+    `gap`, so the scene arrives parametric: dragging either in the Variables
+    panel moves twenty magnets at once, which is the thing worth discovering
+    first. Their soft bounds are the range worth exploring — below a radius
+    of about 1.6 the ten unit cubes would have to overlap (2πr < 10) — while
+    the hard bounds only rule out the physically impossible.
+    """
     n = 10
 
     def ring(number, z):
@@ -85,7 +93,7 @@ def example_scene():
                     "params": {
                         "dimension": [1, 1, 1],
                         "polarization": [1, 0, 0],
-                        "position": [2.3, 0, z],
+                        "position": ["=radius", 0, z],
                     },
                     "rotations": [
                         {"angle": 360 * i / n, "axis": "z", "anchor": 0},
@@ -97,9 +105,14 @@ def example_scene():
             ],
         }
 
-    ring2 = ring(2, 1.5)
+    ring2 = ring(2, "=gap")
     ring2["rotations"] = [{"angle": 18, "axis": "z", "anchor": 0}]  # stagger
     return {
+        "variables": {"radius": 2.3, "gap": 1.5},
+        "variable_bounds": {
+            "radius": {"min": 0.5, "max": 8, "soft_min": 1.6, "soft_max": 4},
+            "gap": {"min": 0, "max": 6, "soft_min": 1, "soft_max": 3},
+        },
         "objects": [
             {
                 "id": "halbach",
@@ -204,6 +217,9 @@ def _walk_specs(specs):
         yield from _walk_specs(spec.get("children") or [])
 
 
+_DOC_KEYS = ("variables", "variable_bounds", "objects", "events")
+
+
 def _canonical(doc):
     """One spelling per value, whichever way the document was built.
 
@@ -234,6 +250,13 @@ def _canonical(doc):
             del doc["variable_bounds"]
     if doc.get("events"):
         doc["events"] = expressions.normalized(doc["events"])
+    # A fixed key order as well, so "the same document" is the same text
+    # however it was assembled — read back from a script, built up through
+    # the API, or written by hand.
+    ordered = {key: doc[key] for key in _DOC_KEYS if key in doc}
+    ordered.update({k: v for k, v in doc.items() if k not in _DOC_KEYS})
+    doc.clear()
+    doc.update(ordered)
     return doc
 
 

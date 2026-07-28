@@ -25,7 +25,14 @@ and drives it.
   is depth-first with a `parent` field; `to_script` emits children before
   their collection. `example_scene()`: `halbach` → `ring1`/`ring2` (10
   rotated cuboids each; ring2 staggered 18° by a *group* rotation) + sensor
-  path along the bore. Object specs support an optional `"rotations"` list
+  path along the bore. **It arrives parametric**: both rings are written in
+  terms of `radius`, the upper one sits at `gap`, and both variables carry
+  bounds, so the example opens with two working sliders and dragging one
+  moves twenty magnets. That is deliberate — the example is the first thing
+  anyone opens, so it is where the parametric model has to be discoverable.
+  The soft minimum on `radius` is 1.6 for a real reason: below it, 2πr < 10
+  and the ten unit cubes would have to overlap.
+  Object specs support an optional `"rotations"` list
   ({angle, axis, anchor?}, applied in order via `rotate_from_angax`; no
   anchor = spin in place; on a Collection rotates the whole group).
   Structural edits go through `_mutate_doc`: mutate doc → rebuild scene; on
