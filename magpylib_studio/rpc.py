@@ -51,6 +51,10 @@ _PUBLIC = {
     "redo",
     "get_history",
     "goto_history",
+    "get_events",
+    "edit_event",
+    "remove_event",
+    "move_event",
     "to_dict",
     "to_script",
 }

@@ -37,6 +37,10 @@ Protocol surface (all JSON-serializable in/out):
   undo(steps?) / redo(steps?)          -> {"ok": bool, "error"?: str}
   get_history()                        -> {"entries": [...], "current": int, ...}
   goto_history(index)                  -> {"ok": bool, "error"?: str}
+  get_events()                         -> {"events": [{index, id, target, source}]}
+  edit_event(event_id, changes)        -> {"ok": bool, "error"?: str}
+  remove_event(event_id)               -> {"ok": bool, "error"?: str}
+  move_event(event_id, index)          -> {"ok": bool, "error"?: str}
   to_dict()                            -> the scene document
   to_script()                          -> equivalent magpylib Python code
 """
@@ -187,6 +191,40 @@ def _walk_specs(specs):
         yield from _walk_specs(spec.get("children") or [])
 
 
+def _next_event_id(events):
+    used = {e.get("id") for e in events}
+    n = len(events) + 1
+    while f"e{n}" in used:
+        n += 1
+    return f"e{n}"
+
+
+def _migrate_events(doc):
+    """Fold per-object `transforms`/`rotations` into the document's single
+    ordered event log, in the order the old per-object build replayed them:
+    depth-first, a Collection's children before the Collection itself, so a
+    group transform still lands after everything it moves.
+
+    The log is what makes an event editable — an op buried in one object's
+    list has no position relative to the rest of the scene, so there is no
+    "and then re-apply the later ones" to speak of.
+    """
+    events = list(doc.get("events") or [])
+
+    def walk(specs):
+        for spec in specs:
+            walk(spec.get("children") or [])
+            for op in _spec_ops(spec):
+                events.append({"id": _next_event_id(events),
+                               "target": spec["id"], **op})
+            spec.pop("transforms", None)
+            spec.pop("rotations", None)
+
+    walk(doc.get("objects") or [])
+    doc["events"] = events
+    return doc
+
+
 def _id_list(ids, limit=5):
     head = ", ".join(ids[:limit])
     return head if len(ids) <= limit else f"{head} (+{len(ids) - limit} more)"
@@ -203,9 +241,17 @@ def _round_trip_warnings(before, after):
     """
     old = {s["id"]: s for s in _walk_specs(before["objects"])}
     new = {s["id"]: s for s in _walk_specs(after["objects"])}
+
+    def counts(doc):
+        tally = {}
+        for event in doc.get("events") or []:
+            tally[event["target"]] = tally.get(event["target"], 0) + 1
+        return tally
+
+    was, now = counts(before), counts(after)
     collapsed, ungrouped = [], []
     for oid, spec in old.items():
-        if oid not in new or len(_spec_ops(spec)) <= len(_spec_ops(new[oid])):
+        if oid not in new or was.get(oid, 0) <= now.get(oid, 0):
             continue
         bucket = ungrouped if spec.get("type") == "Collection" else collapsed
         bucket.append(oid)
@@ -292,7 +338,8 @@ class MagpylibStudioSession:
     """A live magpylib scene plus the document it was built from."""
 
     def __init__(self, scene: dict | None = None):
-        self.doc = scene if scene is not None else {"objects": []}  # start empty
+        # start empty; older documents carry their ops per object, not as a log
+        self.doc = _migrate_events(scene if scene is not None else {"objects": []})
         self._objs: dict[str, object] = {}
         # In-session undo/redo (durable history stays in git via to_script):
         # each entry is {"label", "doc"} — the doc state BEFORE the change.
@@ -311,10 +358,25 @@ class MagpylibStudioSession:
         self._redo.clear()
 
     def _build(self):
+        """Construct every object, then fold the event log over them in order.
+
+        Objects first is safe because a Collection's constructor does not move
+        the children handed to it — only its position/orientation *setters*
+        do, and those are events like any other, so they keep their place in
+        the log relative to the children they carry.
+        """
         self._objs = {}
         self.scene = magpy.Collection(
             *[self._build_spec(s) for s in self.doc["objects"]]
         )
+        for event in self.doc.get("events") or []:
+            target = self._objs.get(event["target"])
+            if target is None:
+                raise ValueError(
+                    f"event {event.get('id')} targets unknown object "
+                    f"{event['target']!r}"
+                )
+            _replay(target, [event])
 
     def _build_spec(self, spec):
         """Build one spec (recursing into Collection children) into a live object."""
@@ -324,10 +386,6 @@ class MagpylibStudioSession:
         else:
             cls = _resolve_type(spec["type"])
             obj = cls(**dict(spec.get("params", {})))
-        # Recorded magpylib transform calls, replayed in order. For a
-        # Collection this happens after its children exist, so magpylib moves
-        # and rotates the whole group exactly as it would in a script.
-        _replay(obj, _spec_ops(spec))
         for path, value in spec.get("style", {}).items():
             style_compat.set_style(obj, path, value)  # same call the GUI/LLM makes
         if spec["id"] in self._objs:
@@ -722,73 +780,62 @@ class MagpylibStudioSession:
             }
             if type == "Collection":
                 spec["children"] = []
-            if rotations:
-                spec["rotations"] = rotations
             target = (
                 doc["objects"] if parent is None
                 else self._spec(parent).setdefault("children", [])
             )
             target.append(spec)
+            if rotations:
+                # Recorded at the end of the log, i.e. after whatever has
+                # already happened to the parent — the same thing the
+                # equivalent script would do.
+                self._log(object_id, _spec_ops({"rotations": rotations}))
 
         return self._mutate_doc(mutate, f"add {object_id}")
 
     def remove_object(self, object_id):
         """Remove an object; removing a Collection removes its whole subtree."""
         spec = self._spec(object_id)  # raise early on unknown id
+        gone = {s["id"] for s in _walk_specs([spec])}
 
         def mutate(doc):
             self._container_of(object_id).remove(spec)
+            # the log cannot outlive its targets: replaying an event against a
+            # deleted object is an error, so the subtree's events go with it
+            doc["events"] = [
+                e for e in doc.get("events") or [] if e["target"] not in gone
+            ]
 
         return self._mutate_doc(mutate, f"remove {object_id}")
 
-    def _parent_frame(self, spec):
-        """The rigid transform the ancestors apply to this spec at build time,
-        as (t, R) with world = t + R·local. Measured by probing: build the
-        object with no transforms at the origin and read where it lands."""
-        saved_ops = spec.get("transforms")
-        saved_rot = spec.get("rotations")
-        saved_pos = spec.get("params", {}).get("position")
-        spec["transforms"] = []
-        spec.pop("rotations", None)
-        spec.setdefault("params", {})["position"] = [0.0, 0.0, 0.0]
-        try:
-            self._build()
-            probe = self._objs[spec["id"]]
-            frame_pos = np.array(probe.position, dtype=float)
-            frame_rot = R.from_rotvec(
-                np.atleast_2d(probe.orientation.as_rotvec())[-1]
-            )
-        finally:
-            spec["transforms"] = saved_ops if saved_ops is not None else []
-            if saved_rot is not None:
-                spec["rotations"] = saved_rot
-            if saved_pos is None:
-                spec["params"].pop("position", None)
-            else:
-                spec["params"]["position"] = saved_pos
-        return np.atleast_2d(frame_pos)[-1], frame_rot
+    def _set_world_pose(self, object_id, world_pos, world_rot):
+        """Pin an object (and, for a Collection, its subtree) to a WORLD pose.
 
-    def _set_world_pose(self, spec, world_pos, world_rot):
-        """Append magpylib pose assignments that land the object (and, for a
-        Collection, its whole subtree) on the given WORLD pose, expressed in
-        the frame its ancestors will apply on rebuild."""
-        frame_pos, frame_rot = self._parent_frame(spec)
-        local_pos = frame_rot.inv().apply(np.array(world_pos, dtype=float) - frame_pos)
-        local_rot = frame_rot.inv() * world_rot
-        ops = spec.setdefault("transforms", [])
-        ops.append({"op": "position", "value": np.round(local_pos, 9).tolist()})
-        ops.append({
-            "op": "orientation",
-            "rotvec": np.round(local_rot.as_rotvec(degrees=True), 9).tolist(),
-        })
+        magpylib positions are world coordinates, and the log ends here, so
+        the assignment needs no parent-frame correction: nothing runs after it
+        to move the object again. Before the log existed this had to measure
+        the frame its ancestors would re-apply, by building a probe scene.
+        """
+        self._log(object_id, [
+            {"op": "position", "value": np.round(world_pos, 9).tolist()},
+            {"op": "orientation",
+             "rotvec": np.round(world_rot.as_rotvec(degrees=True), 9).tolist()},
+        ])
 
     # --- transforms --------------------------------------------------------
+    def _log(self, object_id, ops):
+        """Append transform ops to the end of the event log."""
+        events = self.doc.setdefault("events", [])
+        for op in _plain(ops):
+            events.append({"id": _next_event_id(events),
+                           "target": object_id, **op})
+
     def _append_ops(self, object_id, ops, label):
-        """Record magpylib transform calls on an object's spec and rebuild."""
-        spec = self._spec(object_id)
+        """Record magpylib transform calls in the event log and rebuild."""
+        self._spec(object_id)  # raise early on unknown id
 
         def mutate(doc):
-            spec.setdefault("transforms", []).extend(_plain(ops))
+            self._log(object_id, ops)
 
         return self._mutate_doc(mutate, label)
 
@@ -814,13 +861,12 @@ class MagpylibStudioSession:
 
     def set_transform(self, object_id, position=None, orientation=None):
         """Set the absolute pose in WORLD coordinates: `position` [x,y,z] and/
-        or `orientation` as a rotation vector in degrees. Path-valued targets
-        are applied in the object's own frame (they are only meaningful for
-        objects that are not inside a transformed Collection)."""
+        or `orientation` as a rotation vector in degrees. Recorded at the end
+        of the event log, so the pose is world-absolute even inside a rotated
+        Collection — nothing replays after it."""
         if position is None and orientation is None:
             return {"ok": False, "error": "nothing to set"}
         obj = self._objs[object_id]
-        spec = self._spec(object_id)
         target_pos = np.array(
             obj.position if position is None else position, dtype=float
         )
@@ -833,13 +879,14 @@ class MagpylibStudioSession:
 
         def mutate(doc):
             if is_path:
-                ops = spec.setdefault("transforms", [])
+                ops = []
                 if position is not None:
-                    ops.append(_plain({"op": "position", "value": position}))
+                    ops.append({"op": "position", "value": position})
                 if orientation is not None:
-                    ops.append(_plain({"op": "orientation", "rotvec": orientation}))
+                    ops.append({"op": "orientation", "rotvec": orientation})
+                self._log(object_id, ops)
             else:
-                self._set_world_pose(spec, target_pos, target_rot)
+                self._set_world_pose(object_id, target_pos, target_rot)
 
         return self._mutate_doc(mutate, f"set transform {object_id}")
 
@@ -885,9 +932,12 @@ class MagpylibStudioSession:
         new_id = self._unique_id(object_id)
         label = self._next_label(self._objs[object_id].style.label or src["type"])
 
+        renamed = {}  # source id -> copy's id, to redirect the copied events
+
         def clone(spec, top):
             new = json.loads(json.dumps(spec))
             new["id"] = new_id if top else self._unique_id(spec["id"])
+            renamed[spec["id"]] = new["id"]
             if top:
                 new.setdefault("style", {})["label"] = label
             new["children"] = [
@@ -901,6 +951,15 @@ class MagpylibStudioSession:
                 else self._spec(parent).setdefault("children", [])
             )
             target.append(clone(src, True))
+            # A copy is not a copy without its history: replay the source's
+            # events onto the new ids, appended in their original order.
+            events = doc.setdefault("events", [])
+            copied = [
+                {**e, "target": renamed[e["target"]]}
+                for e in list(events) if e["target"] in renamed
+            ]
+            for event in copied:
+                events.append({**event, "id": _next_event_id(events)})
 
         result = self._mutate_doc(mutate, f"copy {object_id}")
         if result["ok"]:
@@ -968,7 +1027,7 @@ class MagpylibStudioSession:
                 else self._spec(parent).setdefault("children", [])
             )
             target.append(spec)
-            self._set_world_pose(spec, world_pos, world_rot)
+            self._set_world_pose(object_id, world_pos, world_rot)
 
         return self._mutate_doc(mutate, f"reparent {object_id}")
 
@@ -1007,7 +1066,7 @@ class MagpylibStudioSession:
                 return {"ok": False, "error": str(e)}
 
         def mutate(doc):
-            self.doc = json.loads(json.dumps(scene))
+            self.doc = _migrate_events(json.loads(json.dumps(scene)))
 
         return self._mutate_doc(mutate, "load scene")
 
@@ -1180,6 +1239,63 @@ class MagpylibStudioSession:
             "redo": [e["label"] for e in self._redo],
         }
 
+    # --- the event log -----------------------------------------------------
+    def get_events(self):
+        """The ordered transform log, as the scene's editable construction
+        history: each entry is the magpylib call that produced it."""
+        return {
+            "events": [
+                {"index": i, "id": e["id"], "target": e["target"],
+                 "op": e.get("op", "rotate_from_angax"),
+                 "source": f"{e['target']}.{_op_source(e)}"}
+                for i, e in enumerate(self.doc.get("events") or [])
+            ]
+        }
+
+    def _event_index(self, event_id):
+        for i, event in enumerate(self.doc.get("events") or []):
+            if event["id"] == event_id:
+                return i
+        raise KeyError(f"unknown event id {event_id!r}")
+
+    def edit_event(self, event_id, changes):
+        """Change a past event in place; everything recorded after it is
+        re-applied on top, because the scene is rebuilt by folding the whole
+        log. An edit that cannot replay (a bad axis, a target that no longer
+        exists) is reported and rolled back, leaving the log as it was."""
+        index = self._event_index(event_id)
+        if not isinstance(changes, dict) or not changes:
+            return {"ok": False, "error": "changes must be a non-empty object"}
+        if "id" in changes:
+            return {"ok": False, "error": "an event's id is not editable"}
+
+        def mutate(doc):
+            doc["events"][index] = {**doc["events"][index], **_plain(changes)}
+
+        return self._mutate_doc(mutate, f"edit event {event_id}")
+
+    def remove_event(self, event_id):
+        """Drop one event and re-fold the log without it."""
+        index = self._event_index(event_id)
+
+        def mutate(doc):
+            del doc["events"][index]
+
+        return self._mutate_doc(mutate, f"remove event {event_id}")
+
+    def move_event(self, event_id, index):
+        """Reorder the log. Transforms do not commute, so this is a real edit:
+        rotating then moving lands somewhere else than moving then rotating."""
+        current = self._event_index(event_id)
+        events = self.doc["events"]
+        if not 0 <= index < len(events):
+            return {"ok": False, "error": f"index must be 0..{len(events) - 1}"}
+
+        def mutate(doc):
+            doc["events"].insert(index, doc["events"].pop(current))
+
+        return self._mutate_doc(mutate, f"move event {event_id}")
+
     def goto_history(self, index):
         """Jump to any point on the timeline (undoing or redoing as needed)."""
         total = len(self._undo) + len(self._redo)
@@ -1197,11 +1313,8 @@ class MagpylibStudioSession:
         return self.doc
 
     def to_script(self):
-        needs_scipy = any(
-            op.get("op") == "orientation"
-            for spec, _ in self._iter_specs()
-            for op in _spec_ops(spec)
-        )
+        events = self.doc.get("events") or []
+        needs_scipy = any(e.get("op") == "orientation" for e in events)
         lines = ["import magpylib as magpy"]
         if needs_scipy:
             lines.append("from scipy.spatial.transform import Rotation as R")
@@ -1219,11 +1332,14 @@ class MagpylibStudioSession:
                 parts.append(f"style={_nest(spec['style'])!r}")
             ctor = "Collection" if spec["type"] == "Collection" else spec["type"]
             lines.append(f"{name} = magpy.{ctor}({', '.join(parts)})")
-            for op in _spec_ops(spec):
-                lines.append(f"{name}.{_op_source(op)}")
             return name
 
         names = [emit(s) for s in self.doc["objects"]]
+        # Definitions, then the event log in order — the script is the log's
+        # own notation, which is why editing a line of it edits an event.
+        if events:
+            lines.append("")
+            lines += [f"{e['target']}.{_op_source(e)}" for e in events]
         # Shown as loose objects, not wrapped in a Collection: the script must
         # bind exactly the objects this document holds, so importing it back
         # reproduces the same scene. A wrapper would come back as one nested

@@ -47,19 +47,39 @@ and drives it.
   Position/orientation are excluded — they are transform-managed. Shown as
   the Inspector's **properties** section, and prompted (prefilled, with
   units) when adding an object.
-- **Transforms — the doc records magpylib CALLS, not derived poses.** Each
-  spec has `transforms`: an ordered op log (`move`, `rotate_from_angax`,
-  `rotate_from_rotvec`, `position`, `orientation`) replayed by `_replay`
-  after the object (and, for a Collection, its children) is built — so
-  magpylib owns all semantics: paths, anchors, `start`, and **a Collection
-  transform carrying its whole subtree**. Legacy `rotations` entries are read
-  as the same ops. Session API: `move`, `rotate`, `set_transform` (absolute
-  WORLD pose — converted into the parent frame via a `_parent_frame` probe),
-  `clear_path`, `get_transform`. Undoable, batchable, exported verbatim by
-  `to_script`. UI: Inspector **transform** section, Scene-tree **inline hover
-  icons** (move, rotate, + on collections) and a **Transform** submenu; move
-  and rotate first ask *single step or N-step path*. LM tools `#magpyMove`,
-  `#magpyRotate`, `#magpyPose`.
+- **Transforms — the doc records magpylib CALLS, not derived poses**, and
+  since the event-log change they live in **one ordered log for the whole
+  document**, `doc["events"]`, not per object. Each event is
+  `{id, target, op, ...}` with op in (`move`, `rotate_from_angax`,
+  `rotate_from_rotvec`, `position`, `orientation`); `_build` constructs every
+  object and then folds the log over them in order, so magpylib still owns
+  all semantics: paths, anchors, `start`, and **a Collection transform
+  carrying its whole subtree**. Objects can be constructed up front because a
+  Collection's *constructor* does not move the children handed to it — only
+  its position/orientation setters do, and those are events like any other.
+  Legacy docs (per-object `transforms`/`rotations`) fold into the log on load
+  via `_migrate_events`, children before parents, which is the order the old
+  per-object build replayed them in — verified pose- and field-identical on
+  the example scene.
+  Session API: `move`, `rotate`, `set_transform` (absolute WORLD pose —
+  recorded at the end of the log, so **no parent-frame correction is needed**
+  and the old `_parent_frame` probe is gone), `clear_path`, `get_transform`.
+  Undoable, batchable, exported verbatim by `to_script`. UI: Inspector
+  **transform** section, Scene-tree **inline hover icons** (move, rotate, +
+  on collections) and a **Transform** submenu; move and rotate first ask
+  *single step or N-step path*. LM tools `#magpyMove`, `#magpyRotate`,
+  `#magpyPose`.
+- **The log is editable — this is the ANSYS-style history, engine side only
+  so far.** `get_events()` lists it with a rendered `source` line per event;
+  `edit_event(id, changes)`, `remove_event(id)`, `move_event(id, index)`
+  mutate it. Editing an early event re-applies every later one for free,
+  because `_build` always folds the whole log (1.7 ms for the 24-object
+  example) — no invalidation machinery, unlike a solver-backed tool where
+  re-running is expensive. Events that cannot replay (unknown target, bad
+  axis) roll back through `_mutate_doc` and are reported. `remove_object`
+  drops its subtree's events, `copy_object` clones them onto the new ids.
+  **Not yet:** any UI for it, and **variables/parameterized events** — the
+  other half of the ANSYS model, still open (see Next steps).
 - **Field maps**: `get_field_map(plane?, offset?, component?, log?, sensor_id?)`
   — plotly heatmap on a plane. Colour by job (dataviz skill): sequential
   one-hue blue for magnitude, diverging blue↔grey↔red with `zmid=0` for signed
@@ -215,6 +235,21 @@ test skips via `supports_property_paths()`).
 
 ## Next steps (pick one)
 
+- **Decide what the event log is for** (branch `event-log-prototype`). The
+  ordered log exists and is editable; two things are still open, and the
+  first blocks the second:
+  1. *Is the document or the script canonical?* The script is now literally
+     the log's own notation (definitions, then the ops in order), so "edit a
+     past event" and "edit a line and re-run" are the same gesture — which
+     asks whether an events UI is worth building at all, or whether the
+     script tab already is that UI.
+  2. *Variables* — `doc["variables"]` plus expression-valued params/event
+     fields, so events are parameterizable the way ANSYS design variables
+     are. Only worth it if the goal is sweeps/optimisation rather than
+     interactive tweaking; that answer decides whether values need units.
+  Not started: reordering/removing events from the UI, invalidation
+  reporting beyond the rollback, and creation/deletion as events (today only
+  transforms are logged; objects are still declarative).
 - **Try it live**: open `vscode-extension/` in VS Code, F5, run
   "Magpylib Studio: Open Scene View"; in Copilot chat try `make the cube green
   #magpyEdit` or `add a green sphere at [0,2,0] #magpyAdd`.

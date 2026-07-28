@@ -957,6 +957,98 @@ def test_apply_script_errors_leave_the_scene_alone(tmp_path):
     assert [o["id"] for o in s.list_objects()] == ["cube", "cyl"]
 
 
+def test_legacy_per_object_transforms_migrate_into_the_log():
+    """Documents written before the log keep working: their per-object ops
+    fold into it in the order the old build replayed them — children first,
+    so a Collection's group transform still lands on top of them."""
+    doc = {
+        "objects": [{
+            "id": "ring", "type": "Collection",
+            "rotations": [{"angle": 18, "axis": "z", "anchor": 0}],
+            "children": [{
+                "id": "m", "type": "magnet.Cuboid",
+                "params": {"polarization": [1, 0, 0], "dimension": [1, 1, 1],
+                           "position": [2, 0, 0]},
+                "rotations": [{"angle": 90, "axis": "z", "anchor": 0}],
+            }],
+        }]
+    }
+    s = MagpylibStudioSession(json.loads(json.dumps(doc)))
+    assert [e["target"] for e in s.get_events()["events"]] == ["m", "ring"]
+    assert "transforms" not in s._spec("m") and "rotations" not in s._spec("m")
+    # 90 deg orbit then an 18 deg group orbit = 108 deg from +x, at radius 2
+    import numpy as np
+
+    a = np.deg2rad(108)
+    assert np.allclose(s._objs["m"].position, [2 * np.cos(a), 2 * np.sin(a), 0])
+
+
+def test_editing_a_past_event_reapplies_the_later_ones():
+    import numpy as np
+
+    s = MagpylibStudioSession()
+    s.load_example()  # ring2's group stagger is the last event, its magnets' earlier
+    events = s.get_events()["events"]
+    stagger = next(e for e in events if e["target"] == "ring2")
+    assert stagger["source"] == "ring2.rotate_from_angax(18, 'z', anchor=0)"
+
+    before = np.array(s._objs["r2m01"].position)
+    assert s.edit_event(stagger["id"], {"angle": 45}) == {"ok": True}
+    # the whole group followed the edited event, not just the object it names
+    moved = np.array(s._objs["r2m01"].position)
+    assert not np.allclose(moved, before)
+    assert np.allclose(np.linalg.norm(moved[:2]), np.linalg.norm(before[:2]))
+    assert s.get_history()["undo"][-1] == f"edit event {stagger['id']}"
+    assert s.undo() == {"ok": True}
+    assert np.allclose(s._objs["r2m01"].position, before)
+
+
+def test_event_edits_that_cannot_replay_roll_back():
+    import numpy as np
+
+    s = MagpylibStudioSession(make_scene())
+    s.rotate("cube", 90, "z", anchor=[0, 0, 0])  # an orbit, so order shows
+    s.move("cube", [1, 0, 0])
+    events = s.get_events()["events"]
+    assert [e["index"] for e in events] == [0, 1]
+
+    pos = list(s._objs["cube"].position)
+    assert s.edit_event(events[0]["id"], {"target": "ghost"})["ok"] is False
+    assert s.edit_event(events[0]["id"], {"axis": "banana"})["ok"] is False
+    assert list(s._objs["cube"].position) == pos  # log intact, scene intact
+    with pytest.raises(KeyError):
+        s.edit_event("e99", {"angle": 1})
+
+    # order is semantic: orbit-then-move lands elsewhere than move-then-orbit
+    assert np.allclose(pos, [1, 0, 0])
+    assert s.move_event(events[1]["id"], 0) == {"ok": True}
+    assert np.allclose(s._objs["cube"].position, [0, 1, 0])
+    assert s.remove_event(events[0]["id"]) == {"ok": True}
+    assert len(s.get_events()["events"]) == 1
+
+
+def test_removing_an_object_takes_its_events_with_it():
+    s = MagpylibStudioSession(make_scene())
+    s.rotate("cube", 90, "z")
+    s.rotate("cyl", 45, "z")
+    assert len(s.get_events()["events"]) == 2
+    assert s.remove_object("cube") == {"ok": True}
+    assert [e["target"] for e in s.get_events()["events"]] == ["cyl"]
+
+
+def test_copying_an_object_copies_its_events():
+    import numpy as np
+
+    s = MagpylibStudioSession(make_scene())
+    s.rotate("cube", 90, "z", anchor=[0, 0, 0])
+    s.move("cube", [0, 0, 2])
+    res = s.copy_object("cube")
+    assert res["ok"] is True
+    # the copy replays the same construction, so it lands on the original
+    assert np.allclose(s._objs[res["id"]].position, s._objs["cube"].position)
+    assert len(s.get_events()["events"]) == 4
+
+
 def test_jsonrpc_roundtrip():
     """Drive the stdio server end to end through pipes."""
     requests = [
