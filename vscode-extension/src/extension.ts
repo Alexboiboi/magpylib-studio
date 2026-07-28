@@ -637,7 +637,9 @@ export function activate(context: vscode.ExtensionContext): void {
         return [];
       }
     },
-    (id, parent) => mutateFromTree('move_object', { object_id: id, parent }),
+    async (id, parent) => {
+      await mutateFromTree('move_object', { object_id: id, parent });
+    },
   );
   sceneTree = tree;
 
@@ -756,11 +758,31 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   /**
+   * Offered wherever a variable is born, because a range given at that moment
+   * is what makes it draggable, and hunting for a second command later is how
+   * a slider never gets used. Enter skips it. Only the allowed range is asked
+   * for: the slider falls back to it, and Set Bounds… covers the soft range
+   * for when the two differ.
+   */
+  const askAllowedRange = async (name: string) => {
+    const text = await vscode.window.showInputBox({
+      prompt: `Allowed range for ${name} — optional, and gives it a slider`,
+      placeHolder: 'min, max — e.g. 0, 10. Enter to skip',
+      validateInput: (v) =>
+        v.trim() === '' || parseBoundPair(v) ? undefined : 'min, max',
+    });
+    const pair = text && parseBoundPair(text);
+    if (pair) {
+      await mutateFromTree('set_variable_bounds', { name, min: pair[0], max: pair[1] });
+    }
+  };
+
+  /**
    * Set a variable from an input box. A plain number stays a number; anything
    * else is stored as an expression, so the user types `gap*2` rather than
    * remembering the document's `=` marker.
    */
-  const editVariable = async (variable: Variable, prompt?: string) => {
+  const editVariable = async (variable: Variable, prompt?: string): Promise<boolean> => {
     const current =
       typeof variable.expression === 'string'
         ? variable.expression.slice(1)
@@ -771,13 +793,11 @@ export function activate(context: vscode.ExtensionContext): void {
       validateInput: (v) => (v.trim() ? undefined : 'A number, or an expression'),
     });
     if (text === undefined) {
-      return;
+      return false;
     }
-    const trimmed = text.trim();
-    const asNumber = Number(trimmed);
-    await mutateFromTree('set_variable', {
+    return mutateFromTree('set_variable', {
       name: variable.name,
-      value: Number.isFinite(asNumber) && trimmed !== '' ? asNumber : `=${trimmed}`,
+      value: asDocumentValue(text),
     });
   };
 
@@ -939,6 +959,7 @@ export function activate(context: vscode.ExtensionContext): void {
           value: asDocumentValue(text),
         })) as { ok: boolean; error?: string };
         if (result.ok) {
+          await askAllowedRange(name); // same offer as the explicit flow
           break;
         }
         const retry = await vscode.window.showErrorMessage(
@@ -955,16 +976,21 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   /** Run a mutating engine call from the tree UI, surface failures, refresh. */
-  const mutateFromTree = async (method: string, params: Record<string, unknown>) => {
+  const mutateFromTree = async (
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<boolean> => {
     // whatever was typed may name variables that do not exist yet
     if (!(await ensureVariablesDefined(Object.values(params)))) {
-      return;
+      return false;
     }
+    let ok = false;
     try {
       const result = (await getEngine(context).request(method, params)) as {
         ok: boolean;
         error?: string;
       };
+      ok = result.ok;
       if (!result.ok) {
         vscode.window.showErrorMessage(`Magpylib Studio: ${result.error}`);
       }
@@ -974,6 +1000,7 @@ export function activate(context: vscode.ExtensionContext): void {
       );
     }
     broadcastMutation();
+    return ok;
   };
 
   sceneDocEmitter = new vscode.EventEmitter<vscode.Uri>();
@@ -1062,7 +1089,10 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!name) {
         return;
       }
-      await editVariable({ name, expression: 0, value: 0 }, 'New value or =expression');
+      if (!(await editVariable({ name, expression: 0, value: 0 }, 'Value or expression'))) {
+        return;
+      }
+      await askAllowedRange(name);
     }),
     vscode.commands.registerCommand(
       'magpylib-studio.editVariable',

@@ -176,6 +176,13 @@ and drives it.
     remove. The input box takes `2.5` or `gap*2`; the `=` marker the document
     uses is added for you. **Set Bounds…** on the row asks for the allowed
     range and then the slider range.
+  - **A range is offered wherever a variable is born** — after the value, in
+    both `+ New Variable…` and the auto-create prompt that fires when a typed
+    expression names something new. Enter skips it. Only the *allowed* range
+    is asked for there (the slider falls back to it; Set Bounds… covers the
+    soft range for when the two differ), and `"0,"` / `", 10"` give a
+    half-open range. Asking at creation is the difference between a slider
+    that exists and one nobody finds.
   - **Bounds, hard and soft** (`doc["variable_bounds"]`, `set_variable_bounds`):
     hard `min`/`max` are enforced **in `_build`**, not where a value is typed,
     so they hold however the variable arrived — including when it is driven by
