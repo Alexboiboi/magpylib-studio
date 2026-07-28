@@ -25,6 +25,7 @@ Protocol surface (all JSON-serializable in/out):
   rotate(object_id, angle, axis?, anchor?, start?) -> {"ok": bool, ...} (list = path)
   set_transform(object_id, position?, orientation?) -> {"ok": bool, ...} (absolute)
   clear_path(object_id, index?)        -> {"ok": bool, "error"?: str}
+  duplicate_around(object_id, count, axis?, anchor?, spin?) -> {"ok": bool, ...}
   get_transform(object_id)             -> {position, orientation, path_length, ...}
   reset_style(object_id, path?)        -> {"ok": bool, "error"?: str}
   load_scene(scene | path)             -> {"ok": bool, "error"?: str}
@@ -37,6 +38,11 @@ Protocol surface (all JSON-serializable in/out):
   undo(steps?) / redo(steps?)          -> {"ok": bool, "error"?: str}
   get_history()                        -> {"entries": [...], "current": int, ...}
   goto_history(index)                  -> {"ok": bool, "error"?: str}
+  get_variables()                      -> {"variables": [{name, expression, value}]}
+  set_variable(name, value)            -> {"ok": bool, "error"?: str}
+  remove_variable(name)                -> {"ok": bool, "error"?: str}
+  sweep(variable, values, sensor_id?, points?, field?) -> {"ok", "steps": [...]}
+  get_sweep_figure(variable, values, …) -> plotly line-plot JSON
   get_events()                         -> {"events": [{index, id, target, source}]}
   edit_event(event_id, changes)        -> {"ok": bool, "error"?: str}
   remove_event(event_id)               -> {"ok": bool, "error"?: str}
@@ -55,7 +61,7 @@ import numpy as np
 import plotly.graph_objects as go
 from scipy.spatial.transform import Rotation as R
 
-from magpylib_studio import style_compat
+from magpylib_studio import expressions, style_compat
 
 
 def example_scene():
@@ -191,6 +197,19 @@ def _walk_specs(specs):
         yield from _walk_specs(spec.get("children") or [])
 
 
+def _prune(doc):
+    """Drop empty `params`/`style`/`variables`, so a document has one spelling
+    for "nothing here" — otherwise the same scene compares unequal to itself
+    depending on whether it was built up or read back from its script."""
+    for spec in _walk_specs(doc.get("objects") or []):
+        for key in ("params", "style"):
+            if spec.get(key) == {}:
+                del spec[key]
+    if doc.get("variables") == {}:
+        del doc["variables"]
+    return doc
+
+
 def _next_event_id(events):
     used = {e.get("id") for e in events}
     n = len(events) + 1
@@ -293,24 +312,36 @@ def _replay(obj, ops):
             raise ValueError(f"unknown transform op {kind!r}")
 
 
+def _lit(value):
+    """Document value -> Python source. Expressions lose their `=` and go in
+    unquoted, so the generated script is parametric in the same variables the
+    document is; everything else is a literal."""
+    if expressions.is_expression(value):
+        return expressions.source_of(value)
+    if isinstance(value, list):
+        inner = ", ".join(_lit(v) for v in value)
+        return f"({inner},)" if len(value) == 1 else f"({inner})"
+    return repr(value)
+
+
 def _op_source(op):
     """One recorded transform op -> the magpylib call that produced it."""
     kind = op.get("op", "rotate_from_angax")
     if kind == "position":
-        return f"position = {op['value']!r}"
+        return f"position = {_lit(op['value'])}"
     if kind == "orientation":
-        return f"orientation = R.from_rotvec({op['rotvec']!r}, degrees=True)"
+        return f"orientation = R.from_rotvec({_lit(op['rotvec'])}, degrees=True)"
     if kind == "move":
-        args = f"{op['displacement']!r}"
+        args = _lit(op["displacement"])
     elif kind == "rotate_from_angax":
-        args = f"{op['angle']!r}, {op['axis']!r}"
+        args = f"{_lit(op['angle'])}, {_lit(op['axis'])}"
     else:  # rotate_from_rotvec
-        args = f"{op['rotvec']!r}, degrees=True"
+        args = f"{_lit(op['rotvec'])}, degrees=True"
     anchor = op.get("anchor")
     if anchor is not None:
-        args += f", anchor={tuple(anchor) if isinstance(anchor, list) else anchor!r}"
+        args += f", anchor={_lit(anchor)}"
     if "start" in op:
-        args += f", start={op['start']!r}"
+        args += f", start={_lit(op['start'])}"
     return f"{kind}({args})"
 
 
@@ -339,8 +370,12 @@ class MagpylibStudioSession:
 
     def __init__(self, scene: dict | None = None):
         # start empty; older documents carry their ops per object, not as a log
-        self.doc = _migrate_events(scene if scene is not None else {"objects": []})
+        self.doc = _prune(
+            _migrate_events(scene if scene is not None else {"objects": []})
+        )
         self._objs: dict[str, object] = {}
+        self._vars: dict[str, float] = {}  # resolved at each build
+        self._derived: dict[str, list[str]] = {}  # source id -> generated copies
         # In-session undo/redo (durable history stays in git via to_script):
         # each entry is {"label", "doc"} — the doc state BEFORE the change.
         self._undo: list[dict] = []
@@ -358,14 +393,17 @@ class MagpylibStudioSession:
         self._redo.clear()
 
     def _build(self):
-        """Construct every object, then fold the event log over them in order.
+        """Resolve the variables, construct every object, then fold the event
+        log over them in order.
 
         Objects first is safe because a Collection's constructor does not move
         the children handed to it — only its position/orientation *setters*
         do, and those are events like any other, so they keep their place in
         the log relative to the children they carry.
         """
+        self._vars = expressions.resolve_variables(self.doc.get("variables") or {})
         self._objs = {}
+        self._derived = {}
         self.scene = magpy.Collection(
             *[self._build_spec(s) for s in self.doc["objects"]]
         )
@@ -376,16 +414,62 @@ class MagpylibStudioSession:
                     f"event {event.get('id')} targets unknown object "
                     f"{event['target']!r}"
                 )
-            _replay(target, [event])
+            resolved = self._resolve(event)
+            if resolved.get("op") == "duplicate_around":
+                self._duplicate_around(event["target"], resolved)
+            else:
+                _replay(target, [resolved])
+
+    def _duplicate_around(self, object_id, event):
+        """Replay a duplicate event: `count` copies evenly spaced about an
+        axis, optionally spun in place as they go (which is all a Halbach ring
+        is). The copies are generated, not declared — they exist only as long
+        as the event does, which is what makes the count a single number to
+        edit instead of twenty objects to keep in step."""
+        count = int(event.get("count", 1))
+        if count < 1:
+            raise ValueError(f"duplicate count must be at least 1, got {count}")
+        axis = event.get("axis", "z")
+        anchor = event.get("anchor", 0)
+        spin = float(event.get("spin", 0))
+        source = self._objs[object_id]
+        container = self._objs.get(self._parent_id(object_id)) or self.scene
+        made = []
+        for i in range(1, count):
+            copy = source.copy()
+            copy.rotate_from_angax(i * 360 / count, axis, anchor=anchor)
+            if spin:
+                copy.rotate_from_angax(i * spin, axis, anchor=None)
+            copy_id = f"{object_id}#{i}"
+            self._objs[copy_id] = copy
+            container.add(copy)
+            made.append(copy_id)
+        self._derived[object_id] = made
+
+    def _parent_id(self, object_id):
+        for spec, parent in self._iter_specs():
+            if spec["id"] == object_id:
+                return parent["id"] if parent else None
+        return None
+
+    def _resolve(self, value):
+        """Document value -> plain numbers, substituting the variables."""
+        def lookup(name):
+            if name not in self._vars:
+                raise ValueError(f"unknown variable {name!r}")
+            return self._vars[name]
+
+        return expressions.resolve(value, lookup)
 
     def _build_spec(self, spec):
         """Build one spec (recursing into Collection children) into a live object."""
+        params = self._resolve(dict(spec.get("params", {})))
         if spec["type"] == "Collection":
             children = [self._build_spec(c) for c in spec.get("children", [])]
-            obj = magpy.Collection(*children, **dict(spec.get("params", {})))
+            obj = magpy.Collection(*children, **params)
         else:
             cls = _resolve_type(spec["type"])
-            obj = cls(**dict(spec.get("params", {})))
+            obj = cls(**params)
         for path, value in spec.get("style", {}).items():
             style_compat.set_style(obj, path, value)  # same call the GUI/LLM makes
         if spec["id"] in self._objs:
@@ -404,6 +488,7 @@ class MagpylibStudioSession:
         snapshot = json.loads(json.dumps(self.doc))
         try:
             mutate(self.doc)
+            _prune(self.doc)
             self._build()
         except Exception as e:  # noqa: BLE001 - report every failure to the caller
             self.doc = snapshot
@@ -442,16 +527,27 @@ class MagpylibStudioSession:
 
     # --- introspection -----------------------------------------------------
     def list_objects(self):
-        return [
-            {
-                "id": s["id"],
-                "type": s["type"],
-                "label": self._objs[s["id"]].style.label or s["type"],
-                "parent": p["id"] if p else None,
-                "visible": s.get("visible", True),
-            }
-            for s, p in self._iter_specs()
-        ]
+        objects = []
+        for spec, parent in self._iter_specs():
+            objects.append({
+                "id": spec["id"],
+                "type": spec["type"],
+                "label": self._objs[spec["id"]].style.label or spec["type"],
+                "parent": parent["id"] if parent else None,
+                "visible": spec.get("visible", True),
+            })
+            # copies made by a duplicate event: real objects in the field and
+            # the 3D view, but generated, so they have no spec to edit
+            for copy_id in self._derived.get(spec["id"], []):
+                objects.append({
+                    "id": copy_id,
+                    "type": spec["type"],
+                    "label": self._objs[copy_id].style.label or spec["type"],
+                    "parent": parent["id"] if parent else None,
+                    "visible": spec.get("visible", True),
+                    "derived": spec["id"],
+                })
+        return objects
 
     def get_schema(self, object_id):
         return style_compat.schema(self._objs[object_id])
@@ -826,7 +922,7 @@ class MagpylibStudioSession:
     def _log(self, object_id, ops):
         """Append transform ops to the end of the event log."""
         events = self.doc.setdefault("events", [])
-        for op in _plain(ops):
+        for op in expressions.normalized(_plain(ops)):
             events.append({"id": _next_event_id(events),
                            "target": object_id, **op})
 
@@ -889,6 +985,27 @@ class MagpylibStudioSession:
                 self._set_world_pose(object_id, target_pos, target_rot)
 
         return self._mutate_doc(mutate, f"set transform {object_id}")
+
+    def duplicate_around(self, object_id, count, axis="z", anchor=0, spin=0):
+        """Record a duplicate event: `count` copies of an object spaced evenly
+        about `axis` through `anchor`, each additionally spun by `spin` degrees
+        times its index (a Halbach ring is spin = 360/count). `count` and
+        `spin` may be expressions, so the arrangement stays parametric.
+
+        The object must sit inside a Collection: that is where the copies go,
+        and it is what lets the arrangement export as plain runnable magpylib.
+        """
+        self._spec(object_id)  # raise early on unknown id
+        if self._parent_id(object_id) is None:
+            return {"ok": False,
+                    "error": f"{object_id!r} must be inside a Collection to "
+                             f"duplicate it — the copies need a group to join"}
+        return self._append_ops(
+            object_id,
+            [{"op": "duplicate_around", "count": count, "axis": axis,
+              "anchor": anchor, "spin": spin}],
+            f"duplicate {object_id}",
+        )
 
     def clear_path(self, object_id, index=-1):
         """Reduce a path to a single step (default: its last)."""
@@ -1032,11 +1149,13 @@ class MagpylibStudioSession:
         return self._mutate_doc(mutate, f"reparent {object_id}")
 
     def set_param(self, object_id, name, value):
-        """Set a constructor parameter (position, dimension, polarization, ...)."""
+        """Set a constructor parameter (position, dimension, polarization, …).
+        A value may be an expression over the document's variables, on its own
+        or inside a vector: `[0, 0, "=gap"]`."""
         spec = self._spec(object_id)
 
         def mutate(doc):
-            spec.setdefault("params", {})[name] = value
+            spec.setdefault("params", {})[name] = expressions.normalized(value)
 
         return self._mutate_doc(mutate, f"set {object_id}.{name}")
 
@@ -1066,7 +1185,7 @@ class MagpylibStudioSession:
                 return {"ok": False, "error": str(e)}
 
         def mutate(doc):
-            self.doc = _migrate_events(json.loads(json.dumps(scene)))
+            self.doc = _prune(_migrate_events(json.loads(json.dumps(scene))))
 
         return self._mutate_doc(mutate, "load scene")
 
@@ -1131,28 +1250,45 @@ class MagpylibStudioSession:
         """Replace the document with the scene an edited `to_script()` output
         describes, by EXECUTING it (same trust as load_script).
 
-        Unlike load_script this takes every object the script leaves bound —
-        the script is this document's own rendering, so its variables *are*
-        the scene, and no show() call has to be guessed at. What the round
-        trip cannot carry is reported in "warnings": the script states each
-        object's final pose, so a recorded sequence of transforms comes back
-        as the single equivalent one, and a group transform comes back baked
-        into the children it moved. Geometry is preserved; edit history is not.
+        Two ways in, and the result says which one ran ("mode"):
+
+        - "parsed": the file is still in the shape to_script emits, so it is
+          read as source. Variables, the order of a transform sequence and
+          group transforms all survive, because nothing was executed and
+          nothing had to be inferred from final poses.
+        - "executed": anything else (a loop, a helper, numpy) is run, and the
+          objects it leaves behind are introspected — the load_script route.
+          That cannot see how the scene was written, so it reports in
+          "warnings" what it had to flatten: transform sequences come back as
+          the single equivalent transform, group transforms baked into the
+          children they moved. Geometry survives; the writing of it does not.
         """
         from magpylib_studio import importer
 
         before = json.loads(json.dumps(self.doc))
         try:
-            namespace, _ = importer.run_script(path)
-            doc, warnings = importer.document_from_namespace(namespace)
-        except Exception as e:  # noqa: BLE001 - report script errors, don't crash
-            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+            with open(path, encoding="utf-8") as f:
+                source = f.read()
+        except OSError as e:
+            return {"ok": False, "error": str(e)}
+
+        doc, why_not = importer.parse_script(source)
+        warnings = []
+        if doc is None:
+            try:
+                namespace, _ = importer.run_script(path)
+                doc, warnings = importer.document_from_namespace(namespace)
+            except Exception as e:  # noqa: BLE001 - report errors, don't crash
+                return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
         result = self.load_scene(doc)
         if not result["ok"]:
             return result
         if not self._history_paused and self._undo:
             self._undo[-1]["label"] = "edit script"
-        warnings = warnings + _round_trip_warnings(before, self.doc)
+        result["mode"] = "executed" if why_not else "parsed"
+        if why_not:
+            warnings = warnings + _round_trip_warnings(before, self.doc)
         if warnings:
             result["warnings"] = warnings
         return result
@@ -1239,6 +1375,118 @@ class MagpylibStudioSession:
             "redo": [e["label"] for e in self._redo],
         }
 
+    # --- variables ---------------------------------------------------------
+    def get_variables(self):
+        """The document's variables, as written and as resolved."""
+        variables = self.doc.get("variables") or {}
+        return {
+            "variables": [
+                {"name": name, "expression": value, "value": self._vars.get(name)}
+                for name, value in variables.items()
+            ]
+        }
+
+    def set_variable(self, name, value):
+        """Define or redefine a variable. `value` is a number, or an
+        expression over the other variables ("=gap*2"). Everything that
+        references it is rebuilt; a definition that cannot resolve (a typo, a
+        cycle, a value some object rejects) is reported and rolled back."""
+        if not isinstance(name, str) or not name.isidentifier():
+            return {"ok": False, "error": f"{name!r} is not a valid variable name"}
+        if name in expressions._CONSTANTS or name in expressions._FUNCTIONS:
+            return {"ok": False, "error": f"{name!r} is a built-in expression name"}
+        if not isinstance(value, int | float | str) or isinstance(value, bool):
+            return {"ok": False, "error": "a variable is a number or an expression"}
+
+        def mutate(doc):
+            doc.setdefault("variables", {})[name] = expressions.normalized(value)
+
+        return self._mutate_doc(mutate, f"set {name}")
+
+    def remove_variable(self, name):
+        """Drop a variable. Fails if anything still refers to it."""
+        if name not in (self.doc.get("variables") or {}):
+            return {"ok": False, "error": f"unknown variable {name!r}"}
+
+        def mutate(doc):
+            del doc["variables"][name]
+
+        return self._mutate_doc(mutate, f"remove {name}")
+
+    def sweep(self, variable, values, sensor_id=None, points=None, field="B"):
+        """Rebuild the scene once per value of a variable and read the field.
+
+        This is what variables are *for*: a parameter study. It costs a full
+        re-fold of the document per step, which is milliseconds — the scene is
+        rebuilt from the log on every ordinary edit anyway. Nothing is
+        recorded in the history: the document ends on the value it started on.
+        """
+        variables = self.doc.get("variables") or {}
+        if variable not in variables:
+            return {"ok": False, "error": f"unknown variable {variable!r}"}
+        if not isinstance(values, list | tuple) or not values:
+            return {"ok": False, "error": "values must be a non-empty list"}
+        original = variables[variable]
+        steps = []
+        try:
+            for value in values:
+                self.doc["variables"][variable] = value
+                self._build()
+                data = self.get_field(sensor_id=sensor_id, points=points, field=field)
+                steps.append({
+                    "value": value,
+                    "values": data["values"],
+                    "magnitude": data["magnitude"],
+                })
+        except Exception as e:  # noqa: BLE001 - a bad value is a result, not a crash
+            return {"ok": False, "error": f"{type(e).__name__}: {e}",
+                    "variable": variable, "steps": steps}
+        finally:
+            self.doc["variables"][variable] = original
+            self._build()
+        return {"ok": True, "variable": variable, "field": field,
+                "unit": "T" if field == "B" else "A/m", "steps": steps}
+
+    def get_sweep_figure(self, variable, values, sensor_id=None, points=None,
+                         field="B", component="magnitude", template=None):
+        """A sweep as a plotly line plot: the field against the variable, one
+        trace per observation point (a sensor path gives one per step)."""
+        result = self.sweep(variable, values, sensor_id, points, field)
+        if not result["ok"]:
+            raise ValueError(result["error"])
+        xs = [step["value"] for step in result["steps"]]
+        per_step = [
+            np.atleast_2d(np.array(step["values"], dtype=float).reshape(-1, 3))
+            for step in result["steps"]
+        ]
+        n_points = min(len(a) for a in per_step)
+        # one hue, light -> dark over the observation points: they are the same
+        # quantity at different places, not unrelated series
+        shades = ["#cde2fb", "#86b6ef", "#3987e5", "#1c5cab", "#0d366b"]
+        traces = []
+        for i in range(n_points):
+            column = np.array([a[i] for a in per_step])
+            y = (np.linalg.norm(column, axis=-1) if component == "magnitude"
+                 else column[:, "xyz".index(component)])
+            shade = shades[i * len(shades) // n_points] if n_points > 1 else shades[3]
+            traces.append(go.Scatter(
+                x=xs, y=y, mode="lines+markers", line={"color": shade},
+                marker={"size": 5},
+                name=f"point {i}" if n_points > 1 else f"|{field}|",
+                showlegend=n_points > 1,
+            ))
+        label = f"|{field}|" if component == "magnitude" else f"{field}{component}"
+        fig = go.Figure(traces)
+        fig.update_layout(
+            title={"text": f"{label} against {variable}"},
+            xaxis={"title": {"text": variable}},
+            yaxis={"title": {"text": f"{label} ({result['unit']})"}},
+            margin={"l": 60, "r": 20, "t": 50, "b": 50},
+        )
+        if template:
+            fig.layout.template = template
+        return json.loads(fig.to_json())
+
     # --- the event log -----------------------------------------------------
     def get_events(self):
         """The ordered transform log, as the scene's editable construction
@@ -1312,6 +1560,29 @@ class MagpylibStudioSession:
     def to_dict(self):
         return self.doc
 
+    def _duplicate_source(self, event):
+        """A duplicate event as plain runnable magpylib: there is no library
+        primitive for "N of these around an axis", so it exports as the loop
+        it means. importer.parse_script reads exactly this shape back, which
+        is what keeps the arrangement parametric across a round trip."""
+        target = event["target"]
+        count, spin = _lit(event.get("count", 1)), _lit(event.get("spin", 0))
+        axis, anchor = _lit(event.get("axis", "z")), _lit(event.get("anchor", 0))
+        body = [
+            f"for i in range(1, {count}):",
+            f"    _copy = {target}.copy()",
+            f"    _copy.rotate_from_angax(i * 360 / ({count}), {axis}, "
+            f"anchor={anchor})",
+        ]
+        if event.get("spin"):
+            body.append(
+                f"    _copy.rotate_from_angax(i * ({spin}), {axis}, anchor=None)"
+            )
+        # the copies go in the source's own group, which is why a duplicate
+        # needs one: a bare list would have to be threaded into show()
+        body.append(f"    {self._parent_id(target)}.add(_copy)")
+        return body
+
     def to_script(self):
         events = self.doc.get("events") or []
         needs_scipy = any(e.get("op") == "orientation" for e in events)
@@ -1319,14 +1590,19 @@ class MagpylibStudioSession:
         if needs_scipy:
             lines.append("from scipy.spatial.transform import Rotation as R")
         lines.append("")
+        variables = self.doc.get("variables") or {}
+        if variables:
+            # Real Python variables: the script stays parametric, and reading
+            # it back recovers them (see importer.parse_script).
+            lines += [f"{name} = {_lit(value)}" for name, value in variables.items()]
+            lines.append("")
 
         def emit(spec):
             """Emit child definitions first, then this object; return its name."""
             name = spec["id"]
             parts = [emit(c) for c in spec.get("children") or []]
             parts += [
-                f"{k}={tuple(v) if isinstance(v, list) else v!r}"
-                for k, v in spec.get("params", {}).items()
+                f"{k}={_lit(v)}" for k, v in spec.get("params", {}).items()
             ]
             if spec.get("style"):
                 parts.append(f"style={_nest(spec['style'])!r}")
@@ -1339,7 +1615,11 @@ class MagpylibStudioSession:
         # own notation, which is why editing a line of it edits an event.
         if events:
             lines.append("")
-            lines += [f"{e['target']}.{_op_source(e)}" for e in events]
+            for event in events:
+                if event.get("op") == "duplicate_around":
+                    lines += self._duplicate_source(event)
+                else:
+                    lines.append(f"{event['target']}.{_op_source(event)}")
         # Shown as loose objects, not wrapped in a Collection: the script must
         # bind exactly the objects this document holds, so importing it back
         # reproduces the same scene. A wrapper would come back as one nested

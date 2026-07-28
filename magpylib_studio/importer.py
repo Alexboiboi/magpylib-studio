@@ -11,6 +11,7 @@ imports as 10 concrete objects).
 
 from __future__ import annotations
 
+import ast
 import keyword
 import re
 
@@ -18,7 +19,7 @@ import magpylib as magpy
 import numpy as np
 from magpylib._src.display import display as _display_module
 
-from magpylib_studio import style_compat
+from magpylib_studio import expressions, style_compat
 
 # Constructor kwargs worth introspecting, tried in order per object.
 # magnetization is intentionally absent: it is derived from polarization.
@@ -165,6 +166,237 @@ def document_from_objects(objects, namespace):
         (names.get(id(obj)) or obj.style.label or "obj", obj) for obj in objects
     ]
     return _document_from_named(named, names)
+
+
+# --- reading a script back by parsing it ---------------------------------
+#
+# Executing a script tells you what it built; parsing tells you how it was
+# written. Only the latter can recover a variable or the order of a transform
+# sequence, because both are gone by the time the objects exist. So the shape
+# `to_script` emits — assignments and calls, no control flow — is parsed
+# instead, and anything outside that shape falls back to running it.
+
+_METHOD_OPS = {
+    "move": ("displacement",),
+    "rotate_from_angax": ("angle", "axis"),
+    "rotate_from_rotvec": ("rotvec",),
+}
+
+
+def _flatten_style(nested, prefix=""):
+    """{'magnetization': {'mode': 'arrow'}} -> {'magnetization.mode': 'arrow'},
+    the dotted form the document stores (inverse of session._nest)."""
+    flat = {}
+    for key, value in nested.items():
+        path = f"{prefix}{key}"
+        if isinstance(value, dict):
+            flat.update(_flatten_style(value, f"{path}."))
+        else:
+            flat[path] = value
+    return flat
+
+
+def _listify(value):
+    if isinstance(value, tuple | list):
+        return [_listify(v) for v in value]
+    return value
+
+
+def _parsed_value(node, variables):
+    """A literal becomes itself; anything mentioning a variable becomes the
+    document's `=expression` form, element-wise inside a tuple or list."""
+    if isinstance(node, ast.Tuple | ast.List):
+        return [_parsed_value(e, variables) for e in node.elts]
+    if {n.id for n in ast.walk(node) if isinstance(n, ast.Name)} & variables:
+        return expressions.PREFIX + ast.unparse(node)
+    return _listify(ast.literal_eval(node))  # ValueError if not a literal
+
+
+def _dotted_from_call(node):
+    """magpy.magnet.Cuboid(...) -> 'magnet.Cuboid'; magpy.Sensor(...) -> 'Sensor'."""
+    parts = []
+    attr = node.func
+    while isinstance(attr, ast.Attribute):
+        parts.append(attr.attr)
+        attr = attr.value
+    if not isinstance(attr, ast.Name) or attr.id != "magpy":
+        return None
+    return ".".join(reversed(parts))
+
+
+class _Unparseable(Exception):
+    """The script is not in the shape to_script emits; run it instead."""
+
+
+def _event_from_call(node, target, variables):
+    method = node.func.attr
+    if method not in _METHOD_OPS:
+        raise _Unparseable(method)
+    op = {"op": method, "target": target}
+    names = _METHOD_OPS[method]
+    if len(node.args) < len(names):
+        raise _Unparseable(method)
+    for name, arg in zip(names, node.args):
+        op[name] = _parsed_value(arg, variables)
+    for kw in node.keywords:
+        if kw.arg == "degrees":  # emitted with rotate_from_rotvec, implied
+            continue
+        if kw.arg not in ("anchor", "start"):
+            raise _Unparseable(kw.arg)
+        op[kw.arg] = _parsed_value(kw.value, variables)
+    return op
+
+
+def _duplicate_from_loop(node, objects, variables):
+    """The one loop shape the studio emits — `for i in range(1, n): copy,
+    rotate, add` — back into a duplicate event. Any other loop raises, and
+    the script goes to the execute path where it flattens into real copies."""
+    if (not isinstance(node.target, ast.Name) or node.target.id != "i"
+            or node.orelse):
+        raise _Unparseable("loop")
+    call = node.iter
+    if not (isinstance(call, ast.Call) and getattr(call.func, "id", None) == "range"
+            and len(call.args) == 2):
+        raise _Unparseable("loop range")
+    count = _parsed_value(call.args[1], variables)
+
+    source_name, spin, parent, rotations = None, 0, None, []
+    for stmt in node.body:
+        if (isinstance(stmt, ast.Assign) and isinstance(stmt.value, ast.Call)
+                and getattr(stmt.value.func, "attr", None) == "copy"):
+            source_name = stmt.value.func.value.id
+            continue
+        if not isinstance(stmt, ast.Expr) or not isinstance(stmt.value, ast.Call):
+            raise _Unparseable("loop body")
+        inner = stmt.value
+        method = getattr(inner.func, "attr", None)
+        if method == "rotate_from_angax":
+            rotations.append(inner)
+        elif method == "add":
+            parent = inner.func.value.id
+        else:
+            raise _Unparseable(method or "loop body")
+    if source_name is None or parent is None or not rotations:
+        raise _Unparseable("loop body")
+    if source_name not in objects:
+        raise _Unparseable(source_name)
+
+    # first rotation is the orbit (i * 360 / count about the anchor), an
+    # optional second is the per-copy spin (i * spin, no anchor)
+    orbit = rotations[0]
+    axis = _parsed_value(orbit.args[1], variables)
+    anchor = 0
+    for kw in orbit.keywords:
+        if kw.arg == "anchor":
+            anchor = _parsed_value(kw.value, variables)
+    if len(rotations) > 1:
+        spin_arg = rotations[1].args[0]  # i * (<spin>)
+        if not isinstance(spin_arg, ast.BinOp):
+            raise _Unparseable("spin")
+        spin = _parsed_value(spin_arg.right, variables)
+    return {"op": "duplicate_around", "target": source_name, "count": count,
+            "axis": axis, "anchor": anchor, "spin": spin}
+
+
+def parse_script(source):
+    """A script in the shape `to_script` emits -> (document, None), or
+    (None, reason) when it is anything else and has to be executed."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as e:
+        return None, f"{type(e).__name__}: {e.msg}"
+
+    variables, objects, events = {}, {}, []
+    nested = set()  # object names that became a Collection's children
+
+    def value(node):
+        return _parsed_value(node, set(variables))
+
+    try:
+        for stmt in tree.body:
+            if isinstance(stmt, ast.Import | ast.ImportFrom):
+                continue
+            if isinstance(stmt, ast.For):
+                events.append(_duplicate_from_loop(stmt, objects, set(variables)))
+                continue
+            if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+                call = stmt.value
+                if isinstance(call.func, ast.Attribute):
+                    if isinstance(call.func.value, ast.Name):
+                        owner = call.func.value.id
+                        if owner == "magpy":  # the trailing show()
+                            continue
+                        if owner not in objects:
+                            raise _Unparseable(owner)
+                        events.append(_event_from_call(call, owner, set(variables)))
+                        continue
+                raise _Unparseable(ast.unparse(stmt))
+            if not isinstance(stmt, ast.Assign) or len(stmt.targets) != 1:
+                raise _Unparseable(ast.unparse(stmt))
+            target = stmt.targets[0]
+
+            # obj.position = ... / obj.orientation = R.from_rotvec(...)
+            if isinstance(target, ast.Attribute):
+                if not isinstance(target.value, ast.Name):
+                    raise _Unparseable(ast.unparse(stmt))
+                owner = target.value.id
+                if (owner not in objects
+                        or target.attr not in ("position", "orientation")):
+                    raise _Unparseable(ast.unparse(stmt))
+                if target.attr == "position":
+                    events.append({"op": "position", "target": owner,
+                                   "value": value(stmt.value)})
+                else:
+                    call = stmt.value
+                    if not (isinstance(call, ast.Call)
+                            and getattr(call.func, "attr", None) == "from_rotvec"):
+                        raise _Unparseable(ast.unparse(stmt))
+                    events.append({"op": "orientation", "target": owner,
+                                   "rotvec": value(call.args[0])})
+                continue
+
+            if not isinstance(target, ast.Name):
+                raise _Unparseable(ast.unparse(stmt))
+            name = target.id
+
+            # name = magpy.Type(...) — an object; otherwise a variable
+            if isinstance(stmt.value, ast.Call) and _dotted_from_call(stmt.value):
+                dotted = _dotted_from_call(stmt.value)
+                spec = {"id": name, "type": dotted, "params": {}, "style": {}}
+                for arg in stmt.value.args:  # positional args are children
+                    if not isinstance(arg, ast.Name) or arg.id not in objects:
+                        raise _Unparseable(ast.unparse(stmt))
+                    spec.setdefault("children", []).append(objects[arg.id])
+                    nested.add(arg.id)
+                for kw in stmt.value.keywords:
+                    if kw.arg == "style":
+                        spec["style"] = _flatten_style(ast.literal_eval(kw.value))
+                    else:
+                        spec["params"][kw.arg] = value(kw.value)
+                if dotted == "Collection":
+                    spec.setdefault("children", [])
+                # keep documents minimal, so a parsed scene is byte-identical
+                # to the one that rendered the script
+                objects[name] = {k: v for k, v in spec.items() if v != {}}
+            else:
+                variables[name] = value(stmt.value)
+    except (_Unparseable, ValueError, AttributeError, IndexError) as e:
+        return None, f"not in the studio's own script shape ({e})"
+
+    log = []
+    for i, event in enumerate(events):
+        event = dict(event)
+        target = event.pop("target")
+        log.append({"id": f"e{i + 1}", "target": target, **event})
+    doc = {
+        "objects": [s for n, s in objects.items() if n not in nested],
+        "events": log,
+    }
+    if variables:
+        doc["variables"] = variables
+    if not doc["objects"]:
+        return None, "no magpylib objects"
+    return doc, None
 
 
 def _show_patch_targets():

@@ -78,8 +78,37 @@ and drives it.
   re-running is expensive. Events that cannot replay (unknown target, bad
   axis) roll back through `_mutate_doc` and are reported. `remove_object`
   drops its subtree's events, `copy_object` clones them onto the new ids.
-  **Not yet:** any UI for it, and **variables/parameterized events** — the
-  other half of the ANSYS model, still open (see Next steps).
+  **Not yet:** any dedicated UI for it (the script tab is the editor).
+- **Variables + expressions** (`magpylib_studio/expressions.py`):
+  `doc["variables"]` holds numbers or expressions over each other, and any
+  value in a param or event field may be one. The rule is spreadsheet-style:
+  a string starting with `=` is an expression, anything else is a literal —
+  so `"z"` stays an axis name and `"=360/n"` is arithmetic, with no per-field
+  whitelist. Evaluated from the AST against an allow-list (arithmetic, a
+  handful of math functions, `pi`/`e`/`tau`), never `eval` — a document is
+  something you open from someone else. Expressions are stored in canonical
+  spacing so the script tab is a fixed point from the first save. API:
+  `get_variables`, `set_variable`, `remove_variable`; a definition that
+  cycles, is unknown, or that some object rejects rolls back.
+  `to_script` emits them as real Python assignments, so the exported script
+  is parametric too.
+- **Sweeps**: `sweep(variable, values, sensor_id?/points?, field?)` re-folds
+  the document once per value and reads the field; `get_sweep_figure(...)`
+  plots it (one hue light→dark over observation points — same quantity in
+  different places, not unrelated series). Nothing is recorded in history and
+  the document ends on the value it started on. This is what variables are
+  *for*, and it is only affordable because a rebuild is milliseconds.
+- **Generator events** — `duplicate_around(object_id, count, axis?, anchor?,
+  spin?)` records ONE event standing for N copies evenly spaced about an
+  axis, each optionally spun by `spin`×index (a Halbach ring is
+  `spin = 360/count`). `count` and `spin` may be expressions, so the whole
+  arrangement is one number to edit. The copies are generated at build time,
+  registered in `_objs` (so they are real field sources and real geometry)
+  and reported by `list_objects` with a `derived` key naming their source —
+  they have no spec, so they are not individually editable. The source must
+  sit in a Collection: that is where the copies go, and it is what lets the
+  event export as plain runnable magpylib (`for i in range(1, n): …copy()…`)
+  — a loop shape `parse_script` reads straight back into the event.
 - **Field maps**: `get_field_map(plane?, offset?, component?, log?, sensor_id?)`
   — plotly heatmap on a plane. Colour by job (dataviz skill): sequential
   one-hue blue for magnitude, diverging blue↔grey↔red with `zmid=0` for signed
@@ -157,9 +186,16 @@ and drives it.
     dirty or while it holds text the engine rejected. `to_script` deliberately
     emits no wrapper Collection (`magpy.show(a, b, …)`), and the importer names
     nested children from script variables, so script → doc → script is an
-    identity on ids and structure; what it cannot carry (transform sequences
-    collapse to their result, group transforms bake into children) comes back
-    as warnings.
+    identity on ids and structure. **Two ways in, reported as `mode`:**
+    *parsed* — the file is still in the shape `to_script` emits, so
+    `importer.parse_script` reads it as source: variables, event order and
+    group transforms all survive, literals keep the form they were written
+    in, and the whole document round-trips byte-identically (verified on the
+    24-object example). *executed* — anything else (a loop, a helper, numpy)
+    is run and introspected, which cannot see how the scene was written, so
+    it warns about what it flattened. The script tab is therefore also the
+    **only UI variables and duplicate events have**: you write them as
+    Python, save, and they land in the document.
   - Python resolution: `magpylib-studio.pythonPath` setting → workspace/.venv →
     repo-root/.venv → `python3`. Engine stderr → output channel.
   - Verified via `node` smoke test driving compiled `EngineClient` against the
@@ -235,21 +271,24 @@ test skips via `supports_property_paths()`).
 
 ## Next steps (pick one)
 
-- **Decide what the event log is for** (branch `event-log-prototype`). The
-  ordered log exists and is editable; two things are still open, and the
-  first blocks the second:
-  1. *Is the document or the script canonical?* The script is now literally
-     the log's own notation (definitions, then the ops in order), so "edit a
-     past event" and "edit a line and re-run" are the same gesture — which
-     asks whether an events UI is worth building at all, or whether the
-     script tab already is that UI.
-  2. *Variables* — `doc["variables"]` plus expression-valued params/event
-     fields, so events are parameterizable the way ANSYS design variables
-     are. Only worth it if the goal is sweeps/optimisation rather than
-     interactive tweaking; that answer decides whether values need units.
-  Not started: reordering/removing events from the UI, invalidation
-  reporting beyond the rollback, and creation/deletion as events (today only
-  transforms are logged; objects are still declarative).
+- **Give the parametric engine a UI** (branch `parametric-scene`). The
+  engine has variables, sweeps and generator events; the extension has no
+  widgets for any of them, and reaches them only through the script tab.
+  Worth adding, roughly in value order: a **variables panel** (name/value
+  rows, editing one re-renders the scene), a **sweep view** (pick variable +
+  range → `get_sweep_figure` in the Field panel), and **Duplicate Around…**
+  on the tree context menu. LM tools for the same three would let Copilot
+  build parametric scenes.
+- **Units are still absent, deliberately** — everything is bare SI, as
+  magpylib wants. If ANSYS-style `5mm` values are ever wanted, that is a
+  layer over `expressions.py`, and it needs deciding before variables get
+  used widely enough that migrating them hurts.
+- **Not events yet**: creation, deletion and reparenting still mutate the
+  document directly; only transforms and duplicates are logged. Making them
+  events would let the whole scene be reconstructed from the log alone, but
+  nothing needs it yet.
+- **Optimisation** on top of `sweep()` (find the gap that flattens the field)
+  is a small step now that a rebuild-and-measure loop exists.
 - **Try it live**: open `vscode-extension/` in VS Code, F5, run
   "Magpylib Studio: Open Scene View"; in Copilot chat try `make the cube green
   #magpyEdit` or `add a green sphere at [0,2,0] #magpyAdd`.

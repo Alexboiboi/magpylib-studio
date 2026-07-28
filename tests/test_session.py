@@ -181,7 +181,7 @@ def test_reset_style(session):
     assert session._objs["cube"].style.opacity == 0.5  # others untouched
     assert session.reset_style("cube", "color")["ok"] is False  # not set anymore
     assert session.reset_style("cube") == {"ok": True}  # clear all
-    assert session._spec("cube")["style"] == {}
+    assert session._spec("cube").get("style", {}) == {}  # pruned when empty
     assert session._objs["cube"].style.opacity is None
 
 
@@ -902,32 +902,68 @@ def test_load_script_errors(tmp_path):
     assert s.list_objects() == []  # scene untouched by failed imports
 
 
-def test_apply_script_is_an_identity_on_the_scene_it_renders(tmp_path):
-    """The editable script tab: what to_script() writes, apply_script() reads
-    back unchanged — ids, nesting and geometry alike."""
-    import numpy as np
-
+def test_apply_script_parses_its_own_shape_losslessly(tmp_path):
+    """The editable script tab. Reading the script as *source* rather than
+    running it makes the round trip an identity on the whole document — the
+    event log included, which executing it could never recover."""
     s = MagpylibStudioSession()
     s.load_example()
-    before_ids = [(o["id"], o["type"], o["parent"]) for o in s.list_objects()]
-    before_field = np.array(s.get_field("sensor")["values"])
+    before = json.dumps(s.to_dict())
     path = tmp_path / "scene.py"
     path.write_text(s.to_script(), encoding="utf-8")
 
     res = s.apply_script(str(path))
-    assert res["ok"] is True, res
-    assert [(o["id"], o["type"], o["parent"]) for o in s.list_objects()] == before_ids
-    assert np.allclose(np.array(s.get_field("sensor")["values"]), before_field)
-    # what the round trip cannot carry is reported, not hidden
-    assert any("collapsed" in w for w in res["warnings"])
-    assert any("baked into the children" in w for w in res["warnings"])
+    assert res["ok"] is True and res["mode"] == "parsed"
+    assert "warnings" not in res  # nothing was lost, so there is nothing to say
+    assert json.dumps(s.to_dict()) == before
+    assert s.to_script() == path.read_text(encoding="utf-8")  # a fixed point
 
-    # and the rendering is a fixed point: saving the tab again is a no-op,
-    # so the editor is never churned by re-rendered text (negative zero!)
-    once = s.to_script()
-    path.write_text(once, encoding="utf-8")
-    assert s.apply_script(str(path)) == {"ok": True}  # nothing left to warn about
-    assert s.to_script() == once
+
+def test_apply_script_runs_what_it_cannot_parse(tmp_path):
+    """A script with real Python in it still imports — by execution, which
+    sees only the objects, so the flattening is reported."""
+    import numpy as np
+
+    s = MagpylibStudioSession()
+    path = tmp_path / "loop.py"
+    path.write_text(
+        "import magpylib as magpy\n"
+        "ring = magpy.Collection()\n"
+        "for i in range(4):\n"
+        "    m = magpy.magnet.Cuboid(polarization=(1, 0, 0), dimension=(1, 1, 1),\n"
+        "                            position=(2, 0, 0))\n"
+        "    m.rotate_from_angax(90 * i, 'z', anchor=0)\n"
+        "    ring.add(m)\n"
+        "magpy.show(ring, backend='plotly')\n",
+        encoding="utf-8",
+    )
+    res = s.apply_script(str(path))
+    assert res["ok"] is True and res["mode"] == "executed"
+    # the loop flattened into four concrete magnets, geometry intact
+    assert len(s.list_objects()) == 5  # the collection plus its four magnets
+    assert np.allclose(s._objs["ring"].children[1].position, [0, 2, 0])
+
+
+def test_apply_script_keeps_variables_through_the_round_trip(tmp_path):
+    s = MagpylibStudioSession(make_scene())
+    assert s.set_variable("gap", 0.75) == {"ok": True}
+    assert s.set_variable("twice", "=gap*2") == {"ok": True}
+    assert s.set_param("cube", "position", [0, 0, "=twice"]) == {"ok": True}
+    assert list(s._objs["cube"].position) == [0, 0, 1.5]
+
+    path = tmp_path / "scene.py"
+    script = s.to_script()
+    assert "gap = 0.75" in script and "twice = gap * 2" in script
+    assert "position=(0, 0, twice)" in script  # parametric, not resolved away
+    path.write_text(script, encoding="utf-8")
+
+    res = s.apply_script(str(path))
+    assert res["mode"] == "parsed"
+    assert s.doc["variables"] == {"gap": 0.75, "twice": "=gap * 2"}
+    assert s._spec("cube")["params"]["position"] == [0, 0, "=twice"]
+    # and the variable still drives the scene after the round trip
+    assert s.set_variable("gap", 1.0) == {"ok": True}
+    assert list(s._objs["cube"].position) == [0, 0, 2.0]
 
 
 def test_apply_script_applies_edits_as_one_undo_step(tmp_path):
@@ -937,7 +973,7 @@ def test_apply_script_applies_edits_as_one_undo_step(tmp_path):
         s.to_script().replace("dimension=(1, 1, 1)", "dimension=(2, 2, 2)"),
         encoding="utf-8",
     )
-    assert s.apply_script(str(path)) == {"ok": True}
+    assert s.apply_script(str(path))["ok"] is True
     assert s._spec("cube")["params"]["dimension"] == [2.0, 2.0, 2.0]
     assert s.get_history()["undo"][-1] == "edit script"
     assert s.undo() == {"ok": True}
@@ -1047,6 +1083,118 @@ def test_copying_an_object_copies_its_events():
     # the copy replays the same construction, so it lands on the original
     assert np.allclose(s._objs[res["id"]].position, s._objs["cube"].position)
     assert len(s.get_events()["events"]) == 4
+
+
+def test_expressions_are_evaluated_not_executed():
+    """A document is something you open from someone else: an expression is
+    arithmetic over the variables, never a way to run code."""
+    from magpylib_studio import expressions
+
+    lookup = {"a": 3.0, "b": 4.0}.__getitem__
+    assert expressions.evaluate("a * b + 1", lookup) == 13.0
+    assert expressions.evaluate("hypot(a, b)", lookup) == 5.0
+    assert expressions.evaluate("round(degrees(pi))", lookup) == 180
+    assert expressions.evaluate("[0, 0, a]", lookup) == [0, 0, 3.0]
+    for hostile in (
+        "__import__('os').system('true')",
+        "a.__class__",
+        "open('/etc/passwd')",
+        "(lambda: 1)()",
+        "[x for x in (1, 2)]",
+    ):
+        with pytest.raises(ValueError):
+            expressions.evaluate(hostile, lookup)
+
+
+def test_variables_drive_the_scene():
+    s = MagpylibStudioSession()
+    assert s.set_variable("gap", 2.0) == {"ok": True}
+    assert s.set_variable("twice", "=gap * 2") == {"ok": True}
+    s.add_object("m", "magnet.Sphere",
+                 {"polarization": [0, 0, 1], "diameter": 1,
+                  "position": [0, 0, "=twice"]})
+    assert list(s._objs["m"].position) == [0, 0, 4.0]
+    assert s.set_variable("gap", 3.0) == {"ok": True}
+    assert list(s._objs["m"].position) == [0, 0, 6.0]
+
+    assert [v["value"] for v in s.get_variables()["variables"]] == [3.0, 6.0]
+    assert s.set_variable("twice", "=twice + 1")["ok"] is False  # self-reference
+    assert s.set_variable("pi", 3)["ok"] is False  # built-in name
+    assert s.remove_variable("nope")["ok"] is False
+    # removing a variable something still uses is rejected, scene untouched
+    assert s.remove_variable("twice")["ok"] is False
+    assert list(s._objs["m"].position) == [0, 0, 6.0]
+
+
+def test_sweep_reads_the_field_and_leaves_the_scene_where_it_found_it():
+    import numpy as np
+
+    s = MagpylibStudioSession()
+    s.set_variable("gap", 0.01)
+    s.add_object("m", "magnet.Cuboid",
+                 {"polarization": [0, 0, 1], "dimension": [0.01, 0.01, 0.01]})
+    s.add_object("sens", "Sensor", {"position": [0, 0, "=gap"]})
+    steps_before = len(s.get_history()["undo"])
+
+    res = s.sweep("gap", [0.01, 0.02, 0.04])
+    assert res["ok"] is True and len(res["steps"]) == 3
+    field = [step["magnitude"][0] for step in res["steps"]]
+    assert field[0] > field[1] > field[2]  # falls off with distance
+    assert np.isclose(field[1] / field[2], 8, rtol=0.15)  # ~1/r³ per doubling
+
+    assert s.doc["variables"]["gap"] == 0.01  # restored
+    assert list(s._objs["sens"].position) == [0, 0, 0.01]
+    assert len(s.get_history()["undo"]) == steps_before  # not an edit
+    assert s.sweep("nope", [1])["ok"] is False
+
+    fig = s.get_sweep_figure("gap", [0.01, 0.02])
+    assert fig["data"][0]["x"] == [0.01, 0.02]
+    assert "gap" in fig["layout"]["title"]["text"]
+
+
+def test_duplicate_around_keeps_an_arrangement_parametric(tmp_path):
+    import numpy as np
+
+    s = MagpylibStudioSession()
+    s.set_variable("n", 8)
+    s.add_object("ring", "Collection")
+    s.add_object("m", "magnet.Cuboid",
+                 {"polarization": [1, 0, 0], "dimension": [1, 1, 1],
+                  "position": [2.3, 0, 0]}, parent="ring")
+    assert s.duplicate_around("m", "=n", "z", anchor=[0, 0, 0],
+                              spin="=360/n") == {"ok": True}
+
+    # one object and one event stand for the whole ring
+    assert len(s._spec("ring")["children"]) == 1
+    assert len(s._leaf_sources()) == 8
+    listed = s.list_objects()
+    assert [o["id"] for o in listed if o.get("derived")] == [f"m#{i}" for i in range(1, 8)]
+    third = s._objs["m#2"]
+    a = np.deg2rad(2 * 360 / 8)
+    assert np.allclose(third.position, [2.3 * np.cos(a), 2.3 * np.sin(a), 0])
+
+    # the count is a number, not twenty objects to keep in step
+    assert s.set_variable("n", 12) == {"ok": True}
+    assert len(s._leaf_sources()) == 12
+
+    # and it survives the script, as plain runnable magpylib
+    path = tmp_path / "ring.py"
+    before = json.dumps(s.to_dict())
+    script = s.to_script()
+    assert "for i in range(1, n):" in script and ".copy()" in script
+    path.write_text(script, encoding="utf-8")
+    res = s.apply_script(str(path))
+    assert res["mode"] == "parsed"
+    assert json.dumps(s.to_dict()) == before
+    ns = exec_script(script)  # the loop is real magpylib, runnable outside
+    assert len(ns["ring"].children) == 12
+
+
+def test_duplicate_around_needs_a_group():
+    s = MagpylibStudioSession(make_scene())
+    res = s.duplicate_around("cube", 4)
+    assert res["ok"] is False and "Collection" in res["error"]
+    assert len(s._leaf_sources()) == 2
 
 
 def test_jsonrpc_roundtrip():
