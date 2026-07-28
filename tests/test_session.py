@@ -51,6 +51,17 @@ def make_scene():
     return json.loads(json.dumps(TEST_SCENE))
 
 
+def exec_script(script):
+    """Run a generated script without its final show(), return its namespace
+    (which is also what apply_script imports the scene back from)."""
+    body = "\n".join(
+        line for line in script.splitlines() if not line.startswith("magpy.show(")
+    )
+    ns = {}
+    exec(body, ns)  # noqa: S102 - executing the generated script is the test
+    return ns
+
+
 @pytest.fixture
 def session():
     return MagpylibStudioSession(make_scene())
@@ -112,8 +123,7 @@ def test_to_script_is_valid_magpylib_code(session):
     assert "import magpylib as magpy" in script
     assert "magpy.magnet.Cuboid(" in script
     # the generated script executes and reproduces the styled scene
-    ns = {}
-    exec(script.replace("scene.show(backend='plotly')", ""), ns)  # noqa: S102
+    ns = exec_script(script)
     assert ns["cube"].style.magnetization.mode == "arrow"
 
 
@@ -159,8 +169,7 @@ def test_set_param_moves_object_and_syncs_doc(session):
 
 def test_set_param_survives_round_trip(session):
     session.set_param("cube", "position", [1, 2, 3])
-    ns = {}
-    exec(session.to_script().replace("scene.show(backend='plotly')", ""), ns)  # noqa: S102
+    ns = exec_script(session.to_script())
     assert list(ns["cube"].position) == [1, 2, 3]
 
 
@@ -200,7 +209,9 @@ def test_default_scene_is_empty_and_renders():
     fig = s.get_figure()
     assert fig["data"] == []
     json.dumps(fig)
-    assert "magpy.Collection()" in s.to_script()
+    script = s.to_script()
+    assert "# empty scene" in script  # nothing to show(), and it still executes
+    exec_script(script)
 
 
 def test_load_example():
@@ -216,8 +227,7 @@ def test_load_example():
     assert parents["sensor"] is None
     assert len(s.get_figure()["data"]) > 0
     # the example round-trips through the generated script
-    ns = {}
-    exec(s.to_script().replace("scene.show(backend='plotly')", ""), ns)  # noqa: S102
+    ns = exec_script(s.to_script())
     assert ns["sensor"].position.shape == (25, 3)  # path along the bore axis
     assert len(ns["halbach"].children) == 2
     assert len(ns["ring1"].children) == 10
@@ -279,8 +289,7 @@ def test_transform_paths(session):
     assert len(obj.position) == 5 and len(obj.orientation) == 5
 
     # both paths survive export
-    ns = {}
-    exec(session.to_script().replace("scene.show(backend='plotly')", ""), ns)  # noqa: S102
+    ns = exec_script(session.to_script())
     assert np.allclose(ns["cube"].position, obj.position)
     assert np.allclose(ns["cube"].orientation.as_matrix(), obj.orientation.as_matrix())
 
@@ -404,8 +413,7 @@ def test_collection_transforms_carry_children():
     assert s.move("halbach", [10, 0, 0]) == {"ok": True}
     assert np.allclose(s._objs["r1m01"].position, [10, 2.3, 5])
 
-    ns = {}
-    exec(s.to_script().replace("scene.show(backend='plotly')", ""), ns)  # noqa: S102
+    ns = exec_script(s.to_script())
     assert np.allclose(ns["r1m01"].position, s._objs["r1m01"].position)
     json.dumps(s.to_dict())  # recorded ops stay JSON-safe
 
@@ -458,8 +466,7 @@ def test_move_preserves_world_pose():
     sensor_path = np.array(s._objs["sensor"].position)
     s.move_object("sensor", "ring2")
     assert np.allclose(s._objs["sensor"].position, sensor_path)
-    ns = {}
-    exec(s.to_script().replace("scene.show(backend='plotly')", ""), ns)  # noqa: S102
+    ns = exec_script(s.to_script())
     assert np.allclose(ns["sensor"].position, sensor_path)
 
     # the group rotation still applies to the ring as a whole afterwards
@@ -632,8 +639,7 @@ def test_rotations_build_and_round_trip():
     s = MagpylibStudioSession(json.loads(json.dumps(doc)))
     assert s._objs["m"].position.round(6).tolist() == [0, 2.3, 0]  # orbited 90°
     # generated script replays the rotations: same position, 180° total spin
-    ns = {}
-    exec(s.to_script().replace("scene.show(backend='plotly')", ""), ns)  # noqa: S102
+    ns = exec_script(s.to_script())
     assert ns["m"].position.round(6).tolist() == [0, 2.3, 0]
     zrot = ns["m"].orientation.as_euler("xyz", degrees=True)[2]
     assert abs(round(abs(zrot), 3)) == 180
@@ -803,8 +809,7 @@ def test_load_script_captures_show_call(tmp_path):
     # each import is one undoable step; scene renders; script round-trips
     assert [h.startswith("import ") for h in s.get_history()["undo"]] == [True, True]
     assert len(s.get_figure()["data"]) > 0
-    ns = {}
-    exec(s.to_script().replace("scene.show(backend='plotly')", ""), ns)  # noqa: S102
+    ns = exec_script(s.to_script())
     assert np.allclose(ns["halbach"].children[2].position, m.position)
 
     assert s.load_captured(5)["ok"] is False  # out of range
@@ -836,8 +841,7 @@ rotor.rotate_from_angax(np.linspace(0, 270, 10), 'z', anchor=0)
     assert np.allclose(rotor.position, orig.position)
     assert np.allclose(rotor.orientation.as_matrix(), orig.orientation.as_matrix())
     # and the generated script reproduces it
-    ns = {}
-    exec(s.to_script().replace("scene.show(backend='plotly')", ""), ns)  # noqa: S102
+    ns = exec_script(s.to_script())
     assert np.allclose(ns["rotor"].orientation.as_matrix(), orig.orientation.as_matrix())
 
 
@@ -861,8 +865,7 @@ fading = magpy.magnet.Sphere(polarization=[[0, 0, 1], [0, 0, 0.5], [0, 0, 0.1]],
     assert s.load_script(str(path))["ok"] is True
     assert np.array(s._objs["pulsed"].current).tolist() == [100, 200, 300]
     assert np.array(s._objs["fading"].polarization).shape == (3, 3)
-    ns = {}
-    exec(s.to_script().replace("scene.show(backend='plotly')", ""), ns)  # noqa: S102
+    ns = exec_script(s.to_script())
     assert np.array(ns["fading"].polarization).shape == (3, 3)
 
 
@@ -897,6 +900,61 @@ def test_load_script_errors(tmp_path):
     assert res["ok"] is False and "no magpylib objects" in res["error"]
     assert s.load_script(str(tmp_path / "missing.py"))["ok"] is False
     assert s.list_objects() == []  # scene untouched by failed imports
+
+
+def test_apply_script_is_an_identity_on_the_scene_it_renders(tmp_path):
+    """The editable script tab: what to_script() writes, apply_script() reads
+    back unchanged — ids, nesting and geometry alike."""
+    import numpy as np
+
+    s = MagpylibStudioSession()
+    s.load_example()
+    before_ids = [(o["id"], o["type"], o["parent"]) for o in s.list_objects()]
+    before_field = np.array(s.get_field("sensor")["values"])
+    path = tmp_path / "scene.py"
+    path.write_text(s.to_script(), encoding="utf-8")
+
+    res = s.apply_script(str(path))
+    assert res["ok"] is True, res
+    assert [(o["id"], o["type"], o["parent"]) for o in s.list_objects()] == before_ids
+    assert np.allclose(np.array(s.get_field("sensor")["values"]), before_field)
+    # what the round trip cannot carry is reported, not hidden
+    assert any("collapsed" in w for w in res["warnings"])
+    assert any("baked into the children" in w for w in res["warnings"])
+
+    # and the rendering is a fixed point: saving the tab again is a no-op,
+    # so the editor is never churned by re-rendered text (negative zero!)
+    once = s.to_script()
+    path.write_text(once, encoding="utf-8")
+    assert s.apply_script(str(path)) == {"ok": True}  # nothing left to warn about
+    assert s.to_script() == once
+
+
+def test_apply_script_applies_edits_as_one_undo_step(tmp_path):
+    s = MagpylibStudioSession(make_scene())
+    path = tmp_path / "scene.py"
+    path.write_text(
+        s.to_script().replace("dimension=(1, 1, 1)", "dimension=(2, 2, 2)"),
+        encoding="utf-8",
+    )
+    assert s.apply_script(str(path)) == {"ok": True}
+    assert s._spec("cube")["params"]["dimension"] == [2.0, 2.0, 2.0]
+    assert s.get_history()["undo"][-1] == "edit script"
+    assert s.undo() == {"ok": True}
+    assert s._spec("cube")["params"]["dimension"] == [1, 1, 1]
+
+
+def test_apply_script_errors_leave_the_scene_alone(tmp_path):
+    s = MagpylibStudioSession(make_scene())
+    bad = tmp_path / "bad.py"
+    bad.write_text("import magpylib as magpy\nthis is not python\n", encoding="utf-8")
+    assert s.apply_script(str(bad))["ok"] is False
+    empty = tmp_path / "empty.py"
+    empty.write_text("x = 1\n", encoding="utf-8")
+    res = s.apply_script(str(empty))
+    # emptying the script is a failure, not a silent wipe of the scene
+    assert res["ok"] is False and "no magpylib objects" in res["error"]
+    assert [o["id"] for o in s.list_objects()] == ["cube", "cyl"]
 
 
 def test_jsonrpc_roundtrip():

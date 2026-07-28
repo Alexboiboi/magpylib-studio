@@ -40,7 +40,7 @@
       },
       {
         "command": "magpylib-studio.viewScript",
-        "title": "Magpylib Studio: View Python Script",
+        "title": "Magpylib Studio: Edit Python Script",
         "icon": "$(code)"
       },
       {

@@ -2,7 +2,8 @@
 
 The script is executed in this process (same trust as the user running it),
 `show()` patched to a no-op; the magpylib objects left in the namespace are
-then introspected into a studio document: variable names become ids,
+then introspected into a studio document: variable names become ids (nested
+children included, whenever the script binds them to a name of their own),
 Collections keep their nesting, orientation becomes a `rotations` entry.
 The known cost: parametric structure flattens (a loop building 10 magnets
 imports as 10 concrete objects).
@@ -48,8 +49,15 @@ def _is_scene_object(obj):
     return isinstance(obj, magpy.Collection) or _dotted_type(obj) is not None
 
 
+def _zeroed(array):
+    """+0.0 turns IEEE negative zero back into plain zero. Without it a scene
+    re-rendered as a script flip-flops between `0.0` and `-0.0` on every
+    round trip — the tiny residue of a rotation, rounded, keeps its sign."""
+    return array + 0.0 if array.dtype.kind == "f" else array
+
+
 def _tolist(value):
-    return value.tolist() if isinstance(value, np.ndarray) else value
+    return _zeroed(value).tolist() if isinstance(value, np.ndarray) else value
 
 
 def _unique_id(base, used):
@@ -64,11 +72,13 @@ def _unique_id(base, used):
     return candidate
 
 
-def _spec_from(obj, object_id, used_ids, warnings):
+def _spec_from(obj, object_id, used_ids, warnings, names):
     if isinstance(obj, magpy.Collection):
         spec = {"id": object_id, "type": "Collection", "children": [
-            _spec_from(child, _unique_id(child.style.label or "obj", used_ids),
-                       used_ids, warnings)
+            _spec_from(child,
+                       _unique_id(names.get(id(child)) or child.style.label or "obj",
+                                  used_ids),
+                       used_ids, warnings, names)
             for child in obj.children
         ]}
     else:
@@ -86,14 +96,14 @@ def _spec_from(obj, object_id, used_ids, warnings):
             # orientation path: reproduced exactly, elementwise over the path
             if np.linalg.norm(rotvec) > 1e-9:
                 spec["rotations"] = [
-                    {"rotvec": rotvec.round(6).tolist(), "start": 0}
+                    {"rotvec": _zeroed(rotvec.round(6)).tolist(), "start": 0}
                 ]
         else:
             angle = float(np.linalg.norm(rotvec[0]))
             if angle > 1e-9:
                 spec["rotations"] = [
                     {"angle": round(angle, 6),
-                     "axis": (rotvec[0] / angle).round(9).tolist()}
+                     "axis": _zeroed((rotvec[0] / angle).round(9)).tolist()}
                 ]
     style = style_compat.set_values(obj)
     if style:
@@ -101,8 +111,10 @@ def _spec_from(obj, object_id, used_ids, warnings):
     return spec
 
 
-def _document_from_named(named):
-    """[(name, obj), ...] -> (document, warnings)."""
+def _document_from_named(named, names):
+    """[(name, obj), ...] -> (document, warnings). `names` maps id(obj) -> the
+    script's variable name, so nested children keep their script identity too
+    (a Collection's children are not in `named`, only reachable through it)."""
     # Objects reachable inside a listed Collection are emitted there, not twice.
     contained = set()
     for _, obj in named:
@@ -120,7 +132,7 @@ def _document_from_named(named):
         raise ValueError("script produced no magpylib objects")
     used_ids, warnings = set(), []
     objects = [
-        _spec_from(obj, _unique_id(name, used_ids), used_ids, warnings)
+        _spec_from(obj, _unique_id(name, used_ids), used_ids, warnings, names)
         for name, obj in unique_top
     ]
     return {"objects": objects}, warnings
@@ -142,7 +154,7 @@ def document_from_namespace(namespace):
         for name, obj in namespace.items()
         if not name.startswith("_") and _is_scene_object(obj)
     ]
-    return _document_from_named(named)
+    return _document_from_named(named, _name_map(namespace))
 
 
 def document_from_objects(objects, namespace):
@@ -152,7 +164,7 @@ def document_from_objects(objects, namespace):
     named = [
         (names.get(id(obj)) or obj.style.label or "obj", obj) for obj in objects
     ]
-    return _document_from_named(named)
+    return _document_from_named(named, names)
 
 
 def _show_patch_targets():

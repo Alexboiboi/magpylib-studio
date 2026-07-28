@@ -30,6 +30,7 @@ Protocol surface (all JSON-serializable in/out):
   load_scene(scene | path)             -> {"ok": bool, "error"?: str}
   load_script(path, scene?)            -> {"ok", "scene", "scenes": [labels], ...}
   load_captured(scene)                 -> same (switch between captured scenes)
+  apply_script(path)                   -> {"ok", "warnings"?} (edited to_script back in)
   load_example()                       -> {"ok": bool, "error"?: str}
   clear_scene()                        -> {"ok": bool, "error"?: str}
   batch(operations)                    -> {"ok": bool, "results": [...]} (1 undo step)
@@ -177,6 +178,45 @@ def _spec_ops(spec):
         kind = "rotate_from_rotvec" if "rotvec" in rot else "rotate_from_angax"
         ops.append({"op": kind, **rot})
     return ops + list(spec.get("transforms", []))
+
+
+def _walk_specs(specs):
+    """Depth-first over a plain document's specs (no session needed)."""
+    for spec in specs:
+        yield spec
+        yield from _walk_specs(spec.get("children") or [])
+
+
+def _id_list(ids, limit=5):
+    head = ", ".join(ids[:limit])
+    return head if len(ids) <= limit else f"{head} (+{len(ids) - limit} more)"
+
+
+def _round_trip_warnings(before, after):
+    """What re-importing a script changed beyond the edit the user made.
+
+    Only the deterministic losses are reported: a diff of ids or parameters
+    would just be describing the user's own edit back at them. A script states
+    each object's final pose, so recorded transform sequences come back as the
+    single equivalent transform, and a group transform comes back distributed
+    over the children it moved.
+    """
+    old = {s["id"]: s for s in _walk_specs(before["objects"])}
+    new = {s["id"]: s for s in _walk_specs(after["objects"])}
+    collapsed, ungrouped = [], []
+    for oid, spec in old.items():
+        if oid not in new or len(_spec_ops(spec)) <= len(_spec_ops(new[oid])):
+            continue
+        bucket = ungrouped if spec.get("type") == "Collection" else collapsed
+        bucket.append(oid)
+    warnings = []
+    if collapsed:
+        warnings.append("transform steps collapsed into one equivalent "
+                        f"transform: {_id_list(collapsed)}")
+    if ungrouped:
+        warnings.append("group transforms are now baked into the children they "
+                        f"moved: {_id_list(ungrouped)}")
+    return warnings
 
 
 def _replay(obj, ops):
@@ -1028,6 +1068,36 @@ class MagpylibStudioSession:
                 result["warnings"] = entry["warnings"]
         return result
 
+    def apply_script(self, path):
+        """Replace the document with the scene an edited `to_script()` output
+        describes, by EXECUTING it (same trust as load_script).
+
+        Unlike load_script this takes every object the script leaves bound —
+        the script is this document's own rendering, so its variables *are*
+        the scene, and no show() call has to be guessed at. What the round
+        trip cannot carry is reported in "warnings": the script states each
+        object's final pose, so a recorded sequence of transforms comes back
+        as the single equivalent one, and a group transform comes back baked
+        into the children it moved. Geometry is preserved; edit history is not.
+        """
+        from magpylib_studio import importer
+
+        before = json.loads(json.dumps(self.doc))
+        try:
+            namespace, _ = importer.run_script(path)
+            doc, warnings = importer.document_from_namespace(namespace)
+        except Exception as e:  # noqa: BLE001 - report script errors, don't crash
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        result = self.load_scene(doc)
+        if not result["ok"]:
+            return result
+        if not self._history_paused and self._undo:
+            self._undo[-1]["label"] = "edit script"
+        warnings = warnings + _round_trip_warnings(before, self.doc)
+        if warnings:
+            result["warnings"] = warnings
+        return result
+
     def load_example(self):
         """Load the built-in example scene (Halbach ring, coil pair, sensor)."""
         result = self.load_scene(example_scene())
@@ -1154,6 +1224,10 @@ class MagpylibStudioSession:
             return name
 
         names = [emit(s) for s in self.doc["objects"]]
-        lines += ["", f"scene = magpy.Collection({', '.join(names)})",
-                  "scene.show(backend='plotly')"]
+        # Shown as loose objects, not wrapped in a Collection: the script must
+        # bind exactly the objects this document holds, so importing it back
+        # reproduces the same scene. A wrapper would come back as one nested
+        # group and take every id inside it with it.
+        lines += ["", f"magpy.show({', '.join(names)}, backend='plotly')"
+                  if names else "# empty scene"]
         return "\n".join(lines)

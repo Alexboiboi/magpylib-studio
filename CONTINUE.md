@@ -125,11 +125,21 @@ and drives it.
     template follows the VS Code theme). `broadcastMutation()` (debounced
     150 ms) refreshes plot + tree + inspector + virtual docs after every edit
     from any surface (inspector widgets, LM tools, tree commands).
-  - **Script/scene I/O**: read-only virtual docs `magpylib-studio:/scene.py`
-    (to_script) and `/scene.json` (to_dict) that live-update on every edit;
-    commands View Python Script ($(code) icon on the Scene view), Save Scene
-    As… (.py or .json via extension), Load Scene from File… (JSON; also
-    linked in the empty-view welcome). Script → doc import stays deferred.
+  - **Script/scene I/O**: read-only virtual doc `magpylib-studio:/scene.json`
+    (to_dict) that live-updates on every edit; commands Edit Python Script
+    ($(code) icon on the Scene view), Save Scene As… (.py or .json via
+    extension), Load Scene from File… (JSON; also linked in the empty-view
+    welcome).
+  - **The script tab is editable both ways**: it is a real file in extension
+    storage (a content provider has no write side), regenerated from the scene
+    on every edit and applied back with `apply_script` on save — one undo step
+    labelled "edit script". Edits are never clobbered while the buffer is
+    dirty or while it holds text the engine rejected. `to_script` deliberately
+    emits no wrapper Collection (`magpy.show(a, b, …)`), and the importer names
+    nested children from script variables, so script → doc → script is an
+    identity on ids and structure; what it cannot carry (transform sequences
+    collapse to their result, group transforms bake into children) comes back
+    as warnings.
   - Python resolution: `magpylib-studio.pythonPath` setting → workspace/.venv →
     repo-root/.venv → `python3`. Engine stderr → output channel.
   - Verified via `node` smoke test driving compiled `EngineClient` against the

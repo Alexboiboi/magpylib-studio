@@ -19,10 +19,25 @@ let inspector: InspectorViewProvider | undefined;
 let engineOutput: vscode.OutputChannel | undefined;
 let sceneDocEmitter: vscode.EventEmitter<vscode.Uri> | undefined;
 
-// Read-only virtual documents generated from the scene (git is the history:
-// the user saves these into their repo; the doc stays canonical).
-const SCRIPT_URI = vscode.Uri.parse('magpylib-studio:/scene.py');
+// Read-only virtual document generated from the scene (git is the history:
+// the user saves it into their repo; the doc stays canonical).
 const SCENE_JSON_URI = vscode.Uri.parse('magpylib-studio:/scene.json');
+
+// The script tab, unlike scene.json, is editable and applied back on save, so
+// it is a real file (a content provider has no write side) kept in extension
+// storage — scratch space, not something to litter the user's workspace with.
+let scriptFile: vscode.Uri | undefined;
+/** Re-render the script tab from the scene; set during activation. */
+let refreshScript: (() => void) | undefined;
+/** The tab holds text the engine rejected: leave it alone until it applies. */
+let scriptRejected = false;
+/** What we last put in that file — the scene changes far more often than its
+ *  script does (a style edit renders identically), and rewriting it on every
+ *  mutation would reload the editor under the user for nothing. */
+let scriptOnDisk: string | undefined;
+/** Why the script tab was last saved, from onWillSave — auto-save on a typing
+ *  delay must not run half-written code through the engine. */
+let scriptSaveReason: vscode.TextDocumentSaveReason | undefined;
 
 /** Object types offered by "Add Object…", with ready-to-build defaults. */
 const OBJECT_TEMPLATES: {
@@ -34,7 +49,7 @@ const OBJECT_TEMPLATES: {
   {
     label: 'Cuboid magnet',
     type: 'magnet.Cuboid',
-    detail: 'polarization (0,0,1) T, dimension 1×1×1 m',
+    detail: 'polarization (0,0,1) T, sides 1×1×1 m',
     params: { polarization: [0, 0, 1], dimension: [1, 1, 1] },
   },
   {
@@ -46,7 +61,7 @@ const OBJECT_TEMPLATES: {
   {
     label: 'Cylinder segment magnet',
     type: 'magnet.CylinderSegment',
-    detail: 'r 1→2 m, height 1 m, 0°→90°',
+    detail: 'polarization (0,0,1) T, radii 1→2 m, height 1 m, 0°→90°',
     params: { polarization: [0, 0, 1], dimension: [1, 2, 1, 0, 90] },
   },
   {
@@ -58,7 +73,7 @@ const OBJECT_TEMPLATES: {
   {
     label: 'Tetrahedron magnet',
     type: 'magnet.Tetrahedron',
-    detail: 'unit tetrahedron at the origin',
+    detail: 'polarization (0,0,1) T, unit tetrahedron',
     params: {
       polarization: [0, 0, 1],
       vertices: [
@@ -78,7 +93,7 @@ const OBJECT_TEMPLATES: {
   {
     label: 'Current polyline',
     type: 'current.Polyline',
-    detail: '1000 A along three points',
+    detail: '1000 A, 3-point open path',
     params: {
       current: 1000,
       vertices: [
@@ -94,7 +109,7 @@ const OBJECT_TEMPLATES: {
     detail: 'moment (0,0,100) A·m²',
     params: { moment: [0, 0, 100] },
   },
-  { label: 'Sensor', type: 'Sensor', detail: 'field probe at the origin', params: {} },
+  { label: 'Sensor', type: 'Sensor', detail: 'field probe, single pixel', params: {} },
   { label: 'Collection', type: 'Collection', detail: 'empty group', params: {} },
 ];
 
@@ -480,7 +495,7 @@ function broadcastMutation(): void {
     sceneTree?.refresh();
     historyTree?.refresh();
     inspector?.refresh();
-    sceneDocEmitter?.fire(SCRIPT_URI);
+    refreshScript?.();
     sceneDocEmitter?.fire(SCENE_JSON_URI);
   }, 150);
 }
@@ -666,10 +681,64 @@ export function activate(context: vscode.ExtensionContext): void {
   sceneDocEmitter = new vscode.EventEmitter<vscode.Uri>();
   const sceneDocProvider: vscode.TextDocumentContentProvider = {
     onDidChange: sceneDocEmitter.event,
-    provideTextDocumentContent: async (uri) =>
-      uri.path.endsWith('.py')
-        ? getEngine(context).request<string>('to_script')
-        : JSON.stringify(await getEngine(context).request('to_dict'), null, 2),
+    provideTextDocumentContent: async () =>
+      JSON.stringify(await getEngine(context).request('to_dict'), null, 2),
+  };
+
+  /** The open editor for the script tab, if the user has it open. */
+  const scriptDoc = () =>
+    scriptFile &&
+    vscode.workspace.textDocuments.find((d) => d.uri.fsPath === scriptFile!.fsPath);
+
+  /**
+   * Write the scene's script into the tab. Unsaved edits are never clobbered:
+   * a scene change while the user is mid-edit leaves their text alone, and so
+   * does text the engine rejected (they are presumably fixing it). `force`
+   * re-renders anyway — used after a successful apply, where the engine's
+   * rendering is by definition the truth.
+   */
+  const writeScriptFile = async (force = false) => {
+    if (!scriptFile) {
+      return;
+    }
+    const open = scriptDoc();
+    if (!force && (open?.isDirty || scriptRejected)) {
+      return;
+    }
+    const text = (await getEngine(context).request<string>('to_script')) + '\n';
+    if (text === scriptOnDisk) {
+      return; // identical: don't churn the editor (it would move the cursor)
+    }
+    scriptOnDisk = text;
+    await vscode.workspace.fs.writeFile(scriptFile, Buffer.from(text, 'utf8'));
+  };
+  refreshScript = () => {
+    void writeScriptFile();
+  };
+
+  /** Saving the script tab rebuilds the scene from it. */
+  const applyScriptFile = async (doc: vscode.TextDocument) => {
+    scriptOnDisk = doc.getText(); // the file is the user's text now, not ours
+    const result = (await getEngine(context).request('apply_script', {
+      path: scriptFile!.fsPath,
+    })) as { ok: boolean; error?: string; warnings?: string[] };
+    if (!result.ok) {
+      scriptRejected = true;
+      vscode.window.showErrorMessage(`Magpylib Studio script: ${result.error}`);
+      return;
+    }
+    scriptRejected = false;
+    broadcastMutation();
+    // The scene, not the text, is canonical: show what the engine actually
+    // built (ids sanitised, transforms resolved, comments gone).
+    await writeScriptFile(true);
+    if (result.warnings?.length) {
+      vscode.window.showWarningMessage(
+        `Magpylib Studio script applied — ${result.warnings.join('; ')}`,
+      );
+    } else {
+      vscode.window.setStatusBarMessage('Magpylib Studio: scene updated from script', 2000);
+    }
   };
 
   sceneTreeView = vscode.window.createTreeView('magpylib-studio.sceneView', {
@@ -697,11 +766,36 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.workspace.registerTextDocumentContentProvider('magpylib-studio', sceneDocProvider),
     vscode.commands.registerCommand('magpylib-studio.viewScript', async () => {
-      const doc = await vscode.workspace.openTextDocument(SCRIPT_URI);
+      // Storage is per-workspace when there is one, global otherwise.
+      const dir = context.storageUri ?? context.globalStorageUri;
+      await vscode.workspace.fs.createDirectory(dir);
+      scriptFile = vscode.Uri.joinPath(dir, 'scene.py');
+      scriptRejected = false; // opening the tab starts from the real scene
+      await writeScriptFile(!scriptDoc()?.isDirty); // never over unsaved edits
+      const doc = await vscode.workspace.openTextDocument(scriptFile);
       await vscode.window.showTextDocument(doc, {
         viewColumn: vscode.ViewColumn.Beside,
         preview: false,
       });
+    }),
+    vscode.workspace.onWillSaveTextDocument((e) => {
+      if (scriptFile && e.document.uri.fsPath === scriptFile.fsPath) {
+        scriptSaveReason = e.reason;
+      }
+    }),
+    vscode.workspace.onDidSaveTextDocument(async (doc) => {
+      if (!scriptFile || doc.uri.fsPath !== scriptFile.fsPath) {
+        return;
+      }
+      const reason = scriptSaveReason;
+      scriptSaveReason = undefined;
+      // Applying is deliberate. With files.autoSave on a delay, a save lands
+      // between keystrokes, and running a half-typed script would spray
+      // errors and rewrite the buffer mid-edit; Cmd+S still applies as usual.
+      if (reason === vscode.TextDocumentSaveReason.AfterDelay) {
+        return;
+      }
+      await applyScriptFile(doc);
     }),
     vscode.commands.registerCommand('magpylib-studio.saveScene', async () => {
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
