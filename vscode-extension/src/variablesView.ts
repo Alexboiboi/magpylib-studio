@@ -1,5 +1,8 @@
 import * as vscode from 'vscode';
 
+/** Calls from this panel that change the scene, not just what it displays. */
+const MUTATING = new Set(['set_variable', 'set_variable_bounds', 'remove_variable']);
+
 export interface VariableBounds {
   /** Hard limits: the engine rejects a value outside them. */
   min?: number;
@@ -51,6 +54,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider {
       params?: Record<string, unknown>,
     ) => Promise<unknown>,
     private readonly onAction: (action: string, name: string) => void,
+    private readonly onMutation: () => void,
   ) {}
 
   resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -76,6 +80,11 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider {
       try {
         const result = await this.request(method, params);
         webviewView.webview.postMessage({ type: 'rpcResult', reqId, method, result });
+        if (MUTATING.has(method)) {
+          // Dragging a variable moves everything written in terms of it —
+          // which is the whole point, and none of it is on this panel.
+          this.onMutation();
+        }
       } catch (err) {
         webviewView.webview.postMessage({
           type: 'rpcError',
@@ -133,6 +142,11 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider {
     const statusEl = document.getElementById('status');
     let nextReqId = 1;
     const pending = new Map();
+    // A rebuild replaces the slider element, so it must not happen while a
+    // thumb is held: edits elsewhere broadcast back here, and the broadcast
+    // is debounced, which is exactly long enough to land mid-drag.
+    let dragging = false;
+    let missedRefresh = false;
 
     function rpc(method, params) {
       return new Promise((resolve, reject) => {
@@ -175,6 +189,10 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider {
     }
 
     async function load() {
+      if (dragging) {
+        missedRefresh = true;
+        return;
+      }
       const { variables } = await rpc('get_variables', {});
       listEl.innerHTML = '';
       emptyEl.hidden = variables.length > 0;
@@ -216,8 +234,16 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider {
           slider.value = v.value;
           slider.title = short(low) + ' .. ' + short(high);
           // live text while dragging, one edit when released
+          slider.addEventListener('pointerdown', () => { dragging = true; });
           slider.addEventListener('input', () => { text.value = short(parseFloat(slider.value)); });
-          slider.addEventListener('change', () => commit(v.name, parseFloat(slider.value)));
+          slider.addEventListener('change', () => {
+            dragging = false;
+            commit(v.name, parseFloat(slider.value));
+          });
+          slider.addEventListener('pointerup', () => {
+            dragging = false;
+            if (missedRefresh) { missedRefresh = false; load(); }
+          });
           slot.appendChild(slider);
         } else if (!isExpression) {
           const hint = document.createElement('span');

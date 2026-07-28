@@ -672,6 +672,7 @@ export function activate(context: vscode.ExtensionContext): void {
         }
       })();
     },
+    broadcastMutation,
   );
   variablesTree = variables;
 
