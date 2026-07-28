@@ -110,6 +110,17 @@ _BINOPS = {
 }
 
 
+def contains_expression(value):
+    """True if a document value has an expression anywhere inside it."""
+    if is_expression(value):
+        return True
+    if isinstance(value, list):
+        return any(contains_expression(v) for v in value)
+    if isinstance(value, dict):
+        return any(contains_expression(v) for v in value.values())
+    return False
+
+
 def normalized(value):
     """Rewrite expressions in their canonical spacing, so that what a document
     stores is what reading its script back would produce — the script tab is a

@@ -112,6 +112,8 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
     .vec span { opacity: 0.7; text-align: right; }
     .vec input { width: 100%; box-sizing: border-box; }
     .vec.readonly input { opacity: 0.6; background: transparent; border-color: transparent; cursor: default; }
+    /* a field holding an expression rather than a number, hovering shows its value */
+    input.expr { font-style: italic; color: var(--vscode-charts-blue, #3987e5); }
     .trow { display: flex; gap: 4px; align-items: center; padding: 2px 0 2px 8px; flex-wrap: wrap; }
     .trow input[type=number] { width: 52px; }
     .trow select { width: auto; }
@@ -315,11 +317,9 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
           const label = document.createElement('label');
           label.textContent = p.name;
           label.title = p.doc;
-          const input = document.createElement('input');
-          input.type = 'number';
-          input.step = 'any';
-          input.value = p.value;
-          input.addEventListener('change', () => commit(parseFloat(input.value)));
+          const input = numberInput(
+            p.written === undefined ? p.value : p.written, p.value, commit,
+          );
           const wrap = document.createElement('div');
           wrap.className = 'widget';
           wrap.appendChild(input);
@@ -332,7 +332,8 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
           head.title = p.doc;
           box.appendChild(head);
           box.appendChild(
-            vecRow(p.value.map((_, i) => String(i + 1)), p.value, commit),
+            vecRow(p.value.map((_, i) => String(i + 1)), p.value, commit,
+                   undefined, p.written),
           );
         } else {
           // matrices (vertices, faces, sensor pixels): edit as JSON
@@ -359,26 +360,60 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
       paramsEl.appendChild(box);
     }
 
+    // --- numbers that may be written as expressions -----------------------
+    //
+    // A field holds either a number or an expression over the document's
+    // variables, so the widgets are text inputs, not number inputs: a number
+    // input cannot hold "gap*2" at all. What the user types goes back as
+    // typed; only a value that parses as a number is sent as one.
+
+    function short(value) {
+      return Number(value).toFixed(4).replace(/\.?0+$/, '');
+    }
+
+    /** Document value -> what to show in the field. */
+    function asWritten(value, resolved) {
+      if (typeof value === 'string' && value.startsWith('=')) return value.slice(1);
+      return short(resolved);
+    }
+
+    /** Field text -> document value: a number if it is one, else "=expr". */
+    function asValue(text) {
+      const trimmed = String(text).trim();
+      if (!trimmed) return 0;
+      const number = Number(trimmed);
+      return Number.isFinite(number) ? number : '=' + trimmed;
+    }
+
+    function numberInput(value, resolved, onCommit) {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.spellcheck = false;
+      input.value = asWritten(value, resolved);
+      const isExpression = input.value !== short(resolved);
+      if (isExpression) {
+        input.classList.add('expr');
+        input.title = 'expression — currently ' + short(resolved);
+      }
+      input.addEventListener('change', () => onCommit(asValue(input.value)));
+      return input;
+    }
+
     // --- transform section: absolute pose, relative ops, path tools -------
-    function vecRow(labels, values, onCommit, readonly) {
+    function vecRow(labels, values, onCommit, readonly, written) {
       const row = document.createElement('div');
       row.className = 'vec' + (readonly ? ' readonly' : '');
       const inputs = [];
       labels.forEach((name, i) => {
         const tag = document.createElement('span');
         tag.textContent = name;
-        const input = document.createElement('input');
-        input.type = 'number';
-        input.step = 'any';
-        input.value = Number(values[i]).toFixed(4).replace(/\\.?0+$/, '');
+        const input = numberInput(written ? written[i] : values[i], values[i], () =>
+          onCommit(inputs.map((el) => asValue(el.value))),
+        );
         if (readonly) {
           input.readOnly = true;
           input.tabIndex = -1;
           input.title = readonly;
-        } else {
-          input.addEventListener('change', () =>
-            onCommit(inputs.map((el) => parseFloat(el.value) || 0)),
-          );
         }
         inputs.push(input);
         row.append(tag, input);
@@ -419,16 +454,17 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
       }
       box.appendChild(vecRow(['x', 'y', 'z'], t.position, (v) =>
         transformOp('set_transform', { position: v }),
-      pathed));
+      pathed, t.written_position));
       box.appendChild(vecRow(['rx', 'ry', 'rz'], t.orientation, (v) =>
         transformOp('set_transform', { orientation: v }),
-      pathed));
+      pathed, t.written_orientation));
 
       // relative rotate, optionally orbiting the origin, optionally a path
       const row = document.createElement('div');
       row.className = 'trow';
       const angle = document.createElement('input');
-      angle.type = 'number'; angle.step = 'any'; angle.value = '45';
+      angle.type = 'text'; angle.value = '45'; angle.spellcheck = false;
+      angle.title = 'degrees, or an expression over the variables';
       const axis = document.createElement('select');
       for (const a of ['z', 'x', 'y']) axis.append(new Option(a, a));
       const orbit = document.createElement('label');
@@ -444,7 +480,13 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
       go.textContent = 'Rotate';
       go.addEventListener('click', () => {
         const n = Math.max(1, parseInt(steps.value, 10) || 1);
-        const total = parseFloat(angle.value) || 0;
+        const total = asValue(angle.value);
+        if (n > 1 && typeof total === 'string') {
+          // the steps are divided up here, which needs a number; a symbolic
+          // single rotation is fine and stays live
+          statusEl.textContent = 'A multi-step path needs a number, not an expression.';
+          return;
+        }
         const value = n === 1
           ? total
           : Array.from({ length: n }, (_, i) => (total * (i + 1)) / n);
@@ -465,7 +507,9 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
       mrow.className = 'trow';
       const dxyz = ['0', '0', '1'].map((d) => {
         const el = document.createElement('input');
-        el.type = 'number'; el.step = 'any'; el.value = d; el.style.width = '46px';
+        el.type = 'text'; el.value = d; el.style.width = '46px';
+        el.spellcheck = false;
+        el.title = 'metres, or an expression over the variables';
         return el;
       });
       const msteps = document.createElement('input');
@@ -476,8 +520,12 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
       const mgo = document.createElement('button');
       mgo.textContent = 'Move';
       mgo.addEventListener('click', () => {
-        const d = dxyz.map((el) => parseFloat(el.value) || 0);
+        const d = dxyz.map((el) => asValue(el.value));
         const n = Math.max(1, parseInt(msteps.value, 10) || 1);
+        if (n > 1 && d.some((c) => typeof c === 'string')) {
+          statusEl.textContent = 'A multi-step path needs numbers, not expressions.';
+          return;
+        }
         const value = n === 1
           ? d
           : Array.from({ length: n }, (_, i) => d.map((c) => (c * (i + 1)) / n));

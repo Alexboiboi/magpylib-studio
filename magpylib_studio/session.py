@@ -197,16 +197,26 @@ def _walk_specs(specs):
         yield from _walk_specs(spec.get("children") or [])
 
 
-def _prune(doc):
-    """Drop empty `params`/`style`/`variables`, so a document has one spelling
-    for "nothing here" — otherwise the same scene compares unequal to itself
-    depending on whether it was built up or read back from its script."""
+def _canonical(doc):
+    """One spelling per value, whichever way the document was built.
+
+    Empty `params`/`style`/`variables` are dropped, and expressions are put in
+    canonical spacing — otherwise the same scene compares unequal to itself
+    depending on whether it was built up through the API or read back from its
+    script, and the script tab churns on the first save.
+    """
     for spec in _walk_specs(doc.get("objects") or []):
         for key in ("params", "style"):
             if spec.get(key) == {}:
                 del spec[key]
+        if "params" in spec:
+            spec["params"] = expressions.normalized(spec["params"])
     if doc.get("variables") == {}:
         del doc["variables"]
+    elif "variables" in doc:
+        doc["variables"] = expressions.normalized(doc["variables"])
+    if doc.get("events"):
+        doc["events"] = expressions.normalized(doc["events"])
     return doc
 
 
@@ -370,7 +380,7 @@ class MagpylibStudioSession:
 
     def __init__(self, scene: dict | None = None):
         # start empty; older documents carry their ops per object, not as a log
-        self.doc = _prune(
+        self.doc = _canonical(
             _migrate_events(scene if scene is not None else {"objects": []})
         )
         self._objs: dict[str, object] = {}
@@ -488,7 +498,7 @@ class MagpylibStudioSession:
         snapshot = json.loads(json.dumps(self.doc))
         try:
             mutate(self.doc)
-            _prune(self.doc)
+            _canonical(self.doc)
             self._build()
         except Exception as e:  # noqa: BLE001 - report every failure to the caller
             self.doc = snapshot
@@ -557,6 +567,10 @@ class MagpylibStudioSession:
         …) with their current values and shape, for inspector widgets.
         Position/orientation are excluded: those are transform-managed."""
         obj = self._objs[object_id]
+        try:
+            written = self._spec(object_id).get("params", {})
+        except KeyError:
+            written = {}  # a generated copy has no spec to have written it
         out = []
         for name in _PARAM_ATTRS:
             value = getattr(obj, name, None)
@@ -567,12 +581,18 @@ class MagpylibStudioSession:
                 kind = "matrix" if plain and isinstance(plain[0], list) else "vector"
             else:
                 kind = "scalar"
-            out.append({
+            entry = {
                 "name": name,
                 "value": plain,
                 "kind": kind,
                 "doc": _PARAM_DOCS.get(name, ""),
-            })
+            }
+            # `value` is what magpylib holds; when the document says it in
+            # terms of a variable, the editor needs the expression as well —
+            # otherwise editing the field would silently replace it.
+            if expressions.contains_expression(written.get(name)):
+                entry["written"] = written[name]
+            out.append(entry)
         return out
 
     def get_transform(self, object_id):
@@ -581,13 +601,37 @@ class MagpylibStudioSession:
         position = np.atleast_2d(np.array(obj.position, dtype=float))
         rotvec = np.atleast_2d(obj.orientation.as_rotvec(degrees=True))
         euler = np.atleast_2d(obj.orientation.as_euler("xyz", degrees=True))
-        return {
+        out = {
             "position": position[-1].round(9).tolist(),
             "orientation": rotvec[-1].round(9).tolist(),
             "euler": euler[-1].round(9).tolist(),
             "path_length": len(position),
             "path": position.round(9).tolist() if len(position) > 1 else None,
         }
+        # If the pose was written in terms of a variable, say so: an editor
+        # showing only the resolved number would replace the expression the
+        # moment the user touched a neighbouring axis.
+        for op, key in (("position", "value"), ("orientation", "rotvec")):
+            written = self._last_written(object_id, op, key)
+            if written is not None:
+                out[f"written_{op}"] = written
+        return out
+
+    def _last_written(self, object_id, op, key):
+        """The last pose event of this kind on this object, if it holds an
+        expression — the form to edit, as opposed to what it came out to."""
+        for event in reversed(self.doc.get("events") or []):
+            if event["target"] == object_id and event.get("op") == op:
+                value = event.get(key)
+                return value if expressions.contains_expression(value) else None
+        if op == "position":
+            # no event pinned it, so the constructor param is what wrote it
+            try:
+                value = self._spec(object_id).get("params", {}).get("position")
+            except KeyError:
+                return None
+            return value if expressions.contains_expression(value) else None
+        return None
 
     def get_values(self, object_id):
         obj = self._objs[object_id]
@@ -963,6 +1007,18 @@ class MagpylibStudioSession:
         if position is None and orientation is None:
             return {"ok": False, "error": "nothing to set"}
         obj = self._objs[object_id]
+        if expressions.contains_expression([position, orientation]):
+            # Recorded as written, not as the pose it currently comes to:
+            # resolving here would freeze the variable out of the scene.
+            def mutate_symbolic(doc):
+                ops = []
+                if position is not None:
+                    ops.append({"op": "position", "value": position})
+                if orientation is not None:
+                    ops.append({"op": "orientation", "rotvec": orientation})
+                self._log(object_id, ops)
+
+            return self._mutate_doc(mutate_symbolic, f"set transform {object_id}")
         target_pos = np.array(
             obj.position if position is None else position, dtype=float
         )
@@ -1185,7 +1241,7 @@ class MagpylibStudioSession:
                 return {"ok": False, "error": str(e)}
 
         def mutate(doc):
-            self.doc = _prune(_migrate_events(json.loads(json.dumps(scene))))
+            self.doc = _canonical(_migrate_events(json.loads(json.dumps(scene))))
 
         return self._mutate_doc(mutate, "load scene")
 

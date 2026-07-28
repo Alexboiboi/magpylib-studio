@@ -174,7 +174,20 @@ and drives it.
     *and* what it resolved to — which is what you want when a scene lands
     somewhere unexpected. Click a row to edit, `+` to add, inline trash to
     remove. The input box takes `2.5` or `gap*2`; the `=` marker the document
-    uses is added for you. **Sweep a Variable…** ($(graph-line) in the same
+    uses is added for you.
+  - **Every numeric field takes an expression**, not just the variables view:
+    inspector properties and the transform pose (text inputs now — a number
+    input cannot hold `gap*2` at all), the relative rotate/move fields, the
+    Add Object prompts, Set Position…, Move By…, Rotate…. Expression fields
+    render italic/blue and show the resolved value on hover. Multi-step paths
+    still require numbers, because the UI divides the total across the steps.
+    For this to be safe `get_params` and `get_transform` report the value **as
+    written** (`written`, `written_position`, `written_orientation`) beside
+    the resolved one — an editor showing only the resolved number would
+    replace the expression the moment the user touched a neighbouring axis.
+    `get_transform` falls back to the constructor param when no event pinned
+    the pose, and `set_transform` records an expression as written instead of
+    resolving it to a pose. **Sweep a Variable…** ($(graph-line) in the same
     title bar) asks for from/to/steps and drives the Field panel's third
     mode, "Against a variable" (`get_sweep_figure`). **Duplicate Around…**
     is in the scene tree's Transform submenu.

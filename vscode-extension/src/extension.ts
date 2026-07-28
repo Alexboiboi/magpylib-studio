@@ -194,7 +194,7 @@ const PARAM_UNITS: Record<string, string> = {
 };
 
 /** Rotation axis: a named axis or a free vector. */
-async function askRotationAxis(): Promise<string | number[] | undefined> {
+async function askRotationAxis(): Promise<string | (number | string)[] | undefined> {
   const pick = await vscode.window.showQuickPick(
     [
       { label: 'x', detail: 'rotate about the x axis' },
@@ -223,7 +223,7 @@ async function askRotationAxis(): Promise<string | number[] | undefined> {
 
 /** Rotation anchor: spin in place, orbit the origin, or orbit a point. */
 async function askRotationAnchor(): Promise<
-  { value: number | number[] | undefined } | undefined
+  { value: number | (number | string)[] | undefined } | undefined
 > {
   const pick = await vscode.window.showQuickPick(
     [
@@ -261,18 +261,54 @@ function parseNumbers(text: string): number[] | undefined {
   return parts.length && parts.every((n) => Number.isFinite(n)) ? parts : undefined;
 }
 
-/** Group a flat number list into rows of `width` (e.g. points into [x,y,z]). */
-function reshape(flat: number[], width: number): number[][] {
-  const rows: number[][] = [];
+/**
+ * One typed field -> a document value: a number where it is one, otherwise an
+ * expression over the scene's variables. The `=` marker the document uses is
+ * added here, so users type `gap*2` and never learn the notation.
+ */
+function asDocumentValue(text: string): number | string {
+  const trimmed = text.trim();
+  const asNumber = Number(trimmed);
+  return Number.isFinite(asNumber) && trimmed !== '' ? asNumber : `=${trimmed}`;
+}
+
+/**
+ * Comma/space separated numbers *or* expressions, e.g. `0, 0, gap`. Bracket
+ * characters are stripped as in parseNumbers, but an expression may itself
+ * contain commas inside parentheses (`0, 0, max(a, b)`), so splitting only
+ * happens at depth zero.
+ */
+function parseTerms(text: string): (number | string)[] | undefined {
+  const terms: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (const ch of text.replace(/[[\]]/g, ' ')) {
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (depth < 0) return undefined;
+    if (depth === 0 && (ch === ',' || /\s/.test(ch))) {
+      if (current.trim()) terms.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) terms.push(current.trim());
+  return depth === 0 && terms.length ? terms.map(asDocumentValue) : undefined;
+}
+
+/** Group a flat list into rows of `width` (e.g. points into [x,y,z]). */
+function reshape<T>(flat: T[], width: number): T[][] {
+  const rows: T[][] = [];
   for (let i = 0; i + width <= flat.length; i += width) {
     rows.push(flat.slice(i, i + width));
   }
   return rows;
 }
 
-/** Parse "1, 2, 3" / "1 2 3" into numbers; undefined if not `count` values. */
-function parseVector(text: string, count: number): number[] | undefined {
-  const parts = parseNumbers(text);
+/** Parse "1, 2, gap" into `count` numbers-or-expressions, else undefined. */
+function parseVector(text: string, count: number): (number | string)[] | undefined {
+  const parts = parseTerms(text);
   return parts?.length === count ? parts : undefined;
 }
 
@@ -1090,22 +1126,24 @@ export function activate(context: vscode.ExtensionContext): void {
             value: isScalar ? flat : flat.replace(/[[\]]/g, (m) => (m === '[' ? '' : '')),
             validateInput: (v) => {
               if (isScalar) {
-                return Number.isFinite(Number(v)) ? undefined : 'A number';
+                return v.trim() ? undefined : 'A number, or an expression';
               }
-              return parseNumbers(v) ? undefined : 'Numbers, e.g. 0, 0, 1';
+              return parseTerms(v)
+                ? undefined
+                : 'Numbers or expressions, e.g. 0, 0, gap';
             },
           });
           if (text === undefined) {
             return; // escaped: abandon the whole creation
           }
           if (isScalar) {
-            values[name] = Number(text);
+            values[name] = asDocumentValue(text);
           } else {
-            const flatNums = parseNumbers(text)!;
+            const terms = parseTerms(text)!;
             const template = def as number[] | number[][];
             values[name] = Array.isArray(template[0])
-              ? reshape(flatNums, (template[0] as number[]).length)
-              : flatNums;
+              ? reshape(terms, (template[0] as number[]).length)
+              : terms;
           }
         }
         const params: Record<string, unknown> = {
@@ -1153,17 +1191,28 @@ export function activate(context: vscode.ExtensionContext): void {
               : `Total displacement dx, dy, dz (m) — spread over ${kind.steps} steps`,
           value: '0, 0, 1',
           validateInput: (v) =>
-            parseVector(v, 3) ? undefined : 'Three numbers, e.g. 0, 0, 1',
+            parseVector(v, 3)
+              ? undefined
+              : 'Three numbers or expressions, e.g. 0, 0, gap',
         });
         const d = text && parseVector(text, 3);
         if (!d) {
+          return;
+        }
+        // A path is divided up here, which needs numbers; a single symbolic
+        // displacement is fine and stays tied to its variables.
+        const numeric = d.filter((c) => typeof c === 'number') as number[];
+        if (kind.steps > 1 && numeric.length !== d.length) {
+          vscode.window.showErrorMessage(
+            'Magpylib Studio: a multi-step path needs numbers, not expressions.',
+          );
           return;
         }
         const displacement =
           kind.steps === 1
             ? d
             : Array.from({ length: kind.steps }, (_, i) =>
-                d.map((c) => (c * (i + 1)) / kind.steps),
+                numeric.map((c) => (c * (i + 1)) / kind.steps),
               );
         let startArg: { start?: number } = {};
         if (kind.steps > 1) {

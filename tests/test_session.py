@@ -1131,6 +1131,42 @@ def test_variables_drive_the_scene():
     assert s.remove_variable("spare") == {"ok": True}
 
 
+def test_editors_see_expressions_as_written_not_only_resolved():
+    """What the inspector needs: a field showing only the resolved number
+    would replace the expression the moment the user touched a neighbour."""
+    s = MagpylibStudioSession()
+    s.set_variable("gap", 2)
+    s.add_object("m", "magnet.Sphere",
+                 {"polarization": [0, 0, 1], "diameter": "=gap/4",
+                  "position": [0, 0, "=gap"]})
+
+    diameter = next(p for p in s.get_params("m") if p["name"] == "diameter")
+    assert diameter["value"] == 0.5 and diameter["written"] == "=gap / 4"
+    polarization = next(p for p in s.get_params("m") if p["name"] == "polarization")
+    assert "written" not in polarization  # plain numbers stay plain
+
+    # position came from the constructor, so the transform editor reads it there
+    assert s.get_transform("m")["written_position"] == [0, 0, "=gap"]
+
+    # setting a pose symbolically keeps it live rather than freezing the value
+    assert s.set_transform("m", position=[5, "=gap*3", 0]) == {"ok": True}
+    transform = s.get_transform("m")
+    assert transform["position"] == [5, 6, 0]
+    assert transform["written_position"] == [5, "=gap * 3", 0]
+    assert s.set_variable("gap", 10) == {"ok": True}
+    assert s.get_transform("m")["position"] == [5, 30, 0]  # x stayed, y followed
+
+    # a generated copy has no spec, and asking for its params must not raise
+    s.add_object("ring", "Collection")
+    s.add_object("c", "magnet.Sphere", {"polarization": [0, 0, 1], "diameter": 1},
+                 parent="ring")
+    assert s.duplicate_around("c", 3) == {"ok": True}
+    assert [p["name"] for p in s.get_params("c#1")] == [
+        p["name"] for p in s.get_params("c")
+    ]
+    assert "written_position" not in s.get_transform("c#1")
+
+
 def test_sweep_reads_the_field_and_leaves_the_scene_where_it_found_it():
     import numpy as np
 
