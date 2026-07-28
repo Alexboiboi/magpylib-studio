@@ -57,6 +57,7 @@ _PUBLIC = {
     "get_variables",
     "unknown_variables",
     "set_variable",
+    "set_variable_bounds",
     "remove_variable",
     "get_events",
     "edit_event",

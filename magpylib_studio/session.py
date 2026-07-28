@@ -41,6 +41,7 @@ Protocol surface (all JSON-serializable in/out):
   get_variables()                      -> {"variables": [{name, expression, value}]}
   unknown_variables(values)            -> {"unknown": [names not defined yet]}
   set_variable(name, value)            -> {"ok": bool, "error"?: str}
+  set_variable_bounds(name, min?, max?, soft_min?, soft_max?) -> {"ok": bool, ...}
   remove_variable(name)                -> {"ok": bool, "error"?: str}
   sweep(variable, values, sensor_id?, points?, field?) -> {"ok", "steps": [...]}
   get_sweep_figure(variable, values, …) -> plotly line-plot JSON
@@ -221,6 +222,16 @@ def _canonical(doc):
         del doc["variables"]
     elif "variables" in doc:
         doc["variables"] = expressions.normalized(doc["variables"])
+    # limits belong to a variable and go when it does
+    if "variable_bounds" in doc:
+        defined = doc.get("variables") or {}
+        doc["variable_bounds"] = {
+            name: limits
+            for name, limits in doc["variable_bounds"].items()
+            if name in defined
+        }
+        if not doc["variable_bounds"]:
+            del doc["variable_bounds"]
     if doc.get("events"):
         doc["events"] = expressions.normalized(doc["events"])
     return doc
@@ -418,6 +429,21 @@ class MagpylibStudioSession:
         the log relative to the children they carry.
         """
         self._vars = expressions.resolve_variables(self.doc.get("variables") or {})
+        # Hard bounds are checked here rather than where a value is typed, so
+        # they hold however the variable arrived at its value — including
+        # through another variable's expression.
+        for name, limits in (self.doc.get("variable_bounds") or {}).items():
+            value = self._vars.get(name)
+            if value is None:
+                continue
+            if limits.get("min") is not None and value < limits["min"]:
+                raise ValueError(
+                    f"{name} = {value:g} is below its minimum {limits['min']:g}"
+                )
+            if limits.get("max") is not None and value > limits["max"]:
+                raise ValueError(
+                    f"{name} = {value:g} is above its maximum {limits['max']:g}"
+                )
         self._objs = {}
         self._derived = {}
         self.scene = magpy.Collection(
@@ -1343,6 +1369,17 @@ class MagpylibStudioSession:
             except Exception as e:  # noqa: BLE001 - report errors, don't crash
                 return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
+        # Bounds are editor metadata: a script has nowhere to put them, so
+        # they are carried across for the variables that survived the edit
+        # rather than being silently dropped on every save.
+        carried = {
+            name: limits
+            for name, limits in (before.get("variable_bounds") or {}).items()
+            if name in (doc.get("variables") or {})
+        }
+        if carried:
+            doc["variable_bounds"] = {**carried, **(doc.get("variable_bounds") or {})}
+
         result = self.load_scene(doc)
         if not result["ok"]:
             return result
@@ -1441,9 +1478,11 @@ class MagpylibStudioSession:
     def get_variables(self):
         """The document's variables, as written and as resolved."""
         variables = self.doc.get("variables") or {}
+        bounds = self.doc.get("variable_bounds") or {}
         return {
             "variables": [
-                {"name": name, "expression": value, "value": self._vars.get(name)}
+                {"name": name, "expression": value, "value": self._vars.get(name),
+                 **({"bounds": bounds[name]} if name in bounds else {})}
                 for name, value in variables.items()
             ]
         }
@@ -1464,6 +1503,46 @@ class MagpylibStudioSession:
                 if name not in defined
             ]
         }
+
+    def set_variable_bounds(self, name, min=None, max=None,  # noqa: A002
+                            soft_min=None, soft_max=None):
+        """Limit a variable, so a UI can offer a slider and a typo cannot put
+        the scene somewhere meaningless.
+
+        Hard bounds (`min`/`max`) are enforced: a value outside them is
+        rejected, including one a variable arrives at through an expression.
+        Soft bounds (`soft_min`/`soft_max`) are only the range worth sweeping
+        or dragging through — values outside stay legal, which is the point of
+        the distinction. Passing nothing clears the limits.
+        """
+        if name not in (self.doc.get("variables") or {}):
+            return {"ok": False, "error": f"unknown variable {name!r}"}
+        limits = {"min": min, "max": max,
+                  "soft_min": soft_min, "soft_max": soft_max}
+        for key, value in limits.items():
+            if value is not None and (
+                not isinstance(value, int | float) or isinstance(value, bool)
+            ):
+                return {"ok": False, "error": f"{key} must be a number"}
+        limits = {k: v for k, v in limits.items() if v is not None}
+        for lo, hi in (("min", "max"), ("soft_min", "soft_max")):
+            if lo in limits and hi in limits and limits[lo] > limits[hi]:
+                return {"ok": False, "error": f"{lo} must not exceed {hi}"}
+        if ("min" in limits and "soft_min" in limits
+                and limits["soft_min"] < limits["min"]):
+            return {"ok": False, "error": "soft_min is outside min"}
+        if ("max" in limits and "soft_max" in limits
+                and limits["soft_max"] > limits["max"]):
+            return {"ok": False, "error": "soft_max is outside max"}
+
+        def mutate(doc):
+            bounds = doc.setdefault("variable_bounds", {})
+            if limits:
+                bounds[name] = limits
+            else:
+                bounds.pop(name, None)
+
+        return self._mutate_doc(mutate, f"bound {name}")
 
     def set_variable(self, name, value):
         """Define or redefine a variable. `value` is a number, or an

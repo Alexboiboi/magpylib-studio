@@ -1131,6 +1131,51 @@ def test_variables_drive_the_scene():
     assert s.remove_variable("spare") == {"ok": True}
 
 
+def test_variable_bounds_are_hard_or_only_advisory(tmp_path):
+    s = MagpylibStudioSession()
+    s.set_variable("gap", 2)
+    s.add_object("m", "magnet.Sphere",
+                 {"polarization": [0, 0, 1], "diameter": 1,
+                  "position": [0, 0, "=gap"]})
+    assert s.set_variable_bounds("gap", min=0, max=10,
+                                 soft_min=1, soft_max=5) == {"ok": True}
+    assert s.get_variables()["variables"][0]["bounds"] == {
+        "min": 0, "max": 10, "soft_min": 1, "soft_max": 5
+    }
+    # soft bounds do not constrain: only the slider cares
+    assert s.set_variable("gap", 8) == {"ok": True}
+    assert list(s._objs["m"].position) == [0, 0, 8]
+    # hard bounds do, and the scene is left where it was
+    refused = s.set_variable("gap", 12)
+    assert refused["ok"] is False and "above its maximum" in refused["error"]
+    assert list(s._objs["m"].position) == [0, 0, 8]
+
+    # enforced however the value arrives, including through another variable:
+    # gap stays inside its own limits, but quad would leave its own
+    s.set_variable("gap", 4)
+    s.set_variable("quad", "=gap*4")
+    assert s.set_variable_bounds("quad", max=20) == {"ok": True}
+    assert s.set_variable("gap", 5)["ok"] is True  # quad = 20, at the limit
+    breached = s.set_variable("gap", 6)  # quad would be 24
+    assert breached["ok"] is False and "quad = 24" in breached["error"]
+    assert list(s._objs["m"].position) == [0, 0, 5]  # scene held at gap = 5
+
+    # nonsense is refused, and limits are editor metadata that survive a save
+    assert s.set_variable_bounds("gap", min=5, max=1)["ok"] is False
+    assert s.set_variable_bounds("gap", min=0, max=10, soft_max=99)["ok"] is False
+    assert s.set_variable_bounds("nope", min=0)["ok"] is False
+    path = tmp_path / "scene.py"
+    path.write_text(s.to_script(), encoding="utf-8")
+    assert s.apply_script(str(path))["mode"] == "parsed"
+    assert s.to_dict()["variable_bounds"]["gap"]["max"] == 10
+
+    # and they go when the variable does
+    assert s.set_variable_bounds("gap") == {"ok": True}  # cleared
+    assert "gap" not in s.to_dict().get("variable_bounds", {})
+    assert s.remove_variable("quad") == {"ok": True}
+    assert "variable_bounds" not in s.to_dict()
+
+
 def test_batch_builds_a_parametric_scene_in_one_step():
     """What an assistant sends for "a Halbach ring of 8": the variables, the
     one magnet written in terms of them, and the arrangement — one undo."""

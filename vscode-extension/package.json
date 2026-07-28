@@ -164,6 +164,10 @@
         "command": "magpylib-studio.sweep",
         "title": "Magpylib Studio: Sweep a Variable...",
         "icon": "$(graph-line)"
+      },
+      {
+        "command": "magpylib-studio.setVariableBounds",
+        "title": "Set Bounds..."
       }
     ],
     "keybindings": [
@@ -455,6 +459,11 @@
           "command": "magpylib-studio.removeVariable",
           "when": "view == magpylib-studio.variablesView && viewItem == magpyVariable",
           "group": "inline"
+        },
+        {
+          "command": "magpylib-studio.setVariableBounds",
+          "when": "view == magpylib-studio.variablesView && viewItem == magpyVariable",
+          "group": "0_edit@1"
         }
       ],
       "commandPalette": [
@@ -512,6 +521,10 @@
         },
         {
           "command": "magpylib-studio.duplicateAround",
+          "when": "false"
+        },
+        {
+          "command": "magpylib-studio.setVariableBounds",
           "when": "false"
         }
       ]
@@ -1004,6 +1017,41 @@
           "required": [
             "variable",
             "values"
+          ]
+        }
+      },
+      {
+        "name": "magpylib-studio_setVariableBounds",
+        "displayName": "Bound a magpylib scene variable",
+        "toolReferenceName": "magpyBounds",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "Limit a variable. Hard bounds ('min'/'max') are enforced: any value outside them is refused, including one the variable reaches through an expression - use them for what is physically or geometrically impossible, such as a negative gap or fewer than one magnet. Soft bounds ('soft_min'/'soft_max') only say which range is worth exploring; values outside stay legal, and this is what a slider or a sweep should span. Soft bounds must lie inside hard ones. Call with no bounds to clear them. Values are unitless SI.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Name of an existing variable."
+            },
+            "min": {
+              "type": "number",
+              "description": "Lowest allowed value. Optional."
+            },
+            "max": {
+              "type": "number",
+              "description": "Highest allowed value. Optional."
+            },
+            "soft_min": {
+              "type": "number",
+              "description": "Low end of the interesting range. Optional."
+            },
+            "soft_max": {
+              "type": "number",
+              "description": "High end of the interesting range. Optional."
+            }
+          },
+          "required": [
+            "name"
           ]
         }
       }

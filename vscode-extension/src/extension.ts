@@ -307,6 +307,29 @@ function parseTerms(text: string): (number | string)[] | undefined {
   return depth === 0 && terms.length ? terms.map(asDocumentValue) : undefined;
 }
 
+/**
+ * "0, 10" / "0," / ", 10" -> [min, max] with null for an open end; undefined
+ * if it is not a pair at all. An empty side is "no limit here", which is not
+ * the same as no limits.
+ */
+function parseBoundPair(text: string): [number | null, number | null] | undefined {
+  const parts = text.split(',');
+  if (parts.length !== 2) {
+    return undefined;
+  }
+  const ends = parts.map((part) => {
+    const trimmed = part.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const value = Number(trimmed);
+    return Number.isFinite(value) ? value : undefined;
+  });
+  return ends.some((end) => end === undefined)
+    ? undefined
+    : (ends as [number | null, number | null]);
+}
+
 /** Group a flat list into rows of `width` (e.g. points into [x,y,z]). */
 function reshape<T>(flat: T[], width: number): T[][] {
   const rows: T[][] = [];
@@ -588,6 +611,7 @@ function registerLmTools(context: vscode.ExtensionContext): void {
     queryTool('magpylib-studio_getVariables', 'get_variables'),
     queryTool('magpylib-studio_sweep', 'sweep'),
     editTool('magpylib-studio_setVariable', 'set_variable'),
+    editTool('magpylib-studio_setVariableBounds', 'set_variable_bounds'),
     editTool('magpylib-studio_duplicateAround', 'duplicate_around'),
     editTool('magpylib-studio_applyEdit', 'apply_edit'),
     editTool('magpylib-studio_addObject', 'add_object'),
@@ -754,6 +778,51 @@ export function activate(context: vscode.ExtensionContext): void {
     await mutateFromTree('set_variable', {
       name: variable.name,
       value: Number.isFinite(asNumber) && trimmed !== '' ? asNumber : `=${trimmed}`,
+    });
+  };
+
+  /**
+   * Limits for a variable. Hard bounds are refused if broken; soft bounds are
+   * only the range a slider spans, which is why they are asked for separately
+   * — "never below zero" and "the interesting part is 1 to 5" are different
+   * statements about the same variable.
+   */
+  const setVariableBounds = async (variable: Variable) => {
+    const ask = async (prompt: string, current?: [number?, number?]) => {
+      const value =
+        current && (current[0] !== undefined || current[1] !== undefined)
+          ? `${current[0] ?? ''}, ${current[1] ?? ''}`
+          : '';
+      const text = await vscode.window.showInputBox({
+        prompt,
+        value,
+        placeHolder: 'min, max — or one of them, or empty for none',
+        validateInput: (v) =>
+          v.trim() === '' || parseBoundPair(v) ? undefined : 'min, max',
+      });
+      return text === undefined ? undefined : (parseBoundPair(text) ?? [null, null]);
+    };
+    const bounds = variable.bounds ?? {};
+    const hard = await ask(
+      `${variable.name} — allowed range (a value outside is refused)`,
+      [bounds.min, bounds.max],
+    );
+    if (hard === undefined) {
+      return;
+    }
+    const soft = await ask(
+      `${variable.name} — slider range (empty: use the allowed range)`,
+      [bounds.soft_min, bounds.soft_max],
+    );
+    if (soft === undefined) {
+      return;
+    }
+    await mutateFromTree('set_variable_bounds', {
+      name: variable.name,
+      min: hard[0],
+      max: hard[1],
+      soft_min: soft[0],
+      soft_max: soft[1],
     });
   };
 
@@ -1004,6 +1073,10 @@ export function activate(context: vscode.ExtensionContext): void {
       async (variable: Variable) => {
         await mutateFromTree('remove_variable', { name: variable.name });
       },
+    ),
+    vscode.commands.registerCommand(
+      'magpylib-studio.setVariableBounds',
+      async (variable: Variable) => setVariableBounds(variable),
     ),
     vscode.commands.registerCommand(
       'magpylib-studio.duplicateAround',

@@ -174,7 +174,27 @@ and drives it.
     *and* what it resolved to — which is what you want when a scene lands
     somewhere unexpected. Click a row to edit, `+` to add, inline trash to
     remove. The input box takes `2.5` or `gap*2`; the `=` marker the document
-    uses is added for you.
+    uses is added for you. **Set Bounds…** on the row asks for the allowed
+    range and then the slider range.
+  - **Bounds, hard and soft** (`doc["variable_bounds"]`, `set_variable_bounds`):
+    hard `min`/`max` are enforced **in `_build`**, not where a value is typed,
+    so they hold however the variable arrived — including when it is driven by
+    another variable's expression, which is the case a validate-on-input check
+    would miss. Soft `soft_min`/`soft_max` constrain nothing; they are the
+    range worth dragging or sweeping through, must lie inside the hard ones,
+    and are what a slider spans (falling back to the hard range). Bounds are
+    editor metadata: a script has nowhere to put them, so `apply_script`
+    carries them across for variables that survived the edit rather than
+    dropping them on every save, and `_canonical` deletes any whose variable
+    is gone.
+  - **The slider lives in the inspector**, not the variables tree — a
+    TreeItem cannot hold one, and the inspector is the only webview in the
+    sidebar. It gained a `variables` section (above the object's own
+    properties, and shown even with nothing selected) with a text field per
+    variable and a range slider whenever bounds give it a span. Dragging
+    commits on release, and the text updates live during the drag. A variable
+    defined by an expression gets no slider: its value belongs to the
+    expression.
   - **Every numeric field takes an expression**, not just the variables view:
     inspector properties and the transform pose (text inputs now — a number
     input cannot hold `gap*2` at all), the relative rotate/move fields, the
