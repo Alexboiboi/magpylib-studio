@@ -183,6 +183,16 @@ async function askStart(): Promise<{ start?: number } | undefined> {
     : { start: Number(indexText) };
 }
 
+/** Calls whose params carry values a user typed, so may name new variables. */
+const MUTATING_WITH_VALUES = new Set([
+  'set_param',
+  'set_transform',
+  'move',
+  'rotate',
+  'add_object',
+  'duplicate_around',
+]);
+
 /** Units shown in the Add Object prompts. */
 const PARAM_UNITS: Record<string, string> = {
   polarization: ' (T), as Jx, Jy, Jz',
@@ -626,7 +636,16 @@ export function activate(context: vscode.ExtensionContext): void {
 
   inspector = new InspectorViewProvider(
     context.extensionUri,
-    (method, params) => getEngine(context).request(method, params),
+    async (method, params) => {
+      // The inspector's fields take expressions too, and a webview cannot
+      // raise an input box — so the ask happens here, on the way through.
+      if (params && MUTATING_WITH_VALUES.has(method)) {
+        if (!(await ensureVariablesDefined(Object.values(params)))) {
+          return { ok: false, error: 'cancelled' };
+        }
+      }
+      return getEngine(context).request(method, params);
+    },
     () => {
       currentPanel?.webview.postMessage({ type: 'refresh' });
       tree.refresh(); // label edits change tree captions
@@ -818,8 +837,56 @@ export function activate(context: vscode.ExtensionContext): void {
     });
   };
 
+    /**
+   * Writing `a*2` into a field is a clear way to say "and let me set `a`",
+   * but the document cannot build until `a` exists — so ask for it here,
+   * before the value is stored, rather than reporting a failure after.
+   * A definition may itself introduce names (`a = b*2`), hence the loop.
+   * Returns false if the user backed out, meaning: abandon the whole edit.
+   */
+  const ensureVariablesDefined = async (values: unknown): Promise<boolean> => {
+    const { unknown } = await getEngine(context).request<{ unknown: string[] }>(
+      'unknown_variables',
+      { values },
+    );
+    for (const name of unknown) {
+      // A definition naming something that does not exist yet is rejected by
+      // the engine, so stay on this one until it takes or the user gives up.
+      for (;;) {
+        const text = await vscode.window.showInputBox({
+          prompt: `${name} is a new variable — give it a value`,
+          placeHolder: 'a number, or an expression over the other variables',
+          validateInput: (v) => (v.trim() ? undefined : 'A number, or an expression'),
+        });
+        if (text === undefined) {
+          return false;
+        }
+        const result = (await getEngine(context).request('set_variable', {
+          name,
+          value: asDocumentValue(text),
+        })) as { ok: boolean; error?: string };
+        if (result.ok) {
+          break;
+        }
+        const retry = await vscode.window.showErrorMessage(
+          `Magpylib Studio: ${result.error}`,
+          'Try again',
+        );
+        if (retry !== 'Try again') {
+          return false;
+        }
+      }
+    }
+    variablesTree?.refresh();
+    return true;
+  };
+
   /** Run a mutating engine call from the tree UI, surface failures, refresh. */
   const mutateFromTree = async (method: string, params: Record<string, unknown>) => {
+    // whatever was typed may name variables that do not exist yet
+    if (!(await ensureVariablesDefined(Object.values(params)))) {
+      return;
+    }
     try {
       const result = (await getEngine(context).request(method, params)) as {
         ok: boolean;

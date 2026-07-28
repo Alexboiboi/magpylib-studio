@@ -55,6 +55,7 @@ _PUBLIC = {
     "sweep",
     "get_sweep_figure",
     "get_variables",
+    "unknown_variables",
     "set_variable",
     "remove_variable",
     "get_events",

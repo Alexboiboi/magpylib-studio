@@ -187,7 +187,19 @@ and drives it.
     replace the expression the moment the user touched a neighbouring axis.
     `get_transform` falls back to the constructor param when no event pinned
     the pose, and `set_transform` records an expression as written instead of
-    resolving it to a pose. **Sweep a Variable…** ($(graph-line) in the same
+    resolving it to a pose.
+  - **Naming a variable creates it.** Type `a, a, 2*a` into a new cuboid's
+    dimension and the studio asks for `a` before storing anything, then adds
+    it to the stack — writing a name is how you say "and let me set this".
+    `unknown_variables(values)` reports what a value refers to but the
+    document does not define (functions and `pi`/`e`/`tau` are not variables,
+    and the `=` marker keeps ordinary strings like `'z'` out of it);
+    `ensureVariablesDefined` in the extension does the asking. It sits in
+    `mutateFromTree` and in the inspector's request channel — a webview
+    cannot raise an input box, so the ask happens on the way through — which
+    covers every prompt, tree command and inspector field at once. Backing
+    out of the prompt abandons the whole edit. LM tools deliberately bypass
+    it: there is no one to ask, so Copilot gets the error and fixes it. **Sweep a Variable…** ($(graph-line) in the same
     title bar) asks for from/to/steps and drives the Field panel's third
     mode, "Against a variable" (`get_sweep_figure`). **Duplicate Around…**
     is in the scene tree's Transform submenu.

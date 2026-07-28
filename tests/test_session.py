@@ -1131,6 +1131,30 @@ def test_variables_drive_the_scene():
     assert s.remove_variable("spare") == {"ok": True}
 
 
+def test_unknown_variables_are_reported_before_a_value_is_stored():
+    """Typing `a*2` into a field is a way of saying "and let me set a" — the
+    UI asks this what to prompt for, rather than storing and failing."""
+    s = MagpylibStudioSession()
+    s.set_variable("gap", 1)
+
+    # reading order, deduplicated, nested structures included
+    assert s.unknown_variables(["=a", "=a*2", 3, ["=b/gap"]]) == {"unknown": ["a", "b"]}
+    assert s.unknown_variables({"dimension": ["=w", "=w", "=2*h"]}) == {
+        "unknown": ["w", "h"]
+    }
+    # what is already defined, what is a function, and what is a constant are
+    # none of them things to ask for
+    assert s.unknown_variables(["=gap*2", "=sqrt(gap)", "=pi", 5, "z"]) == {
+        "unknown": []
+    }
+    # once asked and set, the same values store cleanly
+    assert s.set_variable("a", 2) == {"ok": True}
+    assert s.add_object("m", "magnet.Cuboid",
+                        {"polarization": [0, 0, 1],
+                         "dimension": ["=a", "=a", "=2*a"]}) == {"ok": True}
+    assert list(s._objs["m"].dimension) == [2, 2, 4]
+
+
 def test_editors_see_expressions_as_written_not_only_resolved():
     """What the inspector needs: a field showing only the resolved number
     would replace the expression the moment the user touched a neighbour."""

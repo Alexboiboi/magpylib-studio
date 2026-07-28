@@ -39,6 +39,7 @@ Protocol surface (all JSON-serializable in/out):
   get_history()                        -> {"entries": [...], "current": int, ...}
   goto_history(index)                  -> {"ok": bool, "error"?: str}
   get_variables()                      -> {"variables": [{name, expression, value}]}
+  unknown_variables(values)            -> {"unknown": [names not defined yet]}
   set_variable(name, value)            -> {"ok": bool, "error"?: str}
   remove_variable(name)                -> {"ok": bool, "error"?: str}
   sweep(variable, values, sensor_id?, points?, field?) -> {"ok", "steps": [...]}
@@ -1439,6 +1440,23 @@ class MagpylibStudioSession:
             "variables": [
                 {"name": name, "expression": value, "value": self._vars.get(name)}
                 for name, value in variables.items()
+            ]
+        }
+
+    def unknown_variables(self, values):
+        """Names the given values refer to that this document does not define.
+
+        A UI asks this before storing what someone typed: writing `a*2` into a
+        field is a perfectly clear way to say "and let me set `a`", but the
+        document cannot build until `a` exists, so it has to be asked for
+        first rather than reported as an error afterwards.
+        """
+        defined = self.doc.get("variables") or {}
+        return {
+            "unknown": [
+                name
+                for name in expressions.referenced_names(values)
+                if name not in defined
             ]
         }
 

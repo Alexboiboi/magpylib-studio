@@ -110,6 +110,39 @@ _BINOPS = {
 }
 
 
+def referenced_names(value):
+    """Variable names the expressions inside a value refer to, in the order
+    they are read. Function names and the built-in constants are not
+    variables, so they are left out — what remains is what a document has to
+    define, or a UI has to ask for."""
+    names: list[str] = []
+
+    def visit(item):
+        if is_expression(item):
+            try:
+                tree = ast.parse(source_of(item), mode="eval")
+            except SyntaxError:
+                return  # the build will report it
+            called = {
+                node.func.id
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            }
+            for node in ast.walk(tree):
+                if (isinstance(node, ast.Name) and node.id not in called
+                        and node.id not in _CONSTANTS and node.id not in names):
+                    names.append(node.id)
+        elif isinstance(item, list):
+            for entry in item:
+                visit(entry)
+        elif isinstance(item, dict):
+            for entry in item.values():
+                visit(entry)
+
+    visit(value)
+    return names
+
+
 def contains_expression(value):
     """True if a document value has an expression anywhere inside it."""
     if is_expression(value):
