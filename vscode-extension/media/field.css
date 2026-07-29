@@ -1,0 +1,6 @@
+html, body { margin: 0; height: 100%; font-family: var(--vscode-font-family, sans-serif); color: var(--vscode-foreground); }
+body { display: flex; flex-direction: column; }
+#canvas { flex: 1; min-height: 0; }
+#statusbar { display: flex; gap: 12px; align-items: center; padding: 2px 10px; font-size: 11px; opacity: 0.8; border-top: 1px solid var(--vscode-panel-border, #444); }
+#statusbar label { display: flex; gap: 4px; align-items: center; cursor: pointer; }
+select { background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, transparent); font-size: 11px; }

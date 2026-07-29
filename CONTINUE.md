@@ -465,15 +465,20 @@ and drives it.
     repo-root/.venv → `python3`. Engine stderr → output channel.
   - Verified via `node` smoke test driving compiled `EngineClient` against the
     real engine: all methods, invalid-edit rejection, unknown-method rejection.
-  - **Webview JavaScript is not covered by `tsc`** — it lives inside template
-    literals, so the compiler only sees a string. That cost a whole day once:
-    a `\n` written singly inside `inspectorView.ts` was resolved by TypeScript
-    into a real line break *inside a quoted string*, so the emitted script had
-    a syntax error, the Inspector's script never ran, and the panel rendered
-    as blank HTML with no error visible anywhere. Two guards now:
-    `harness/check-webview-scripts.js` parses the script out of every webview
-    HTML and syntax-checks it (wired into `npm run compile`, so a broken panel
-    fails the build), and `harness/webview-harness.js` executes a panel's own
+  - **Webview JavaScript lives in `media/*.js`**, loaded with `asWebviewUri`
+    under a nonce CSP — the layout every `vscode-extension-samples` webview
+    uses, and the reason is not tidiness. It used to sit inside TypeScript
+    template literals, where the compiler sees only a string: a `\n` written
+    singly was resolved by TypeScript into a real line break *inside a quoted
+    string*, the emitted script had a syntax error, and the Inspector rendered
+    as blank HTML with no error visible anywhere, because a script that cannot
+    parse cannot report that it did not parse. 1,031 lines moved out;
+    `src/webview.ts` holds the `nonce()` and `mediaUri()` both ends need, and
+    `media/jsconfig.json` makes the editor check that code. Two guards now:
+    `harness/check-webview-scripts.js` parses every `media/*.js` and refuses
+    any `src/*.ts` that has grown a webview script back inside a template
+    literal (wired into `npm run compile`, so a broken panel fails the build),
+    and `harness/webview-harness.js` executes a panel's own
     script under a DOM shim against a real engine and prints the resulting DOM
     as text — `npm run inspect -- halbach`, or
     `node harness/webview-harness.js variables halbach`. Escapes meant for the

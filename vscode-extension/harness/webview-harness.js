@@ -15,6 +15,7 @@
  */
 const Module = require('module');
 const path = require('path');
+const fs = require('fs');
 const { spawn } = require('child_process');
 
 const EXT = path.join(__dirname, '..');
@@ -261,7 +262,7 @@ async function main() {
       elementIds: ['list', 'empty', 'help', 'helpBody', 'status'],
       build: () => {
         const { VariablesViewProvider } = require(path.join(EXT, 'out', 'variablesView.js'));
-        return new VariablesViewProvider(request, () => {}, () => {});
+        return new VariablesViewProvider(uri(EXT), request, () => {}, () => {});
       },
     },
   };
@@ -283,6 +284,8 @@ async function main() {
   let onMessage;
   const webview = {
     options: {},
+    cspSource: 'vscode-resource://harness',
+    asWebviewUri: (u) => `webview://${path.basename(u.fsPath)}`,
     set html(value) {
       capturedHtml = value;
     },
@@ -303,19 +306,13 @@ async function main() {
     onDidDispose: () => ({ dispose() {} }),
   });
 
-  const script = capturedHtml.slice(
-    capturedHtml.indexOf('<script>') + '<script>'.length,
-    capturedHtml.lastIndexOf('</script>'),
-  );
-
-  // Syntax first: a typo here is what makes a panel render as a blank page.
-  try {
-    new Function(script); // eslint-disable-line no-new-func
-  } catch (err) {
-    console.log(`SYNTAX ERROR in the ${which} webview script: ${err.message}`);
-    engine.proc.kill();
-    process.exit(1);
+  // The panel's real script, from the file the webview would load: the HTML
+  // only names it now, which is the point of moving it out of the source.
+  const named = /<script[^>]*src="[^"]*\/(\w+\.js)"/.exec(capturedHtml);
+  if (!named) {
+    throw new Error(`${which}: its HTML loads no script`);
   }
+  const script = fs.readFileSync(path.join(EXT, 'media', named[1]), 'utf8');
 
   const names = Object.keys(globals);
   // eslint-disable-next-line no-new-func

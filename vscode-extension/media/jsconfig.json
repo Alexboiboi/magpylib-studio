@@ -1,0 +1,13 @@
+{
+  // These files run in a webview, not in Node and not in the extension host.
+  // Checking them here is the point of their being files at all: the editor
+  // and the linter read this folder now, where before it was a string.
+  "compilerOptions": {
+    "module": "esnext",
+    "target": "es2020",
+    "lib": ["es2020", "dom"],
+    "checkJs": true,
+    "strict": false
+  },
+  "exclude": ["node_modules"]
+}

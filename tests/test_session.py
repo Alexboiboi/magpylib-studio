@@ -167,7 +167,7 @@ def test_inspector_offers_only_planes_the_engine_knows():
 
     from magpylib_studio.session import _MIRROR_NORMALS
 
-    source = pathlib.Path(__file__).parent.parent / "vscode-extension/src/inspectorView.ts"
+    source = pathlib.Path(__file__).parent.parent / "vscode-extension/media/inspector.js"
     if not source.exists():  # engine installed without the extension beside it
         pytest.skip("extension source not present")
     listed = re.search(r"plane: \[([^\]]*)\]", source.read_text()).group(1)

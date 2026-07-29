@@ -1,0 +1,40 @@
+body { margin: 0; padding: 0 8px 8px; font-family: var(--vscode-font-family); font-size: 12px; color: var(--vscode-foreground); }
+/* the object being edited stays put while its properties scroll */
+#header { position: sticky; top: 0; z-index: 1; background: var(--vscode-sideBar-background, var(--vscode-editor-background)); padding: 6px 0 5px; border-bottom: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.25)); margin-bottom: 4px; }
+#header .name { font-weight: 600; }
+#header .what { opacity: 0.6; font-size: 11px; }
+#filter { width: 100%; box-sizing: border-box; margin: 4px 0 2px; }
+details { margin: 6px 0 2px; }
+summary { cursor: pointer; text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em; opacity: 0.7; user-select: none; padding: 2px 0; }
+summary:hover { opacity: 1; }
+.row { display: grid; grid-template-columns: minmax(74px, 84px) 1fr 18px; gap: 6px; align-items: center; padding: 2px 0 2px 6px; }
+.row label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row label .unit { opacity: 0.5; }
+.row.set label { font-weight: 600; }
+.widget { display: flex; gap: 3px; align-items: center; min-width: 0; }
+input, select { background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, transparent); font-size: 12px; padding: 1px 3px; min-width: 0; width: 100%; box-sizing: border-box; }
+input[type=color] { padding: 0; width: 22px; height: 18px; flex: none; }
+input[type=range] { padding: 0; }
+.num { width: 48px; flex: none; }
+.reset { cursor: pointer; border: none; background: none; color: var(--vscode-foreground); opacity: 0.7; padding: 0; font-size: 12px; visibility: hidden; }
+.row.set .reset { visibility: visible; }
+#status { color: var(--vscode-errorForeground); white-space: pre-wrap; margin-top: 6px; }
+#empty { opacity: 0.7; margin-top: 10px; }
+.vec { display: grid; grid-template-columns: repeat(3, 11px 1fr); gap: 3px; align-items: center; }
+.vec span { opacity: 0.55; text-align: right; font-size: 10px; }
+.vec input { width: 100%; box-sizing: border-box; }
+.vec.readonly input { opacity: 0.6; background: transparent; border-color: transparent; cursor: default; }
+/* a field holding an expression rather than a number, hovering shows its value */
+input.expr { font-style: italic; color: var(--vscode-charts-blue, #3987e5); }
+.trow { display: flex; gap: 4px; align-items: center; padding: 2px 0 2px 8px; flex-wrap: wrap; }
+.trow input[type=number] { width: 52px; }
+.trow select { width: auto; }
+.trow button { background: var(--vscode-button-secondaryBackground, #3a3d41); color: var(--vscode-button-secondaryForeground, inherit); border: none; padding: 2px 8px; cursor: pointer; border-radius: 2px; }
+.trow button:hover { background: var(--vscode-button-secondaryHoverBackground, #45494e); }
+.hint { opacity: 0.6; padding: 0 0 3px 6px; font-size: 11px; }
+textarea { width: 100%; box-sizing: border-box; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, transparent); font-family: var(--vscode-editor-font-family, monospace); font-size: 11px; resize: vertical; }
+.matrix summary { text-transform: none; letter-spacing: 0; font-size: 11px; opacity: 0.85; padding-left: 6px; }
+/* the selected construction step, so it is obvious what just changed */
+#step:not(:empty) { border-left: 2px solid var(--vscode-focusBorder, #3987e5); padding-left: 6px; margin: 4px 0; }
+#step summary { color: var(--vscode-charts-blue, #3987e5); }
+#header .generated { font-size: 11px; opacity: 0.8; color: var(--vscode-charts-blue, #3987e5); padding-top: 2px; }

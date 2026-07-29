@@ -1,50 +1,46 @@
 /**
- * Syntax-checks the JavaScript inside every webview HTML the extension emits.
+ * Two guards on the webview code, run as part of `npm run compile`.
  *
  *   node harness/check-webview-scripts.js
  *
- * That code lives in TypeScript template literals, so tsc never parses it: an
- * escape that survives the outer literal (`\n` becoming a real newline inside
- * a quoted string) produces a webview that renders as a blank panel, with no
- * error anywhere the extension host can see. Cheap to check, so check it.
+ * 1. Every media/*.js parses. They are loaded by URL, so a syntax error is
+ *    reported nowhere the extension host can see it: the panel simply renders
+ *    as the static HTML it starts as, blank and silent. That cost a day once.
+ *
+ * 2. No src/*.ts has grown a webview script back inside a template literal.
+ *    That is where the escaping hazard lives — `\n` written singly is resolved
+ *    by TypeScript into a real line break inside a quoted string — and where
+ *    neither tsc nor eslint can see the code at all.
  */
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const SRC = path.join(__dirname, '..', 'src');
-const SCRIPT_RE = /<script(?:\s+nonce="\$\{nonce\}"[^>]*)?>([\s\S]*?)<\/script>/g;
-
+const EXT = path.join(__dirname, '..');
 let failures = 0;
-for (const file of fs.readdirSync(SRC).filter((f) => f.endsWith('.ts'))) {
-  const source = fs.readFileSync(path.join(SRC, file), 'utf8');
-  let index = 0;
-  for (const match of source.matchAll(SCRIPT_RE)) {
-    const body = match[1];
-    if (!body.trim() || body.includes('src=')) {
-      continue;
-    }
-    index += 1;
-    // What the browser receives: the outer template literal has already
-    // resolved its escapes and interpolations by then.
-    const emitted = body
-      .replace(/\\`/g, '`')
-      .replace(/\\\$/g, '$')
-      .replace(/\$\{[^}]*\}/g, '0')
-      .replace(/\\([nrt'"\\])/g, (_, c) =>
-        ({ n: '\n', r: '\r', t: '\t' })[c] ?? `\\${c}`,
-      );
-    const label = `${file} script #${index}`;
-    try {
-      new vm.Script(emitted, { filename: label });
-      console.log(`ok    ${label} (${emitted.split('\n').length} lines)`);
-    } catch (err) {
-      failures += 1;
-      console.log(`FAIL  ${label}: ${err.message}`);
-      const line = Number(/:(\d+)$/.exec(err.stack?.split('\n')[0] ?? '')?.[1]);
-      const at = err.stack?.split('\n').slice(0, 3).join('\n');
-      console.log(at ?? '', line || '');
-    }
+
+for (const file of fs.readdirSync(path.join(EXT, 'media')).filter((f) => f.endsWith('.js'))) {
+  const source = fs.readFileSync(path.join(EXT, 'media', file), 'utf8');
+  try {
+    new vm.Script(source, { filename: file });
+    console.log(`ok    media/${file} (${source.split('\n').length} lines)`);
+  } catch (err) {
+    failures += 1;
+    console.log(`FAIL  media/${file}: ${err.message}`);
   }
 }
+
+// A <script> with a body, as opposed to one that names a file to load.
+const INLINE = /<script(?:\s+nonce="\$\{nonce\}")?>\s*\n[\s\S]*?<\/script>/;
+for (const file of fs.readdirSync(path.join(EXT, 'src')).filter((f) => f.endsWith('.ts'))) {
+  const source = fs.readFileSync(path.join(EXT, 'src', file), 'utf8');
+  if (INLINE.test(source)) {
+    failures += 1;
+    console.log(
+      `FAIL  src/${file} embeds a webview script. Put it in media/ and load ` +
+        `it with mediaUri(): inside a template literal nothing checks it.`,
+    );
+  }
+}
+
 process.exit(failures ? 1 : 0);
