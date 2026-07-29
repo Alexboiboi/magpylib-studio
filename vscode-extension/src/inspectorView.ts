@@ -693,6 +693,10 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
         loadStep().catch(fail);
       } else if (message.type === 'refresh') {
         reloadAll().catch(fail);
+      } else {
+        // Nothing else posts into this webview, so an unknown type means the
+        // two ends disagree — visible beats silent.
+        fail('unhandled message: ' + message.type);
       }
     });
 

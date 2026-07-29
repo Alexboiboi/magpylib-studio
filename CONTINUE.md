@@ -458,10 +458,17 @@ and drives it.
     as blank HTML with no error visible anywhere. Two guards now:
     `harness/check-webview-scripts.js` parses the script out of every webview
     HTML and syntax-checks it (wired into `npm run compile`, so a broken panel
-    fails the build), and `harness/webview-harness.js` executes the Inspector's
-    own script under a DOM shim against a real engine and prints the resulting
-    DOM as text — `npm run inspect -- halbach`. Escapes meant for the webview
-    must be doubled; if a panel is ever blank, run the checker first.
+    fails the build), and `harness/webview-harness.js` executes a panel's own
+    script under a DOM shim against a real engine and prints the resulting DOM
+    as text — `npm run inspect -- halbach`, or
+    `node harness/webview-harness.js variables halbach`. Escapes meant for the
+    webview must be doubled; if a panel is ever blank, run the checker first.
+  - The other half of the same blind spot is the **message contract**: the
+    host posting a type the webview does not handle is silent. That is how
+    "what can go in a value" stayed empty — the Variables provider posted
+    `{type:'help'}` on ready and the script had no branch for it, so
+    `loadHelp()` was dead code. Both panels now end their handler with an
+    `else` that puts `unhandled message: X` on screen.
   - NOT yet done: run inside an actual Extension Development Host (F5) —
     needs a human with VS Code; everything below the vscode API is tested.
 

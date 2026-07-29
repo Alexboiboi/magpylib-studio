@@ -325,6 +325,13 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider {
         else entry.reject(new Error(message.method + ': ' + message.error));
       } else if (message.type === 'refresh') {
         load().catch((err) => { statusEl.textContent = String(err); });
+      } else if (message.type === 'help') {
+        loadHelp().catch((err) => { statusEl.textContent = String(err); });
+      } else {
+        // A message the host sends and this end does not handle is a broken
+        // contract, not a no-op: it is how "what can go in a value" stayed
+        // empty. Say so where it can be seen.
+        statusEl.textContent = 'unhandled message: ' + message.type;
       }
     });
 

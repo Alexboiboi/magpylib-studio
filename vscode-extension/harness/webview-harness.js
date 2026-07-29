@@ -125,7 +125,6 @@ for (const id of ['header', 'step', 'props', 'transform', 'params', 'empty', 'st
   el.id = id;
   roots.set(id, el);
 }
-roots.get('empty').textContent = 'Select an object in the Scene view.';
 
 class Option {
   constructor(label, value) {
@@ -249,16 +248,35 @@ async function main() {
     await engine.request('load_example', { name: example });
   }
 
-  const { InspectorViewProvider } = require(path.join(EXT, 'out', 'inspectorView.js'));
-  if (which !== 'inspector') {
-    throw new Error(`no harness for ${which} yet`);
+  const request = (method, params) => engine.request(method, params);
+  const PANELS = {
+    inspector: {
+      elementIds: ['header', 'step', 'params', 'transform', 'props', 'status'],
+      build: () => {
+        const { InspectorViewProvider } = require(path.join(EXT, 'out', 'inspectorView.js'));
+        return new InspectorViewProvider(uri(EXT), request, () => {}, () => undefined);
+      },
+    },
+    variables: {
+      elementIds: ['list', 'empty', 'help', 'helpBody', 'status'],
+      build: () => {
+        const { VariablesViewProvider } = require(path.join(EXT, 'out', 'variablesView.js'));
+        return new VariablesViewProvider(request, () => {}, () => {});
+      },
+    },
+  };
+  const panel = PANELS[which];
+  if (!panel) {
+    throw new Error(`no harness for ${which}; try ${Object.keys(PANELS).join(' or ')}`);
   }
-  const provider = new InspectorViewProvider(
-    uri(EXT),
-    (method, params) => engine.request(method, params),
-    () => {},
-    () => undefined,
-  );
+  for (const id of panel.elementIds) {
+    if (!roots.has(id)) {
+      const el = new El('div');
+      el.id = id;
+      roots.set(id, el);
+    }
+  }
+  const provider = panel.build();
 
   // Capture the HTML the provider would hand VS Code, and wire the webview's
   // rpc to the engine, exactly as resolveWebviewView does.
@@ -308,26 +326,36 @@ async function main() {
     await onMessage(message);
   }
 
-  const objects = await engine.request('list_objects');
-  const targets = [
-    objects.find((o) => !o.derived),
-    objects.find((o) => o.derived),
-  ].filter(Boolean);
-
-  for (const target of targets) {
-    await webview.postMessage({ type: 'select', objectId: target.id });
-    // Let the rpc round trips settle; each one is a real subprocess call.
+  /** Let the rpc round trips settle; each one is a real subprocess call. */
+  const settle = async () => {
     for (let i = 0; i < 40; i++) {
       await new Promise((r) => setTimeout(r, 25));
-      const queued = messagesToHost.splice(0);
-      for (const message of queued) await onMessage(message);
+      for (const message of messagesToHost.splice(0)) await onMessage(message);
     }
-    console.log(`\n=== ${target.id}${target.derived ? ` (copy of ${target.derived})` : ''} ===`);
-    for (const id of ['header', 'step', 'params', 'transform', 'props', 'status']) {
-      const el = roots.get(id);
-      const body = dump(el);
+  };
+  const show = (title) => {
+    console.log(`\n=== ${title} ===`);
+    for (const id of panel.elementIds) {
+      const body = dump(roots.get(id));
       console.log(`--- #${id} (${body.length} nodes)`);
       console.log(body.slice(0, 40).join('\n'));
+    }
+  };
+
+  if (which === 'variables') {
+    // Nothing to select: the panel loads itself from the scene's variables,
+    // and the host asks it for the expression help on ready.
+    await settle();
+    show(example ? `${example} variables` : 'variables');
+  } else {
+    const objects = await engine.request('list_objects');
+    for (const target of [
+      objects.find((o) => !o.derived),
+      objects.find((o) => o.derived),
+    ].filter(Boolean)) {
+      await webview.postMessage({ type: 'select', objectId: target.id });
+      await settle();
+      show(`${target.id}${target.derived ? ` (copy of ${target.derived})` : ''}`);
     }
   }
 
