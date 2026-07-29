@@ -67,6 +67,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider {
       if (message.type === 'ready') {
         this.ready = true;
         this.refresh();
+        webviewView.webview.postMessage({ type: 'help' });
         return;
       }
       if (message.type === 'action') {
@@ -125,6 +126,11 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider {
     .acts button:hover { opacity: 1; }
     .range { grid-column: 2 / 4; font-size: 10px; opacity: 0.6; margin-top: -3px; }
     #empty { opacity: 0.75; padding: 6px 0; line-height: 1.4; }
+    #help { margin-top: 8px; opacity: 0.85; }
+    #help summary { cursor: pointer; font-size: 11px; text-transform: uppercase; opacity: 0.7; user-select: none; }
+    #help dt { font-size: 10px; text-transform: uppercase; opacity: 0.6; margin-top: 5px; }
+    #help dd { margin: 1px 0 0; font-family: var(--vscode-editor-font-family, monospace); font-size: 11px; word-spacing: 4px; }
+    #help code { font-family: var(--vscode-editor-font-family, monospace); }
     #status { color: var(--vscode-errorForeground); min-height: 14px; padding-top: 4px; }
   </style>
 </head>
@@ -134,6 +140,10 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider {
     No variables yet. A named number any position, dimension or angle can be
     written in terms of — change it once and the scene follows.
   </div>
+  <details id="help">
+    <summary>what can go in a value</summary>
+    <div id="helpBody"></div>
+  </details>
   <div id="status"></div>
   <script>
     const vscodeApi = acquireVsCodeApi();
@@ -186,6 +196,31 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider {
       el.addEventListener('click', () =>
         vscodeApi.postMessage({ type: 'action', action, name }));
       return el;
+    }
+
+    /** Read off the engine's own allow-list, so it cannot go stale. */
+    async function loadHelp() {
+      const help = await rpc('expression_help', {});
+      const body = document.getElementById('helpBody');
+      body.innerHTML = '';
+      const list = document.createElement('dl');
+      for (const [name, value] of [
+        ['operators', help.operators.join(' ')],
+        ['functions', help.functions.join(' ')],
+        ['constants', help.constants.join(' ')],
+        ['for example', help.examples.join('   ')],
+      ]) {
+        const dt = document.createElement('dt');
+        dt.textContent = name;
+        const dd = document.createElement('dd');
+        dd.textContent = value;
+        list.append(dt, dd);
+      }
+      const note = document.createElement('div');
+      note.style.opacity = '0.7';
+      note.style.marginTop = '6px';
+      note.textContent = help.note;
+      body.append(list, note);
     }
 
     async function load() {

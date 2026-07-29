@@ -827,6 +827,36 @@ export function activate(context: vscode.ExtensionContext): void {
    * else is stored as an expression, so the user types `gap*2` rather than
    * remembering the document's `=` marker.
    */
+  /**
+   * Validation that teaches: the engine says why a value is not an
+   * expression, as it is typed, rather than after it is rejected. Names are
+   * not checked here — one that does not exist yet is offered for creation.
+   */
+  const checkExpression = async (text: string): Promise<string | undefined> => {
+    if (!text.trim()) {
+      return 'A number, or an expression';
+    }
+    if (Number.isFinite(Number(text.trim()))) {
+      return undefined;
+    }
+    const result = (await getEngine(context).request('check_expression', {
+      text,
+    })) as { ok: boolean; error?: string };
+    return result.ok ? undefined : result.error;
+  };
+
+  /** One line of what expressions can do, read off the engine's allow-list. */
+  const expressionHint = async (): Promise<string> => {
+    const help = (await getEngine(context).request('expression_help')) as {
+      functions: string[];
+      constants: string[];
+    };
+    return (
+      `+ - * / ** ( ) · ${help.functions.join(' ')} · ${help.constants.join(' ')}` +
+      ' · other variables'
+    );
+  };
+
   const editVariable = async (variable: Variable, prompt?: string): Promise<boolean> => {
     const current =
       typeof variable.expression === 'string'
@@ -835,7 +865,8 @@ export function activate(context: vscode.ExtensionContext): void {
     const text = await vscode.window.showInputBox({
       prompt: prompt ?? `${variable.name} — value or expression`,
       value: current,
-      validateInput: (v) => (v.trim() ? undefined : 'A number, or an expression'),
+      placeHolder: await expressionHint(),
+      validateInput: checkExpression,
     });
     if (text === undefined) {
       return false;
@@ -1115,8 +1146,8 @@ export function activate(context: vscode.ExtensionContext): void {
       for (;;) {
         const text = await vscode.window.showInputBox({
           prompt: `${name} is a new variable — give it a value`,
-          placeHolder: 'a number, or an expression over the other variables',
-          validateInput: (v) => (v.trim() ? undefined : 'A number, or an expression'),
+          placeHolder: await expressionHint(),
+          validateInput: checkExpression,
         });
         if (text === undefined) {
           return false;

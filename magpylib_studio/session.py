@@ -43,6 +43,8 @@ Protocol surface (all JSON-serializable in/out):
   goto_history(index)                  -> {"ok": bool, "error"?: str}
   get_variables()                      -> {"variables": [{name, expression, value}]}
   unknown_variables(values)            -> {"unknown": [names not defined yet]}
+  expression_help()                    -> {operators, functions, constants, ...}
+  check_expression(text)               -> {"ok": bool, "error"?: str}
   set_variable(name, value)            -> {"ok": bool, "error"?: str}
   set_variable_bounds(name, min?, max?, soft_min?, soft_max?) -> {"ok": bool, ...}
   remove_variable(name)                -> {"ok": bool, "error"?: str}
@@ -2297,6 +2299,22 @@ class MagpylibStudioSession:
                 for name, value in variables.items()
             ]
         }
+
+    def expression_help(self):
+        """What an expression may contain — for a UI to show while one is
+        being typed, rather than after it is rejected."""
+        return expressions.reference()
+
+    def check_expression(self, text):
+        """Is this a usable expression? Names are not checked: one that does
+        not exist yet is well formed, and gets offered for creation."""
+        source = (
+            expressions.source_of(text)
+            if expressions.is_expression(text)
+            else str(text)
+        )
+        problem = expressions.validate(source)
+        return {"ok": problem is None, **({"error": problem} if problem else {})}
 
     def unknown_variables(self, values):
         """Names the given values refer to that this document does not define.

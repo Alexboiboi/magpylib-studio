@@ -59,6 +59,8 @@ _PUBLIC = {
     "get_sweep_figure",
     "get_variables",
     "unknown_variables",
+    "expression_help",
+    "check_expression",
     "set_variable",
     "set_variable_bounds",
     "remove_variable",

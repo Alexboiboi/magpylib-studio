@@ -1470,6 +1470,36 @@ def test_expressions_are_evaluated_not_executed():
             expressions.evaluate(hostile, lookup)
 
 
+def test_expression_help_comes_from_the_rule_it_documents():
+    """A UI that lists what expressions allow has to read it off the
+    allow-list, or the two drift and the help becomes a lie."""
+    from magpylib_studio import expressions
+
+    s = MagpylibStudioSession()
+    help_ = s.expression_help()
+    assert set(help_["functions"]) == set(expressions._FUNCTIONS)
+    assert set(help_["constants"]) == set(expressions._CONSTANTS)
+    for example in help_["examples"]:
+        assert s.check_expression(example) == {"ok": True}, example
+
+    # said while it is typed, and specific about what went wrong
+    assert s.check_expression("gap * 2") == {"ok": True}
+    assert s.check_expression("=360 / n") == {"ok": True}  # the marker is fine
+    for text, wrong in (
+        ("sinh(x)", "not one of the functions"),
+        ("a.b", "Attribute is not allowed"),
+        ("radius[0]", "Subscript is not allowed"),
+        ("2 if a else 3", "IfExp is not allowed"),
+        ("gap *", "not an expression"),
+    ):
+        result = s.check_expression(text)
+        assert result["ok"] is False and wrong in result["error"], text
+
+    # a name that does not exist yet is well formed: it gets offered instead
+    assert s.check_expression("nothing_yet * 2") == {"ok": True}
+    assert s.unknown_variables(["=nothing_yet * 2"])["unknown"] == ["nothing_yet"]
+
+
 def test_variables_drive_the_scene():
     s = MagpylibStudioSession()
     assert s.set_variable("gap", 2.0) == {"ok": True}

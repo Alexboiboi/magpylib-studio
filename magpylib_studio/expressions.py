@@ -39,6 +39,48 @@ _FUNCTIONS = {
 _CONSTANTS = {"pi": math.pi, "e": math.e, "tau": math.tau}
 
 
+def reference():
+    """What an expression may contain, read off the allow-list that enforces
+    it — so the help a UI shows cannot drift from what actually evaluates."""
+    return {
+        "operators": ["+", "-", "*", "/", "//", "%", "**", "( )"],
+        "functions": sorted(_FUNCTIONS),
+        "constants": sorted(_CONSTANTS),
+        "examples": ["2.5", "gap * 2", "360 / n", "sqrt(2) * radius",
+                     "max(gap, 1) + 0.5"],
+        "note": "Names are the scene's other variables; one that does not "
+                "exist yet is offered for you to create. No attributes, "
+                "indexing, comparisons or calls to anything else.",
+    }
+
+
+def validate(source):
+    """None if `source` is a usable expression, else why it is not.
+
+    Names are *not* checked here: an expression naming a variable that does
+    not exist yet is well formed, and the UI offers to create it.
+    """
+    try:
+        tree = ast.parse(source, mode="eval")
+    except SyntaxError as e:
+        return f"not an expression: {e.msg}"
+    for node in ast.walk(tree):
+        if not isinstance(node, _NODES):
+            return f"{type(node).__name__} is not allowed in an expression"
+        if isinstance(node, ast.Call):
+            name = getattr(node.func, "id", None)
+            if name not in _FUNCTIONS:
+                return (f"{name or 'that'!r} is not one of the functions an "
+                        f"expression may call")
+            if node.keywords:
+                return "expression calls take no keyword arguments"
+        if isinstance(node, ast.Constant) and not isinstance(
+            node.value, int | float
+        ) or isinstance(getattr(node, "value", None), bool):
+            return f"{getattr(node, 'value', '')!r} is not a number"
+    return None
+
+
 def is_expression(value):
     return isinstance(value, str) and value.startswith(PREFIX)
 
