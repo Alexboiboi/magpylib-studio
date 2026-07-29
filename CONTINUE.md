@@ -450,6 +450,18 @@ and drives it.
     repo-root/.venv → `python3`. Engine stderr → output channel.
   - Verified via `node` smoke test driving compiled `EngineClient` against the
     real engine: all methods, invalid-edit rejection, unknown-method rejection.
+  - **Webview JavaScript is not covered by `tsc`** — it lives inside template
+    literals, so the compiler only sees a string. That cost a whole day once:
+    a `\n` written singly inside `inspectorView.ts` was resolved by TypeScript
+    into a real line break *inside a quoted string*, so the emitted script had
+    a syntax error, the Inspector's script never ran, and the panel rendered
+    as blank HTML with no error visible anywhere. Two guards now:
+    `harness/check-webview-scripts.js` parses the script out of every webview
+    HTML and syntax-checks it (wired into `npm run compile`, so a broken panel
+    fails the build), and `harness/webview-harness.js` executes the Inspector's
+    own script under a DOM shim against a real engine and prints the resulting
+    DOM as text — `npm run inspect -- halbach`. Escapes meant for the webview
+    must be doubled; if a panel is ever blank, run the checker first.
   - NOT yet done: run inside an actual Extension Development Host (F5) —
     needs a human with VS Code; everything below the vscode API is tested.
 

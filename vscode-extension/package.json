@@ -1283,7 +1283,9 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
+    "compile": "tsc -p ./ && npm run check:webviews",
+    "check:webviews": "node harness/check-webview-scripts.js",
+    "inspect": "node harness/webview-harness.js inspector",
     "watch": "tsc -watch -p ./"
   },
   "dependencies": {

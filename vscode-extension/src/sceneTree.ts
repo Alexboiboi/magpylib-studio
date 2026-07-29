@@ -175,10 +175,11 @@ export class SceneTreeProvider
       // deliberately outside the magpy* namespace: every scene-view menu
       // entry is gated on /^magpy/, so this matches none of them
       item.contextValue = 'derivedCopy';
-      item.iconPath = new vscode.ThemeIcon(
-        'circle-small-filled',
-        new vscode.ThemeColor('disabledForeground'),
-      );
+      // Same glyph as anything else of its type. A copy of a cuboid is a
+      // cuboid, and a ring of twelve reading as twelve anonymous dots hides
+      // the one thing the tree is for — what the scene is made of. That it
+      // is a copy is said in words, in the row it is said about.
+      item.iconPath = iconFor(obj.type, this.extensionUri);
       return item;
     }
     item.description = obj.visible ? obj.type : `${obj.type} · hidden`;

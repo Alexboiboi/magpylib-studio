@@ -492,7 +492,11 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
           const area = document.createElement('textarea');
           area.rows = Math.min(8, p.value.length + 1);
           area.spellcheck = false;
-          area.value = p.value.map((r) => JSON.stringify(r)).join(',\n');
+          // The newline escape is doubled: this whole script is inside a
+          // template literal, so a single one is resolved by TypeScript and
+          // lands as a real line break inside a quoted string — a syntax
+          // error that takes the entire panel down with it.
+          area.value = p.value.map((r) => JSON.stringify(r)).join(',\\n');
           area.addEventListener('change', () => {
             try {
               commit(JSON.parse('[' + area.value + ']'));
