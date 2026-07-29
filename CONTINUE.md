@@ -489,8 +489,21 @@ and drives it.
     `{type:'help'}` on ready and the script had no branch for it, so
     `loadHelp()` was dead code. Both panels now end their handler with an
     `else` that puts `unhandled message: X` on screen.
-  - NOT yet done: run inside an actual Extension Development Host (F5) —
-    needs a human with VS Code; everything below the vscode API is tested.
+  - **Tests now run inside a real Extension Development Host**: `npm test`
+    (`@vscode/test-cli`, config in `.vscode-test.mjs`, suite in `src/test/`).
+    Four so far, and they cover the seams nothing else could reach —
+    activation, every declared command being registered, the engine
+    subprocess answering through the virtual `scene.json`, a removal through
+    the real command path taking a pattern's copies with it, and the script
+    tab exporting the scene and applying an edited `radius` back on save.
+    Webview *content* stays with the DOM harness: a test cannot read into a
+    webview. Two notes for whoever runs it: the user-data dir is forced into
+    the system temp dir because a unix socket path cannot exceed 103
+    characters and this repo's path is deep enough to blow that; and
+    `.vscode-test/` holds a 300 MB VS Code download, which is gitignored.
+  - `npm run compile` is tsc + **eslint** (`eslint.config.mjs`, flat config,
+    type-aware rules for `src/` and browser globals for `media/`) + the
+    webview script check, so all three run before F5 and before packaging.
 
 ## Setup (this folder)
 

@@ -37,8 +37,6 @@ function plotTemplate() {
   return dark ? 'plotly_dark' : 'plotly_white';
 }
 
-function isMap() { return modeEl.value === 'map'; }
-
 /** Sensors carrying a measuring grid can be read off directly. */
 async function loadSources() {
   const objects = await rpc('list_objects', {});

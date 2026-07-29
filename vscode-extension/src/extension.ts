@@ -1553,20 +1553,26 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('magpylib-studio.refreshScene', () =>
       broadcastMutation(),
     ),
-    vscode.commands.registerCommand('magpylib-studio.loadExample', async () => {
-      const { examples } = await getEngine(context).request<{
-        examples: { name: string; label: string; description: string }[];
-      }>('list_examples');
-      // Each leans on a different feature, so the description is the point of
-      // the list — it is what tells you the tool can do that at all.
-      const pick = await vscode.window.showQuickPick(
-        examples.map((e) => ({ label: e.label, detail: e.description, e })),
-        { placeHolder: 'Example scene to load' },
-      );
-      if (!pick) {
-        return;
+    // The name may be passed in — from a keybinding, a task, or a test —
+    // in which case there is nothing to ask.
+    vscode.commands.registerCommand('magpylib-studio.loadExample', async (name?: string) => {
+      let chosen = name;
+      if (!chosen) {
+        const { examples } = await getEngine(context).request<{
+          examples: { name: string; label: string; description: string }[];
+        }>('list_examples');
+        // Each leans on a different feature, so the description is the point
+        // of the list — it is what tells you the tool can do that at all.
+        const pick = await vscode.window.showQuickPick(
+          examples.map((e) => ({ label: e.label, detail: e.description, e })),
+          { placeHolder: 'Example scene to load' },
+        );
+        if (!pick) {
+          return;
+        }
+        chosen = pick.e.name;
       }
-      await mutateFromTree('load_example', { name: pick.e.name });
+      await mutateFromTree('load_example', { name: chosen });
       openStudioPanel(context); // loading a scene should show it
     }),
     vscode.commands.registerCommand('magpylib-studio.selectObject', (objectId: string) =>

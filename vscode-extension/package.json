@@ -1303,17 +1303,25 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./ && npm run check:webviews",
+    "compile": "tsc -p ./ && npm run lint && npm run check:webviews",
+    "lint": "eslint src media",
     "check:webviews": "node harness/check-webview-scripts.js",
     "inspect": "node harness/webview-harness.js inspector",
+    "test": "vscode-test",
     "watch": "tsc -watch -p ./"
   },
   "dependencies": {
     "plotly.js-dist-min": "^3.0.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/mocha": "^10.0.10",
     "@types/node": "^20.14.0",
     "@types/vscode": "^1.95.0",
-    "typescript": "^5.5.0"
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.1.0",
+    "eslint": "^10.8.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.65.0"
   }
 }
