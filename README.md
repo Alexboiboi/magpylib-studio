@@ -194,7 +194,11 @@ See [CONTINUE.md](CONTINUE.md) for the current state and what is next.
 
 ## License
 
-BSD-3-Clause — the same as [magpylib][mplib] itself. See [LICENSE](LICENSE).
-This is an independent companion tool, not a magpylib project.
+BSD-3-Clause — the same as the other packages built on [magpylib][mplib]
+([magpylib-force][force], [magpylib-material-response][matresp]). The core
+library itself is BSD-2-Clause; its satellites are all 3-clause, and this is
+one of those. See [LICENSE](LICENSE).
 
 [mplib]: https://github.com/magpylib/magpylib
+[force]: https://github.com/magpylib/magpylib-force
+[matresp]: https://github.com/magpylib/magpylib-material-response
