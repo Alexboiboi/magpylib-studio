@@ -534,14 +534,14 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
       const box = document.createElement('details');
       box.open = true;
       const summary = document.createElement('summary');
-      summary.textContent = 'transform';
+      summary.textContent = 'pose';
       box.appendChild(summary);
 
-      // With a path there is no single pose to edit: the fields show the last
-      // step read-only, and move/rotate/Clear path do the editing instead.
+      // With a path there is no single pose to edit: the fields show the
+      // last step read-only, and Transform… does the editing instead.
       const pathed = t.path_length > 1
         ? 'read-only while this object has a path (' + t.path_length +
-          ' steps) — use move/rotate below, or Clear path'
+          ' steps) — use Transform… on the object in the Scene view'
         : '';
       if (pathed) {
         const hint = document.createElement('div');
@@ -556,96 +556,14 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
         transformOp('set_transform', { orientation: v }),
       pathed, t.written_orientation));
 
-      // relative rotate, optionally orbiting the origin, optionally a path
-      const row = document.createElement('div');
-      row.className = 'trow';
-      const angle = document.createElement('input');
-      angle.type = 'text'; angle.value = '45'; angle.spellcheck = false;
-      angle.title = 'degrees, or an expression over the variables';
-      const axis = document.createElement('select');
-      for (const a of ['z', 'x', 'y']) axis.append(new Option(a, a));
-      const orbit = document.createElement('label');
-      const orbitBox = document.createElement('input');
-      orbitBox.type = 'checkbox';
-      orbit.append(orbitBox, document.createTextNode(' orbit origin'));
-      const steps = document.createElement('input');
-      steps.type = 'number'; steps.min = '1'; steps.value = '1'; steps.title = 'path steps';
-      const start = document.createElement('input');
-      start.type = 'text'; start.value = 'auto'; start.style.width = '46px';
-      start.title = "magpylib start: 'auto' appends the new path, or a path index";
-      const go = document.createElement('button');
-      go.textContent = 'Rotate';
-      go.addEventListener('click', () => {
-        const n = Math.max(1, parseInt(steps.value, 10) || 1);
-        const total = asValue(angle.value);
-        if (n > 1 && typeof total === 'string') {
-          // the steps are divided up here, which needs a number; a symbolic
-          // single rotation is fine and stays live
-          statusEl.textContent = 'A multi-step path needs a number, not an expression.';
-          return;
-        }
-        const value = n === 1
-          ? total
-          : Array.from({ length: n }, (_, i) => (total * (i + 1)) / n);
-        const params = { angle: value, axis: axis.value };
-        if (orbitBox.checked) params.anchor = 0;
-        if (n > 1 && start.value.trim() !== 'auto' && start.value.trim() !== '') {
-          params.start = parseInt(start.value, 10);
-        }
-        transformOp('rotate', params);
-      });
-      row.append(document.createTextNode('rotate'), angle, axis, orbit,
-                 document.createTextNode('steps'), steps,
-                 document.createTextNode('start'), start, go);
-      box.appendChild(row);
-
-      // relative move, optionally as a path
-      const mrow = document.createElement('div');
-      mrow.className = 'trow';
-      const dxyz = ['0', '0', '1'].map((d) => {
-        const el = document.createElement('input');
-        el.type = 'text'; el.value = d; el.style.width = '46px';
-        el.spellcheck = false;
-        el.title = 'metres, or an expression over the variables';
-        return el;
-      });
-      const msteps = document.createElement('input');
-      msteps.type = 'number'; msteps.min = '1'; msteps.value = '1'; msteps.title = 'path steps';
-      const mstart = document.createElement('input');
-      mstart.type = 'text'; mstart.value = 'auto'; mstart.style.width = '46px';
-      mstart.title = "magpylib start: 'auto' appends the new path, or a path index";
-      const mgo = document.createElement('button');
-      mgo.textContent = 'Move';
-      mgo.addEventListener('click', () => {
-        const d = dxyz.map((el) => asValue(el.value));
-        const n = Math.max(1, parseInt(msteps.value, 10) || 1);
-        if (n > 1 && d.some((c) => typeof c === 'string')) {
-          statusEl.textContent = 'A multi-step path needs numbers, not expressions.';
-          return;
-        }
-        const value = n === 1
-          ? d
-          : Array.from({ length: n }, (_, i) => d.map((c) => (c * (i + 1)) / n));
-        const params = { displacement: value };
-        if (n > 1 && mstart.value.trim() !== 'auto' && mstart.value.trim() !== '') {
-          params.start = parseInt(mstart.value, 10);
-        }
-        transformOp('move', params);
-      });
-      mrow.append(document.createTextNode('move'), ...dxyz,
-                  document.createTextNode('steps'), msteps,
-                  document.createTextNode('start'), mstart, mgo);
-      box.appendChild(mrow);
-
-      if (t.path_length > 1) {
-        const prow = document.createElement('div');
-        prow.className = 'trow';
-        const clear = document.createElement('button');
-        clear.textContent = 'Clear path';
-        clear.addEventListener('click', () => transformOp('clear_path', {}));
-        prow.append(clear);
-        box.appendChild(prow);
-      }
+      // Relative moves and rotations are not shown here: they record a
+      // step, and this panel says what the object *is*. They live where the
+      // other actions live, on the object in the Scene view.
+      const where = document.createElement('div');
+      where.className = 'hint';
+      where.textContent = 'to move or rotate by an amount, use Transform… on '
+        + 'the object in the Scene view — those record a step';
+      box.appendChild(where);
       transformEl.appendChild(box);
     }
 
