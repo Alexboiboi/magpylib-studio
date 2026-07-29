@@ -62,6 +62,8 @@ from __future__ import annotations
 
 import json
 import re
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _package_version
 
 import magpylib as magpy
 import numpy as np
@@ -586,7 +588,32 @@ def _walk_specs(specs):
         yield from _walk_specs(spec.get("children") or [])
 
 
-_DOC_KEYS = ("variables", "variable_bounds", "objects", "events")
+#: The document format this engine reads and writes.
+#:
+#: Bump it when a document written here can no longer be understood by the
+#: engine before it. A document with a *lower* version (or none at all — every
+#: document written before this field existed) is migrated on load; one with a
+#: *higher* version is refused, because reading it half-way and saving it back
+#: would drop whatever we did not understand, which is worse than not opening
+#: it. That refusal is the only reason to write the number down.
+DOC_VERSION = 1
+
+try:
+    __version__ = _package_version("magpylib-studio")
+except PackageNotFoundError:  # a source tree that was never installed
+    __version__ = "0+unknown"
+
+_DOC_KEYS = ("version", "generator", "variables", "variable_bounds",
+             "objects", "events")
+
+# What the engine itself puts on a create event and on the spec projected from
+# it. Anything else on either belongs to something we do not know about — a
+# newer format, a hand-written file, another tool — and is carried rather than
+# dropped, so opening a document here does not quietly strip it.
+_CREATE_KEYS = ("id", "op", "target", "type", "params", "style",
+                "hidden_style", "parent", "visible")
+_SPEC_KEYS = ("id", "type", "params", "style", "hidden_style", "visible",
+              "children", "transforms", "rotations")
 
 
 def _canonical(doc):
@@ -619,6 +646,11 @@ def _canonical(doc):
             del doc["variable_bounds"]
     if doc.get("events"):
         doc["events"] = expressions.normalized(doc["events"])
+    # Every document that reaches a session comes through here, so this is
+    # where it gets stamped: whatever it was written by, what we hand back is
+    # ours and says so.
+    doc["version"] = DOC_VERSION
+    doc["generator"] = f"magpylib-studio {__version__}"
     # A fixed key order as well, so "the same document" is the same text
     # however it was assembled — read back from a script, built up through
     # the API, or written by hand.
@@ -649,12 +681,20 @@ def _migrate_events(doc):
     "and then re-apply the later ones" to speak of.
     """
     events = list(doc.get("events") or [])
-    described = {e["target"] for e in events if e.get("op") == "create"}
+    described = {e["target"]: e for e in events if e.get("op") == "create"}
     creates, transforms = [], []
 
     def walk(specs, parent):
         for spec in specs:
-            if spec["id"] not in described:
+            # `objects` is a projection: at the next build it is regenerated
+            # from the create events, so anything on it we do not recognise
+            # would be dropped. Its home is the create event, which is kept
+            # verbatim — whether that event is already there or made here.
+            unknown = {k: v for k, v in spec.items() if k not in _SPEC_KEYS}
+            if spec["id"] in described:
+                for key, value in unknown.items():
+                    described[spec["id"]].setdefault(key, value)
+            else:
                 creates.append({
                     "id": None, "op": "create", "target": spec["id"],
                     "type": spec["type"],
@@ -662,6 +702,7 @@ def _migrate_events(doc):
                     **({"style": spec["style"]} if spec.get("style") else {}),
                     **({"parent": parent} if parent else {}),
                     **({"visible": False} if spec.get("visible") is False else {}),
+                    **unknown,
                 })
             # A parent has to exist before its children can join it, so creates
             # go depth-first from the root; the transforms keep the order the
@@ -1131,6 +1172,10 @@ class MagpylibStudioSession:
                     spec[key] = event[key]
             if event.get("visible") is False:
                 spec["visible"] = False
+            # Whatever the create event carries that we do not recognise shows
+            # up on the projection too, so a reader of `objects` alone sees
+            # everything the document holds about the object (see _SPEC_KEYS).
+            spec.update({k: v for k, v in event.items() if k not in _CREATE_KEYS})
             if event["type"] == "Collection":
                 spec["children"] = [
                     spec_of(child)
@@ -2247,13 +2292,33 @@ class MagpylibStudioSession:
 
     def load_scene(self, scene):
         """Replace the whole document. `scene` is a document dict or a path to
-        a JSON file containing one. (Script -> document is deferred by design.)"""
+        a JSON file containing one. (Script -> document is deferred by design.)
+
+        A host with its own filesystem access should pass the dict: reading
+        the file here only works where this process can open() it, which is
+        not everywhere a document can live.
+
+        Versions: older documents (including every one written before the
+        field existed) are migrated; a newer one is refused, because reading
+        it with this engine's vocabulary and saving it back would drop
+        whatever it added. See DOC_VERSION.
+        """
         if isinstance(scene, str):
             try:
                 with open(scene, encoding="utf-8") as f:
                     scene = json.load(f)
             except (OSError, json.JSONDecodeError) as e:
                 return {"ok": False, "error": str(e)}
+        # The version is read before anything else is looked at, because a
+        # format we do not know may not spell the rest of it the way we expect
+        # — "written by a newer version" is the useful thing to say, and
+        # "not a scene document" would be a lie.
+        version = scene.get("version") if isinstance(scene, dict) else None
+        if isinstance(version, int) and version > DOC_VERSION:
+            return {"ok": False,
+                    "error": f"this scene was written by a newer magpylib-studio "
+                             f"(document version {version}); this one reads up to "
+                             f"version {DOC_VERSION}"}
         # A document says what it holds: since both keys are optional and an
         # empty scene is legal, something with neither is not an empty scene,
         # it is not a scene — and loading it as one would quietly wipe this.

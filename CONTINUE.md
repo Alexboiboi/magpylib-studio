@@ -600,6 +600,34 @@ test skips via `supports_property_paths()`).
    orientation → one `rotations` entry. Parametric structure flattens (loops
    arrive as concrete objects). True AST parsing stays deferred on purpose.
 
+5. **The saved file is `to_dict()`, versioned, and forgiving forwards.**
+   Scenes save as `.magpy.json` — the document verbatim, no serializer in
+   between to drift from it. Three rules, all tested, all easy to break by
+   accident later:
+   - `DOC_VERSION` (session.py) is stamped by `_canonical`, so *every*
+     document that passes through a session carries it. Absent = the format
+     from before the field, and is migrated. **Higher than we know = refused**
+     in `load_scene`, checked before the "is this a scene" test because a
+     future format need not spell those keys our way.
+   - **Unknown keys survive.** Top level and events are stored verbatim;
+     `objects` is a projection, so unknown keys there are moved onto the
+     create event by `_migrate_events` and projected back by `_project`
+     (`_SPEC_KEYS` / `_CREATE_KEYS` are the "what we know" lists — extend
+     both when adding a field). Without this, opening a v2 file in a v1
+     studio and saving would silently delete what v2 added.
+   - **The script is an export, not a save.** Measured, not assumed: a
+     `to_script` → `apply_script` round trip of the halbach example differs
+     in exactly `variable_bounds` and `visible`. Physics survives; studio
+     state does not. That is why Save writes JSON and Export writes `.py`.
+   The schema lives at `vscode-extension/schemas/magpy-scene.schema.json`
+   (registered via `contributes.jsonValidation`) and the Python suite
+   validates every example against it — so it cannot describe a format the
+   engine stopped writing.
+6. **Redrawing is not editing.** `refreshSurfaces()` redraws; only
+   `broadcastMutation()` marks the scene as differing from its file. They
+   were one function, and Refresh and Build-Up-To-Here (a *view*) both put an
+   unsaved-changes mark on a saved scene. Keep them apart.
+
 ## Reference material (in ../magpylib, branch feat/improve-style)
 
 - `__temp_solara_app.py` — a WORKING Solara POC of the same GUI+LLM idea:
@@ -613,6 +641,22 @@ test skips via `supports_property_paths()`).
   Claude memory (`style-property-tree-refactor`).
 
 ## Next steps (pick one)
+
+- **Custom editor / multi-document — the remaining stage of the persistence
+  work.** Scenes are now files (`.magpy.json`, save/open/revert, a dirty mark
+  in the Scene view title, a crash backup, reopen-on-activation), but the
+  studio still holds *one* scene with the file name kept beside it in
+  `extension.ts`. The standard shape is `CustomEditorProvider` (the editable
+  flavour — `custom-editor-sample` upstream), which brings a real tab, the
+  dirty dot, `Cmd+S`, Save As, revert, hot exit and several scenes at once,
+  all correct and free. Two costs: the engine is one global session in
+  `rpc.py`, and **engine cold start is 0.26 s measured**, so a process per
+  open document is affordable and much simpler than multiplexing sessions
+  into the protocol; and the four sidebar views are singletons that would
+  have to follow the active editor — that is the real work. Undo should
+  delegate to the engine's stack rather than VS Code owning a second one.
+  Doing this retires `sceneFile`/`sceneDirty`/`restoreScene`; the
+  dirty-tracking discipline (see design decision 6) carries over.
 
 - **Run it in an Extension Development Host** — overdue. The document schema
   changed twice (events, variables) and the UI gained a view, three commands

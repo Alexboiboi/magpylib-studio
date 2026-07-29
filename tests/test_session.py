@@ -6,7 +6,7 @@ import json
 import pytest
 
 from magpylib_studio.rpc import serve
-from magpylib_studio.session import MagpylibStudioSession
+from magpylib_studio.session import DOC_VERSION, MagpylibStudioSession
 
 # Small fixed scene for tests (sessions start empty by default).
 TEST_SCENE = {
@@ -1192,7 +1192,8 @@ def test_the_log_alone_reconstructs_the_scene():
     field = np.array(s.get_field("sensor")["values"])
 
     log_only = {k: v for k, v in document.items() if k != "objects"}
-    assert set(log_only) == {"variables", "variable_bounds", "events"}
+    assert set(log_only) == {"version", "generator", "variables",
+                             "variable_bounds", "events"}
     rebuilt = MagpylibStudioSession(log_only)
 
     assert [(o["id"], o["parent"]) for o in rebuilt.list_objects()] == [
@@ -1200,6 +1201,141 @@ def test_the_log_alone_reconstructs_the_scene():
     ]
     assert np.allclose(np.array(rebuilt.get_field("sensor")["values"]), field)
     assert json.dumps(rebuilt.to_dict()) == json.dumps(document)
+
+
+def test_a_saved_document_says_what_wrote_it():
+    """A file on disk outlives the program that wrote it, so it has to carry
+    its own format version — the only way a later engine can tell "old" from
+    "broken" without guessing from the shape."""
+    s = MagpylibStudioSession()
+    s.load_example()
+    doc = s.to_dict()
+
+    assert doc["version"] == DOC_VERSION
+    assert doc["generator"].startswith("magpylib-studio ")
+    # and it reads first, so `head -2` on a scene file identifies it
+    assert list(doc)[:2] == ["version", "generator"]
+
+
+def test_a_document_from_before_versions_still_opens():
+    """Every scene saved so far has no version field at all. Absent means
+    "the first format", not "invalid" — otherwise the field would break the
+    files it exists to protect."""
+    s = MagpylibStudioSession()
+    assert s.load_scene({
+        "objects": [{"id": "c", "type": "magnet.Cuboid",
+                     "params": {"dimension": [1, 1, 1],
+                                "polarization": [1, 0, 0]}}],
+    })["ok"]
+    assert [o["id"] for o in s.list_objects()] == ["c"]
+    assert s.to_dict()["version"] == DOC_VERSION  # migrated, and stamped as such
+
+
+def test_a_document_from_the_future_is_refused_not_half_read():
+    """The failure mode a version field exists to prevent: opening a document
+    whose semantics we do not know, dropping the parts we did not understand,
+    and writing the wreckage back over the original."""
+    s = MagpylibStudioSession()
+    s.load_example()
+    before = json.dumps(s.to_dict())
+
+    result = s.load_scene({"version": DOC_VERSION + 1, "objects": []})
+    assert not result["ok"]
+    assert "newer magpylib-studio" in result["error"]
+    assert str(DOC_VERSION + 1) in result["error"]
+    assert json.dumps(s.to_dict()) == before  # the open scene is untouched
+
+
+def test_a_document_keeps_what_this_engine_does_not_understand():
+    """Forward compatibility, in the only form a JSON document can have it: a
+    key we do not know is carried, not dropped. Without this, opening a v2
+    scene in a v1 studio and saving it would silently delete whatever v2
+    added — which is exactly what the version check refuses to risk, and this
+    is what makes the *lower* half of that promise keepable.
+
+    All three places, because they fail differently: top-level and events are
+    stored verbatim, while `objects` is a projection that is regenerated at
+    every build, so anything on it has to be moved somewhere durable.
+    """
+    s = MagpylibStudioSession()
+    s.load_example()
+    doc = json.loads(json.dumps(s.to_dict()))
+    doc["units"] = {"length": "mm"}  # something a later version might add
+    doc["events"][0]["note"] = "on an event"
+    doc["objects"][0]["material"] = "N52"
+
+    reopened = MagpylibStudioSession()
+    assert reopened.load_scene(doc)["ok"]
+    out = reopened.to_dict()
+    assert out["units"] == {"length": "mm"}
+    assert out["events"][0]["note"] == "on an event"
+    assert out["objects"][0]["material"] == "N52"
+
+    # and again, so event -> projection -> event does not drift on each open
+    again = MagpylibStudioSession()
+    assert again.load_scene(json.loads(json.dumps(out)))["ok"]
+    assert json.dumps(again.to_dict()) == json.dumps(out)
+
+
+def _scene_schema():
+    """The schema the extension registers for `*.magpy.json`, from the one
+    place it lives. Kept here rather than duplicated so it cannot describe a
+    format the engine stopped writing (same trick as the inspector's plane
+    list)."""
+    import pathlib
+
+    jsonschema = pytest.importorskip("jsonschema")
+    path = (pathlib.Path(__file__).parent.parent
+            / "vscode-extension" / "schemas" / "magpy-scene.schema.json")
+    if not path.exists():  # engine installed on its own, no extension beside it
+        pytest.skip("extension sources not present")
+    schema = json.loads(path.read_text())
+    jsonschema.Draft7Validator.check_schema(schema)
+    return jsonschema.Draft7Validator(schema)
+
+
+def test_every_example_validates_against_the_published_schema():
+    """The schema is what an editor checks a hand-written scene against, so
+    it has to agree with what the engine actually writes. The examples are
+    the broadest thing to hold it to: between them they use every op."""
+    validator = _scene_schema()
+    s = MagpylibStudioSession()
+    for example in s.list_examples()["examples"]:
+        s.load_example(example["name"])
+        errors = [f"{list(e.path)}: {e.message}"
+                  for e in validator.iter_errors(s.to_dict())]
+        assert not errors, f"{example['name']} does not validate: {errors[:3]}"
+
+
+def test_the_schema_catches_the_mistakes_it_exists_for():
+    """A schema that accepts everything is worse than none, because it is
+    believed. Each of these is a real bug shape — `axis: "zx"` shipped twice
+    before an enum would have caught it on the way in."""
+    validator = _scene_schema()
+    s = MagpylibStudioSession()
+    s.load_example()
+    good = json.loads(json.dumps(s.to_dict()))
+    assert not list(validator.iter_errors(good))
+
+    def rejected(mutate):
+        doc = json.loads(json.dumps(good))
+        mutate(doc)
+        return bool(list(validator.iter_errors(doc)))
+
+    def event(doc, op):
+        return next(e for e in doc["events"] if e.get("op") == op)
+
+    assert rejected(lambda d: d["events"][0].update(op="teleport"))
+    assert rejected(lambda d: event(d, "duplicate_around").update(axis="zx"))
+    assert rejected(lambda d: event(d, "create").pop("type"))
+    assert rejected(lambda d: d["events"].append(
+        {"id": "x", "target": "r1", "op": "move"}))  # no displacement
+    assert rejected(lambda d: d["events"].append(
+        {"id": "x", "target": "r1", "op": "mirror", "plane": "zx"}))
+    assert rejected(lambda d: d["events"].append(
+        {"id": "x", "op": "move", "displacement": [1, 0, 0]}))  # no target
+    assert rejected(lambda d: d["variables"].update(n="360/x"))  # missing '='
+    assert rejected(lambda d: [d.pop("objects"), d.pop("events")])
 
 
 def test_legacy_per_object_transforms_migrate_into_the_log():

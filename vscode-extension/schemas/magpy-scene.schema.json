@@ -1,0 +1,228 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/Alexboiboi/magpylib-studio/schemas/magpy-scene.schema.json",
+  "title": "Magpylib Studio scene",
+  "description": "A magnetic scene as an ordered log of the operations that built it. `events` is the document; `objects` is a projection of it that the engine regenerates on every build.",
+  "type": "object",
+  "anyOf": [
+    { "required": ["events"] },
+    { "required": ["objects"] }
+  ],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Format version. Absent means the first format, from before this field existed; a version higher than the engine knows is refused rather than half-read."
+    },
+    "generator": {
+      "type": "string",
+      "description": "What wrote this file, e.g. \"magpylib-studio 0.1.0\". Informational.",
+      "examples": ["magpylib-studio 0.1.0"]
+    },
+    "variables": {
+      "type": "object",
+      "description": "Named numbers the scene is written in terms of. Any value below may be an expression over these instead of a number.",
+      "additionalProperties": { "$ref": "#/definitions/value" }
+    },
+    "variable_bounds": {
+      "type": "object",
+      "description": "Slider range and step for a variable. Hard min/max are limits; soft_min/soft_max are where the slider sits by default.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "min": { "type": "number" },
+          "max": { "type": "number" },
+          "soft_min": { "type": "number" },
+          "soft_max": { "type": "number" },
+          "integer": { "type": "boolean" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "events": {
+      "type": "array",
+      "description": "What built the scene, in order. Folding it from the start reproduces the scene exactly, ids included.",
+      "items": { "$ref": "#/definitions/event" }
+    },
+    "objects": {
+      "type": "array",
+      "description": "DERIVED. The object tree the events describe, written out so a reader without an engine can see the scene. Regenerated on load — edits here are lost; edit the create event instead.",
+      "items": { "$ref": "#/definitions/spec" }
+    }
+  },
+  "additionalProperties": true,
+  "definitions": {
+    "value": {
+      "description": "A number, or an expression over the document's variables written with a leading '=' (\"=360/n\"). Expressions are evaluated from their syntax tree against an allow-list, never exec'd.",
+      "anyOf": [
+        { "type": "number" },
+        { "type": "string", "pattern": "^=" },
+        { "type": "array", "items": { "$ref": "#/definitions/value" } }
+      ]
+    },
+    "vector": {
+      "description": "Three values, each a number or an expression.",
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "$ref": "#/definitions/value" }
+    },
+    "spec": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "$ref": "#/definitions/objectType" },
+        "params": { "type": "object", "description": "Constructor parameters." },
+        "style": { "type": "object", "description": "magpylib style, as a dotted or nested tree." },
+        "hidden_style": { "type": "object" },
+        "visible": { "type": "boolean", "description": "false hides the object in the 3D view. Hidden sources still contribute to the field." },
+        "children": { "type": "array", "items": { "$ref": "#/definitions/spec" } }
+      },
+      "additionalProperties": true
+    },
+    "objectType": {
+      "description": "A magpylib class, dotted from the magpylib root.",
+      "type": "string",
+      "examples": [
+        "magnet.Cuboid",
+        "magnet.Cylinder",
+        "magnet.CylinderSegment",
+        "magnet.Sphere",
+        "magnet.Tetrahedron",
+        "current.Circle",
+        "current.Polyline",
+        "misc.Dipole",
+        "Sensor",
+        "Collection"
+      ]
+    },
+    "event": {
+      "type": "object",
+      "required": ["target"],
+      "properties": {
+        "id": { "type": "string", "description": "Stable id, so a step can be edited, moved or removed by name." },
+        "target": { "type": "string", "description": "The object this happened to." },
+        "op": {
+          "description": "What happened. Absent means \"rotate_from_angax\", the original default.",
+          "type": "string",
+          "enum": [
+            "create",
+            "remove",
+            "reparent",
+            "move",
+            "rotate_from_angax",
+            "rotate_from_rotvec",
+            "position",
+            "orientation",
+            "duplicate_around",
+            "duplicate_along",
+            "mirror"
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "allOf": [
+        {
+          "if": { "properties": { "op": { "const": "create" } }, "required": ["op"] },
+          "then": {
+            "required": ["type"],
+            "properties": {
+              "type": { "$ref": "#/definitions/objectType" },
+              "params": { "type": "object" },
+              "style": { "type": "object" },
+              "visible": { "type": "boolean" },
+              "parent": { "type": "string", "description": "The collection it is created in." },
+              "children": { "type": "array", "items": { "type": "string" }, "description": "Collections only: ids that already exist and are adopted." }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "op": { "const": "reparent" } }, "required": ["op"] },
+          "then": { "properties": { "parent": { "type": ["string", "null"], "description": "null moves it to the top level." } } }
+        },
+        {
+          "if": { "properties": { "op": { "const": "move" } }, "required": ["op"] },
+          "then": {
+            "required": ["displacement"],
+            "properties": {
+              "displacement": { "$ref": "#/definitions/value" },
+              "start": { "description": "magpylib path index the move is written at." }
+            }
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              { "properties": { "op": { "const": "rotate_from_angax" } }, "required": ["op"] },
+              { "not": { "required": ["op"] } }
+            ]
+          },
+          "then": {
+            "required": ["angle"],
+            "properties": {
+              "angle": { "$ref": "#/definitions/value" },
+              "axis": {
+                "description": "An axis name or a vector. A name is a name — \"z\" is not a number.",
+                "anyOf": [
+                  { "type": "string", "enum": ["x", "y", "z"] },
+                  { "$ref": "#/definitions/vector" }
+                ]
+              },
+              "anchor": { "description": "Point rotated about; absent or null spins in place, 0 means the origin." }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "op": { "const": "rotate_from_rotvec" } }, "required": ["op"] },
+          "then": { "required": ["rotvec"], "properties": { "rotvec": { "$ref": "#/definitions/vector" } } }
+        },
+        {
+          "if": { "properties": { "op": { "const": "position" } }, "required": ["op"] },
+          "then": { "required": ["value"], "properties": { "value": { "$ref": "#/definitions/value" } } }
+        },
+        {
+          "if": { "properties": { "op": { "const": "orientation" } }, "required": ["op"] },
+          "then": { "required": ["rotvec"], "properties": { "rotvec": { "$ref": "#/definitions/vector" } } }
+        },
+        {
+          "if": { "properties": { "op": { "const": "duplicate_around" } }, "required": ["op"] },
+          "then": {
+            "required": ["count"],
+            "properties": {
+              "count": { "$ref": "#/definitions/value", "description": "Copies including the original, so 8 means 8 objects." },
+              "axis": {
+                "anyOf": [
+                  { "type": "string", "enum": ["x", "y", "z"] },
+                  { "$ref": "#/definitions/vector" }
+                ]
+              },
+              "anchor": { "description": "Centre of the ring." },
+              "spin": { "$ref": "#/definitions/value", "description": "Extra rotation each copy makes in place — what turns a ring into a Halbach array." }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "op": { "const": "duplicate_along" } }, "required": ["op"] },
+          "then": {
+            "required": ["count", "step"],
+            "properties": {
+              "count": { "$ref": "#/definitions/value" },
+              "step": { "$ref": "#/definitions/vector", "description": "Offset between neighbours. Twice along different steps is a grid." }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "op": { "const": "mirror" } }, "required": ["op"] },
+          "then": {
+            "properties": {
+              "plane": { "type": "string", "enum": ["xy", "xz", "yz"] },
+              "normal": { "$ref": "#/definitions/vector", "description": "Used instead of `plane` for an arbitrary mirror." },
+              "anchor": { "description": "A point on the mirror plane." }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

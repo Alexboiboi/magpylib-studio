@@ -67,11 +67,28 @@
       },
       {
         "command": "magpylib-studio.saveScene",
+        "title": "Magpylib Studio: Save Scene",
+        "icon": "$(save)"
+      },
+      {
+        "command": "magpylib-studio.saveSceneAs",
         "title": "Magpylib Studio: Save Scene As..."
       },
       {
         "command": "magpylib-studio.loadScene",
-        "title": "Magpylib Studio: Load Scene from File..."
+        "title": "Magpylib Studio: Open Scene..."
+      },
+      {
+        "command": "magpylib-studio.newScene",
+        "title": "Magpylib Studio: New Scene"
+      },
+      {
+        "command": "magpylib-studio.revertScene",
+        "title": "Magpylib Studio: Revert Scene to Saved"
+      },
+      {
+        "command": "magpylib-studio.exportScript",
+        "title": "Magpylib Studio: Export as Python Script..."
       },
       {
         "command": "magpylib-studio.importScript",
@@ -226,6 +243,18 @@
     ],
     "keybindings": [
       {
+        "command": "magpylib-studio.saveScene",
+        "key": "ctrl+s",
+        "mac": "cmd+s",
+        "when": "focusedView == magpylib-studio.sceneView"
+      },
+      {
+        "command": "magpylib-studio.saveSceneAs",
+        "key": "ctrl+shift+s",
+        "mac": "cmd+shift+s",
+        "when": "focusedView == magpylib-studio.sceneView"
+      },
+      {
         "command": "magpylib-studio.copyObject",
         "key": "ctrl+c",
         "mac": "cmd+c",
@@ -304,10 +333,16 @@
         }
       ]
     },
+    "jsonValidation": [
+      {
+        "fileMatch": "*.magpy.json",
+        "url": "./schemas/magpy-scene.schema.json"
+      }
+    ],
     "viewsWelcome": [
       {
         "view": "magpylib-studio.sceneView",
-        "contents": "The scene is empty.\n[Add Object...](command:magpylib-studio.addObject)\nA magnet, current, sensor or collection.\n[Load Example Scene...](command:magpylib-studio.loadExample)\nA Halbach stack, a solenoid, a mirrored pair or a magnet array \u2014 each built from a couple of parametric steps.\n[Import Python Script...](command:magpylib-studio.importScript)\nRun an existing magpylib script and edit its scene here.\n[Load Scene from File...](command:magpylib-studio.loadScene)\nOr ask Copilot chat to add objects with #magpyAdd."
+        "contents": "The scene is empty.\n[Add Object...](command:magpylib-studio.addObject)\nA magnet, current, sensor or collection.\n[Load Example Scene...](command:magpylib-studio.loadExample)\nA Halbach stack, a solenoid, a mirrored pair or a magnet array \u2014 each built from a couple of parametric steps.\n[Open Scene...](command:magpylib-studio.loadScene)\nA .magpy.json scene saved earlier.\n[Import Python Script...](command:magpylib-studio.importScript)\nRun an existing magpylib script and edit its scene here.\nOr ask Copilot chat to add objects with #magpyAdd."
       }
     ],
     "submenus": [
@@ -391,24 +426,49 @@
           "group": "navigation@6"
         },
         {
-          "command": "magpylib-studio.saveScene",
+          "command": "magpylib-studio.newScene",
           "when": "view == magpylib-studio.sceneView",
-          "group": "scene@1"
+          "group": "1_file@1"
         },
         {
           "command": "magpylib-studio.loadScene",
           "when": "view == magpylib-studio.sceneView",
-          "group": "scene@2"
+          "group": "1_file@2"
+        },
+        {
+          "command": "magpylib-studio.saveScene",
+          "when": "view == magpylib-studio.sceneView && magpylib-studio.sceneDirty",
+          "group": "navigation@7"
+        },
+        {
+          "command": "magpylib-studio.saveSceneAs",
+          "when": "view == magpylib-studio.sceneView",
+          "group": "1_file@4"
+        },
+        {
+          "command": "magpylib-studio.revertScene",
+          "when": "view == magpylib-studio.sceneView && magpylib-studio.sceneFile",
+          "group": "1_file@5"
         },
         {
           "command": "magpylib-studio.loadExample",
           "when": "view == magpylib-studio.sceneView",
-          "group": "scene@3"
+          "group": "2_scene@1"
+        },
+        {
+          "command": "magpylib-studio.importScript",
+          "when": "view == magpylib-studio.sceneView",
+          "group": "2_scene@2"
+        },
+        {
+          "command": "magpylib-studio.exportScript",
+          "when": "view == magpylib-studio.sceneView",
+          "group": "2_scene@3"
         },
         {
           "command": "magpylib-studio.newCollection",
           "when": "view == magpylib-studio.sceneView",
-          "group": "scene@4"
+          "group": "2_scene@4"
         },
         {
           "command": "magpylib-studio.addVariable",
@@ -431,12 +491,21 @@
           "command": "magpylib-studio.openScriptInStudio",
           "when": "resourceExtname == .py",
           "group": "navigation"
+        },
+        {
+          "command": "magpylib-studio.loadScene",
+          "when": "resourceFilename =~ /\\.magpy\\.json$/",
+          "group": "navigation"
         }
       ],
       "editor/title/context": [
         {
           "command": "magpylib-studio.openScriptInStudio",
           "when": "resourceExtname == .py"
+        },
+        {
+          "command": "magpylib-studio.loadScene",
+          "when": "resourceFilename =~ /\\.magpy\\.json$/"
         }
       ],
       "view/item/context": [

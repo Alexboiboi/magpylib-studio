@@ -6,6 +6,22 @@ All notable changes to the Magpylib Studio extension.
 
 ### Added
 
+- **Scenes are files.** Save and open `.magpy.json` scenes: `Cmd/Ctrl+S` with
+  the Scene view focused, the file name and a `•` for unsaved changes in the
+  view title, *Open Scene* on a `.magpy.json` in the explorer, and a prompt
+  before anything that would discard unsaved work. **Export as Python
+  Script…** is separate, because a script carries no slider bounds and no
+  hidden flags.
+- **The format has a version and a schema.** A saved scene says which format
+  it is and what wrote it; one from a newer studio is refused rather than
+  read half-way, one from an older studio is migrated, and fields this
+  version does not recognise are kept rather than dropped. Editing a
+  `.magpy.json` by hand gets completion and validation from a published JSON
+  Schema.
+- **A reload no longer loses the scene.** The scene lives in a subprocess that
+  dies with the window; it is now backed up after every edit, and the
+  workspace reopens the file it was editing — offering the unsaved changes if
+  there were any.
 - **Event-based document.** The scene is an ordered log of events — creates,
   removals, reparents, transforms and patterns — and the object tree is a
   projection of it. Past steps can be edited and everything after them

@@ -72,6 +72,23 @@ newline-delimited JSON-RPC over stdio.
   what it currently comes to. Relative moves and rotations are not here; they
   record a *step*, so they live on the tree's Transform menu. Same operations
   in chat: `#magpyMove`, `#magpyRotate`, `#magpyPose`.
+- **Saving and opening scenes** — a scene is a document: **Save** (`Cmd/Ctrl+S`
+  with the Scene view focused) writes it to a `.magpy.json` file, and the view
+  title shows which file it is and a `•` while it differs from what is on disk.
+  Double extension on purpose — the file stays JSON to git, to diffs and to
+  schema validation, while still being a name VS Code can associate, so
+  right-clicking one in the explorer offers *Open Scene*. The format carries
+  its own version number and keeps fields it does not recognise, so a scene
+  written by a later studio is refused with a clear message rather than opened
+  half-way and saved back over. **Export as Python Script…** is the other
+  direction: runnable magpylib anyone can use without the studio — but it
+  carries no slider bounds and no hidden flags, which is why it is an export
+  and not a save. Opening a scene, loading an example or importing a script
+  asks first if there is unsaved work.
+- **A reload does not lose the scene.** It lives in a subprocess that dies with
+  the window, so the studio writes a backup after every edit and comes back to
+  the file you were editing next time the workspace opens — offering the
+  unsaved changes if there were any.
 - **The script tab is editable both ways** — *Edit Python Script* renders the
   scene as runnable magpylib, and saving it rebuilds the scene from what you
   wrote, as one undo step. Variables and patterns survive the round trip
@@ -176,6 +193,8 @@ tool is for:
 - **Sweep a Variable…** on `gap` to plot the field against it;
 - *Edit Python Script* to see the whole thing as parametric magpylib, edit a
   line, and save it back;
+- `Cmd/Ctrl+S` with the Scene view focused to save it as `scene.magpy.json`,
+  then reload the window — it comes back;
 - with GitHub Copilot installed, ask chat `make the magnets green #magpyEdit`
   or `a ring of 8 dipoles at radius 5 #magpyDuplicate`.
 

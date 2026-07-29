@@ -99,6 +99,16 @@ Then open the repo root in VS Code and press `F5`.
 - **Validation is shared.** Every edit goes through magpylib, and a bad edit is
   *reported* (`{"ok": false, "error": …}`), not raised — so a GUI shows an error
   and an LLM self-corrects. There is no second validation layer.
+- **The saved file is the document, and it is versioned.** A scene saves as
+  `.magpy.json` — exactly what `to_dict()` returns, so the format the engine
+  works in is the format on disk, with no serializer in between to disagree
+  with it. It carries a `version`, because a file outlives the program that
+  wrote it: an older one is migrated, and a *newer* one is refused rather than
+  read half-way and saved back with the parts we did not understand missing.
+  Fields the engine does not recognise are carried through, which is the only
+  form of forward compatibility a document can actually have. A script is an
+  export, not a save: it loses slider bounds and hidden flags, and nothing
+  else — measured, not assumed.
 - **Document canonical, script generated — and read back two ways.**
   `to_script()` emits runnable magpylib code, patterns included (as the loops
   they mean). `apply_script()` **parses** it when it is still in that shape,
@@ -149,7 +159,7 @@ printf '%s\n' \
 
 ## Status
 
-The engine is covered by 90 tests against both magpylib versions
+The engine is covered by 96 tests against both magpylib versions
 (`.venv/bin/python -m pytest -q`).
 
 The extension is checked at three levels, all wired into `npm run compile` so
@@ -158,11 +168,14 @@ both the host code and the webview scripts; two contribution checks (every
 declared command registered, every menu clause matching a context value the
 tree can set, every palette entry safe to invoke with no argument); and a DOM
 harness that runs a panel's real script against a real engine
-(`npm run inspect -- halbach`). On top of that, `npm test` runs four
+(`npm run inspect -- halbach`). On top of that, `npm test` runs eleven
 integration tests **inside a real Extension Development Host** — activation,
 the engine subprocess answering through the virtual `scene.json`, a removal
-taking a pattern's copies with it, and the script tab applying an edit on
-save.
+taking a pattern's copies with it, the script tab applying an edit on save,
+and the whole save/open path: a file that opens back as the same scene, a
+save that goes to the file it came from without asking, a document from a
+newer version being refused without disturbing the open one, and the crash
+backup being written and restorable.
 
 It packages: `npx @vscode/vsce package` produces a 1.5 MB `.vsix`. Publishing
 still needs a LICENSE, a publisher id and a 128×128 PNG icon. See
