@@ -40,6 +40,7 @@ _PUBLIC = {
     "set_transform",
     "clear_path",
     "duplicate_around",
+    "duplicate_along",
     "reset_style",
     "load_scene",
     "load_script",

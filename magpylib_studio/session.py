@@ -26,6 +26,7 @@ Protocol surface (all JSON-serializable in/out):
   set_transform(object_id, position?, orientation?) -> {"ok": bool, ...} (absolute)
   clear_path(object_id, index?)        -> {"ok": bool, "error"?: str}
   duplicate_around(object_id, count, axis?, anchor?, spin?) -> {"ok": bool, ...}
+  duplicate_along(object_id, count, step)  -> {"ok": bool, ...} (linear pattern)
   get_transform(object_id)             -> {position, orientation, path_length, ...}
   reset_style(object_id, path?)        -> {"ok": bool, "error"?: str}
   load_scene(scene | path)             -> {"ok": bool, "error"?: str}
@@ -185,6 +186,7 @@ _BATCHABLE = {
     "set_variable",
     "remove_variable",
     "duplicate_around",
+    "duplicate_along",
 }
 
 
@@ -463,6 +465,9 @@ def _event_label(event):
     if op == "duplicate_around":
         return (f"{_lit(event.get('count', 1))} copies about "
                 f"{_axis_label(event.get('axis', 'z'))}")
+    if op == "duplicate_along":
+        return (f"{_lit(event.get('count', 1))} copies every "
+                f"{_vec(event.get('step'), ' m')}")
     if op == "rotate_from_rotvec":
         return f"turned {_vec(event.get('rotvec'), '°')}"
     # rotate_from_angax: the anchor is what makes it an orbit rather than a spin
@@ -487,6 +492,9 @@ def _event_source(event):
     if op == "duplicate_around":
         return (f"{target} × {_lit(event.get('count', 1))} about "
                 f"{_lit(event.get('axis', 'z'))}")
+    if op == "duplicate_along":
+        return (f"{target} × {_lit(event.get('count', 1))} every "
+                f"{_lit(event.get('step'))}")
     return f"{target}.{_op_source(event)}"
 
 
@@ -644,6 +652,8 @@ class MagpylibStudioSession:
         resolved = self._resolve(event)
         if op == "duplicate_around":
             self._duplicate_around(event["target"], resolved)
+        elif op == "duplicate_along":
+            self._duplicate_along(event["target"], resolved)
         else:
             _replay(target, [resolved])
 
@@ -762,6 +772,30 @@ class MagpylibStudioSession:
             copy.rotate_from_angax(i * 360 / count, axis, anchor=anchor)
             if spin:
                 copy.rotate_from_angax(i * spin, axis, anchor=None)
+            copy_id = f"{object_id}#{i}"
+            self._objs[copy_id] = copy
+            container.add(copy)
+            made.append(copy_id)
+        self._derived[object_id] = made
+
+    def _duplicate_along(self, object_id, event):
+        """The linear pattern to `duplicate_around`'s circular one: `count`
+        copies, each one `step` further along than the last.
+
+        A rectangular grid is this applied twice — pattern the object, then
+        pattern the Collection holding it — which is why there is no separate
+        grid op: composing the log already expresses it.
+        """
+        count = int(event.get("count", 1))
+        if count < 1:
+            raise ValueError(f"duplicate count must be at least 1, got {count}")
+        step = event.get("step", [1, 0, 0])
+        source = self._objs[object_id]
+        container = self._objs.get(self._parent_id(object_id)) or self.scene
+        made = []
+        for i in range(1, count):
+            copy = source.copy()
+            copy.move([i * float(component) for component in step])
             copy_id = f"{object_id}#{i}"
             self._objs[copy_id] = copy
             container.add(copy)
@@ -1016,12 +1050,15 @@ class MagpylibStudioSession:
     # --- field evaluation --------------------------------------------------
     def _leaf_sources(self):
         """All field sources (excludes Sensors; Collections are just groups —
-        using leaves avoids counting an object twice)."""
-        return [
-            obj
-            for obj in self._objs.values()
-            if not isinstance(obj, magpy.Collection | magpy.Sensor)
-        ]
+        using leaves avoids counting an object twice).
+
+        Read off the scene graph rather than the id table: patterning a
+        Collection copies its children too, and those copies are real magnets
+        that nothing registered an id for. Asking magpylib what the scene
+        contains is the only answer that stays true as the log grows ways to
+        generate objects.
+        """
+        return list(self.scene.sources_all)
 
     def get_field(self, sensor_id=None, points=None, field="B"):
         """Total field of all sources, summed, at the given observers.
@@ -1431,6 +1468,28 @@ class MagpylibStudioSession:
                 self._set_world_pose(object_id, target_pos, target_rot)
 
         return self._mutate_doc(mutate, f"set transform {object_id}")
+
+    def duplicate_along(self, object_id, count, step):
+        """Record a linear pattern: `count` copies of an object (counting the
+        original), each `step` further along than the last. `count` and the
+        components of `step` may be expressions.
+
+        For a rectangular grid, pattern the object and then pattern the
+        Collection holding it: two linear steps compose into one, which is
+        what a CAD rectangular pattern is doing behind its two-direction
+        dialog. Like `duplicate_around`, the object must sit in a Collection —
+        that is where the copies go.
+        """
+        self._spec(object_id)  # raise early on unknown id
+        if self._parent_id(object_id) is None:
+            return {"ok": False,
+                    "error": f"{object_id!r} must be inside a Collection to "
+                             f"duplicate it — the copies need a group to join"}
+        return self._append_ops(
+            object_id,
+            [{"op": "duplicate_along", "count": count, "step": step}],
+            f"duplicate {object_id}",
+        )
 
     def duplicate_around(self, object_id, count, axis="z", anchor=0, spin=0):
         """Record a duplicate event: `count` copies of an object spaced evenly
@@ -2131,24 +2190,34 @@ class MagpylibStudioSession:
         return self.doc
 
     def _duplicate_source(self, event):
-        """A duplicate event as plain runnable magpylib: there is no library
-        primitive for "N of these around an axis", so it exports as the loop
-        it means. importer.parse_script reads exactly this shape back, which
-        is what keeps the arrangement parametric across a round trip."""
+        """A pattern event as plain runnable magpylib: there is no library
+        primitive for "N of these about an axis" or "N of these in a row", so
+        each exports as the loop it means. importer.parse_script reads exactly
+        these shapes back, which is what keeps an arrangement parametric
+        across a round trip."""
         target = event["target"]
-        count, spin = _lit(event.get("count", 1)), _lit(event.get("spin", 0))
-        axis, anchor = _lit(event.get("axis", "z")), _lit(event.get("anchor", 0))
+        count = _lit(event.get("count", 1))
         body = [
             f"for i in range(1, {count}):",
             f"    _copy = {target}.copy()",
-            f"    _copy.rotate_from_angax(i * 360 / ({count}), {axis}, "
-            f"anchor={anchor})",
         ]
-        if event.get("spin"):
+        if event.get("op") == "duplicate_along":
+            step = event.get("step") or [0, 0, 0]
+            offsets = ", ".join(f"i * ({_lit(component)})" for component in step)
+            body.append(f"    _copy.move(({offsets}))")
+        else:
+            spin = _lit(event.get("spin", 0))
+            axis = _lit(event.get("axis", "z"))
+            anchor = _lit(event.get("anchor", 0))
             body.append(
-                f"    _copy.rotate_from_angax(i * ({spin}), {axis}, anchor=None)"
+                f"    _copy.rotate_from_angax(i * 360 / ({count}), {axis}, "
+                f"anchor={anchor})"
             )
-        # the copies go in the source's own group, which is why a duplicate
+            if event.get("spin"):
+                body.append(
+                    f"    _copy.rotate_from_angax(i * ({spin}), {axis}, anchor=None)"
+                )
+        # the copies go in the source's own group, which is why a pattern
         # needs one: a bare list would have to be threaded into show()
         body.append(f"    {self._parent_id(target)}.add(_copy)")
         return body
@@ -2192,7 +2261,7 @@ class MagpylibStudioSession:
         if events:
             lines.append("")
             for event in events:
-                if event.get("op") == "duplicate_around":
+                if event.get("op") in ("duplicate_around", "duplicate_along"):
                     lines += self._duplicate_source(event)
                 else:
                     lines.append(f"{event['target']}.{_op_source(event)}")

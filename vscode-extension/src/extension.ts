@@ -628,6 +628,7 @@ function registerLmTools(context: vscode.ExtensionContext): void {
     editTool('magpylib-studio_setVariable', 'set_variable'),
     editTool('magpylib-studio_setVariableBounds', 'set_variable_bounds'),
     editTool('magpylib-studio_duplicateAround', 'duplicate_around'),
+    editTool('magpylib-studio_duplicateAlong', 'duplicate_along'),
     editTool('magpylib-studio_applyEdit', 'apply_edit'),
     editTool('magpylib-studio_addObject', 'add_object'),
     editTool('magpylib-studio_removeObject', 'remove_object'),
@@ -914,6 +915,63 @@ export function activate(context: vscode.ExtensionContext): void {
     broadcastMutation();
   };
 
+  /**
+   * A pattern, in the CAD sense: one step standing for N copies. Which kind
+   * is asked first, because "around" and "along" are the same idea about a
+   * different thing, and a grid is just "along" done twice.
+   */
+  const patternObject = async (obj: SceneObject) => {
+    const kind = await vscode.window.showQuickPick(
+      [
+        {
+          label: 'Around an axis',
+          detail: 'evenly spaced about an axis — a ring, a rotor, a Halbach array',
+          circular: true,
+        },
+        {
+          label: 'Along a direction',
+          detail: 'evenly spaced in a line; pattern the group again for a grid',
+          circular: false,
+        },
+      ],
+      { placeHolder: `Pattern "${obj.label}"` },
+    );
+    if (!kind) {
+      return;
+    }
+    await (kind.circular ? duplicateAround(obj) : duplicateAlong(obj));
+  };
+
+  /** "N of these in a row" — see session.duplicate_along. */
+  const duplicateAlong = async (obj: SceneObject) => {
+    const count = await vscode.window.showInputBox({
+      prompt: `Copies of "${obj.label}" in the row, counting the original`,
+      value: '4',
+      validateInput: (v) =>
+        Number(v) >= 2 || /^[A-Za-z_]/.test(v.trim())
+          ? undefined
+          : 'A count of 2 or more, or a variable name',
+    });
+    if (!count) {
+      return;
+    }
+    const step = await vscode.window.showInputBox({
+      prompt: 'Step between copies as dx, dy, dz (m)',
+      value: '2, 0, 0',
+      placeHolder: 'numbers or expressions, e.g. pitch, 0, 0',
+      validateInput: (v) =>
+        parseVector(v, 3) ? undefined : 'Three numbers or expressions',
+    });
+    if (!step) {
+      return;
+    }
+    await mutateFromTree('duplicate_along', {
+      object_id: obj.id,
+      count: asDocumentValue(count),
+      step: parseVector(step, 3),
+    });
+  };
+
   /** "N of these around an axis" as one event — see session.duplicate_around. */
   const duplicateAround = async (obj: SceneObject) => {
     const count = await vscode.window.showInputBox({
@@ -1188,7 +1246,7 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand(
       'magpylib-studio.duplicateAround',
-      async (obj: SceneObject) => duplicateAround(obj),
+      async (obj: SceneObject) => patternObject(obj),
     ),
     vscode.commands.registerCommand(
       'magpylib-studio.selectOperation',

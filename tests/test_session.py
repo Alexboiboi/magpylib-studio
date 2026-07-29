@@ -1640,6 +1640,48 @@ def test_duplicate_around_keeps_an_arrangement_parametric(tmp_path):
     assert len(ns["ring"].children) == 12
 
 
+def test_two_linear_patterns_compose_into_a_grid(tmp_path):
+    """The CAD pattern family: `duplicate_along` is the linear one, and a
+    rectangular grid is it applied twice — to the object, then to the group
+    holding it — so there is no separate grid op to keep in step."""
+    s = MagpylibStudioSession()
+    s.set_variable("nx", 4)
+    s.set_variable("ny", 3)
+    s.set_variable("pitch", 2.0)
+    s.add_object("grid", "Collection")
+    s.add_object("row", "Collection", parent="grid")
+    s.add_object("m", "magnet.Cuboid",
+                 {"polarization": [0, 0, 1], "dimension": [1, 1, 1]}, parent="row")
+
+    assert s.duplicate_along("m", "=nx", ["=pitch", 0, 0]) == {"ok": True}
+    assert s.duplicate_along("row", "=ny", [0, "=pitch", 0]) == {"ok": True}
+    assert len(s._leaf_sources()) == 12
+    assert sorted({round(float(o.position[0]), 1) for o in s._leaf_sources()}) == [
+        0.0, 2.0, 4.0, 6.0
+    ]
+    assert sorted({round(float(o.position[1]), 1) for o in s._leaf_sources()}) == [
+        0.0, 2.0, 4.0
+    ]
+
+    # two numbers describe the whole array
+    assert s.set_variable("nx", 6) == {"ok": True}
+    assert s.set_variable("ny", 5) == {"ok": True}
+    assert len(s._leaf_sources()) == 30
+
+    assert [e["label"] for e in s.get_events()["events"] if "copies" in e["label"]] == [
+        "nx copies every (pitch, 0, 0) m",
+        "ny copies every (0, pitch, 0) m",
+    ]
+
+    # and it survives the script as plain runnable magpylib
+    path = tmp_path / "grid.py"
+    before = json.dumps(s.to_dict())
+    path.write_text(s.to_script(), encoding="utf-8")
+    assert s.apply_script(str(path))["mode"] == "parsed"
+    assert json.dumps(s.to_dict()) == before
+    assert len(s._leaf_sources()) == 30
+
+
 def test_duplicate_around_needs_a_group():
     s = MagpylibStudioSession(make_scene())
     res = s.duplicate_around("cube", 4)

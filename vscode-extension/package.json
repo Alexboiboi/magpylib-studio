@@ -158,7 +158,7 @@
       },
       {
         "command": "magpylib-studio.duplicateAround",
-        "title": "Duplicate Around..."
+        "title": "Pattern..."
       },
       {
         "command": "magpylib-studio.sweep",
@@ -1203,6 +1203,38 @@
           "required": [
             "event_id",
             "index"
+          ]
+        }
+      },
+      {
+        "name": "magpylib-studio_duplicateAlong",
+        "displayName": "Repeat a magpylib object in a row",
+        "toolReferenceName": "magpyRow",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "Arrange ONE object into a line of evenly spaced copies, recorded as a single event rather than as N separate objects - the linear pattern to the duplicate around tool's circular one. STRONGLY PREFER this over adding objects one by one whenever the user asks for a row, a line, an array or a grid of something. 'count' includes the original and may be a variable (\"=n\"); 'step' is the displacement between neighbours in metres, e.g. [0.005, 0, 0], and its components may be expressions. FOR A GRID: pattern the object along one direction, then pattern the Collection holding it along the other - two linear patterns compose into a rectangular one, and both counts stay editable. The object must already be inside a Collection, which is where the copies go. The copies are generated, not listed as editable objects: change the original, the count or the variables instead.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "object_id": {
+              "type": "string",
+              "description": "Id of the object to repeat. Must be inside a Collection."
+            },
+            "count": {
+              "type": [
+                "number",
+                "string"
+              ],
+              "description": "Total copies including the original, or an expression such as \"=n\"."
+            },
+            "step": {
+              "type": "array",
+              "description": "Displacement between neighbouring copies as [dx, dy, dz] in metres; components may be expressions."
+            }
+          },
+          "required": [
+            "object_id",
+            "count",
+            "step"
           ]
         }
       }

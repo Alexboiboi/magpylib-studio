@@ -150,10 +150,18 @@ and drives it.
   different places, not unrelated series). Nothing is recorded in history and
   the document ends on the value it started on. This is what variables are
   *for*, and it is only affordable because a rebuild is milliseconds.
-- **Generator events** — `duplicate_around(object_id, count, axis?, anchor?,
-  spin?)` records ONE event standing for N copies evenly spaced about an
-  axis, each optionally spun by `spin`×index (a Halbach ring is
-  `spin = 360/count`). `count` and `spin` may be expressions, so the whole
+- **Pattern events**, the CAD feature family: ONE event standing for N copies.
+  `duplicate_around(id, count, axis?, anchor?, spin?)` is the **circular**
+  one, each copy optionally spun by `spin`×index (a Halbach ring is
+  `spin = 360/count`); `duplicate_along(id, count, step)` is the **linear**
+  one. **A rectangular grid is the linear pattern applied twice** — to the
+  object, then to the Collection holding it — so there is no grid op to keep
+  in step with the other two; composing the log already expresses it, and
+  both counts stay editable (`nx`, `ny`). Mirror and path-driven patterns are
+  the family members still missing; mirror needs deciding what reflecting a
+  polarization means, which is a physics question rather than a UI one.
+  In the UI both are behind one **Pattern…** command that asks which kind
+  first, because they are the same idea about a different thing. `count` and `spin` may be expressions, so the whole
   arrangement is one number to edit. The copies are generated at build time,
   registered in `_objs` (so they are real field sources and real geometry)
   and reported by `list_objects` with a `derived` key naming their source —

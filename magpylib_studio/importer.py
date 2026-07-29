@@ -260,7 +260,7 @@ def _duplicate_from_loop(node, objects, variables):
         raise _Unparseable("loop range")
     count = _parsed_value(call.args[1], variables)
 
-    source_name, spin, parent, rotations = None, 0, None, []
+    source_name, spin, parent, rotations, shift = None, 0, None, [], None
     for stmt in node.body:
         if (isinstance(stmt, ast.Assign) and isinstance(stmt.value, ast.Call)
                 and getattr(stmt.value.func, "attr", None) == "copy"):
@@ -272,14 +272,28 @@ def _duplicate_from_loop(node, objects, variables):
         method = getattr(inner.func, "attr", None)
         if method == "rotate_from_angax":
             rotations.append(inner)
+        elif method == "move":
+            shift = inner
         elif method == "add":
             parent = inner.func.value.id
         else:
             raise _Unparseable(method or "loop body")
-    if source_name is None or parent is None or not rotations:
+    if source_name is None or parent is None or not (rotations or shift):
         raise _Unparseable("loop body")
     if source_name not in objects:
         raise _Unparseable(source_name)
+
+    if shift is not None:  # a linear pattern: each copy `i * step` further on
+        offsets = shift.args[0]
+        if not isinstance(offsets, ast.Tuple | ast.List):
+            raise _Unparseable("step")
+        step = []
+        for component in offsets.elts:
+            if not isinstance(component, ast.BinOp):
+                raise _Unparseable("step")
+            step.append(_parsed_value(component.right, variables))
+        return {"op": "duplicate_along", "target": source_name,
+                "count": count, "step": step}
 
     # first rotation is the orbit (i * 360 / count about the anchor), an
     # optional second is the per-copy spin (i * spin, no anchor)
