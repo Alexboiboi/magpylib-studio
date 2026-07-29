@@ -76,7 +76,9 @@ newline-delimited JSON-RPC over stdio.
   scene as runnable magpylib, and saving it rebuilds the scene from what you
   wrote, as one undo step. Variables and patterns survive the round trip
   intact; a script the studio cannot parse is executed instead, and what that
-  flattens is reported.
+  flattens is reported. It is a view of the current scene, not a saved file:
+  a tab VS Code restores after a reload is re-rendered against whatever scene
+  is loaded now (unsaved edits excepted), so it never shows the last project.
 - **Properties** — the Inspector's `properties` section: the object's physics
   parameters (polarization, dimension, diameter, current, moment, vertices,
   pixels) as numeric widgets, with units in the tooltips; matrices like

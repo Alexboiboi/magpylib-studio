@@ -34,6 +34,10 @@ const SCENE_JSON_URI = vscode.Uri.parse('magpylib-studio:/scene.json');
 // The script tab, unlike scene.json, is editable and applied back on save, so
 // it is a real file (a content provider has no write side) kept in extension
 // storage — scratch space, not something to litter the user's workspace with.
+// Being a real file, VS Code restores its tab across a window reload, which is
+// why the path is fixed at activation and the restored tab re-rendered: see
+// adoptRestoredScriptTab. (That is also why the extension activates on
+// startup — a tab it owns is on screen before the user asks for anything.)
 let scriptFile: vscode.Uri | undefined;
 /** Re-render the script tab from the scene; set during activation. */
 let refreshScript: (() => void) | undefined;
@@ -1233,6 +1237,22 @@ export function activate(context: vscode.ExtensionContext): void {
       JSON.stringify(await getEngine(context).request('to_dict'), null, 2),
   };
 
+  // Fixed at activation rather than when the tab is first opened. VS Code
+  // restores that tab across a window reload, and until the extension knows
+  // the path it owns nothing: the restored tab keeps showing whichever scene
+  // was open last, and neither refreshing nor save-to-apply reaches it.
+  const scriptDir = context.storageUri ?? context.globalStorageUri;
+  scriptFile = vscode.Uri.joinPath(scriptDir, 'scene.py');
+
+  const exists = async (u: vscode.Uri) => {
+    try {
+      await vscode.workspace.fs.stat(u);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   /** The open editor for the script tab, if the user has it open. */
   const scriptDoc = () =>
     scriptFile &&
@@ -1242,26 +1262,62 @@ export function activate(context: vscode.ExtensionContext): void {
    * Write the scene's script into the tab. Unsaved edits are never clobbered:
    * a scene change while the user is mid-edit leaves their text alone, and so
    * does text the engine rejected (they are presumably fixing it). `force`
-   * re-renders anyway — used after a successful apply, where the engine's
-   * rendering is by definition the truth.
+   * re-renders anyway — used when opening the tab and after a successful
+   * apply, where the engine's rendering is by definition the truth.
    */
   const writeScriptFile = async (force = false) => {
     if (!scriptFile) {
       return;
     }
     const open = scriptDoc();
+    if (!open && !force) {
+      return; // no tab to keep in sync; opening one renders it fresh
+    }
     if (!force && (open?.isDirty || scriptRejected)) {
       return;
     }
     const text = (await getEngine(context).request<string>('to_script')) + '\n';
-    if (text === scriptOnDisk) {
-      return; // identical: don't churn the editor (it would move the cursor)
+    // Identical: don't churn the editor (it would move the cursor). What we
+    // last wrote is only a safe stand-in for the file while the file is still
+    // there — storage gets cleaned up, and openTextDocument would then fail.
+    if (text === scriptOnDisk && (await exists(scriptFile))) {
+      return;
     }
     scriptOnDisk = text;
+    await vscode.workspace.fs.createDirectory(scriptDir);
     await vscode.workspace.fs.writeFile(scriptFile, Buffer.from(text, 'utf8'));
   };
   refreshScript = () => {
     void writeScriptFile();
+  };
+
+  /**
+   * Re-render a script tab VS Code restored from the previous window. The file
+   * on disk is scratch space holding the last session's scene, which has
+   * nothing to do with the scene the engine has now — without this the tab
+   * reads as the wrong project's script until it is closed and reopened.
+   */
+  const adoptRestoredScriptTab = async () => {
+    const restored = vscode.window.tabGroups.all.some((group) =>
+      group.tabs.some(
+        (tab) =>
+          tab.input instanceof vscode.TabInputText &&
+          tab.input.uri.fsPath === scriptFile!.fsPath,
+      ),
+    );
+    if (!restored) {
+      return;
+    }
+    try {
+      // A restored tab in a background group has no loaded document yet; open
+      // it (no editor is shown) so its dirty state is knowable.
+      const doc = await vscode.workspace.openTextDocument(scriptFile!);
+      await writeScriptFile(!doc.isDirty); // hot exit may hold unsaved edits
+    } catch (err) {
+      engineOutput?.appendLine(
+        `script tab: ${err instanceof Error ? err.message : err}`,
+      );
+    }
   };
 
   /** Saving the script tab rebuilds the scene from it. */
@@ -1410,13 +1466,9 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.workspace.registerTextDocumentContentProvider('magpylib-studio', sceneDocProvider),
     vscode.commands.registerCommand('magpylib-studio.viewScript', async () => {
-      // Storage is per-workspace when there is one, global otherwise.
-      const dir = context.storageUri ?? context.globalStorageUri;
-      await vscode.workspace.fs.createDirectory(dir);
-      scriptFile = vscode.Uri.joinPath(dir, 'scene.py');
       scriptRejected = false; // opening the tab starts from the real scene
       await writeScriptFile(!scriptDoc()?.isDirty); // never over unsaved edits
-      const doc = await vscode.workspace.openTextDocument(scriptFile);
+      const doc = await vscode.workspace.openTextDocument(scriptFile!);
       // Reuse the group it is already in, the way the Studio and Field panels
       // reveal themselves. `Beside` is relative to whatever is focused, so
       // running this from the script's own column opens another one each time.
@@ -1893,6 +1945,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
   registerLmTools(context);
+  void adoptRestoredScriptTab();
 }
 
 export function deactivate(): void {

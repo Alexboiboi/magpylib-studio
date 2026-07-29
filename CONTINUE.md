@@ -438,7 +438,14 @@ and drives it.
     is run and introspected, which cannot see how the scene was written, so
     it warns about what it flattened. The script tab is therefore also the
     **only UI variables and duplicate events have**: you write them as
-    Python, save, and they land in the document.
+    Python, save, and they land in the document. Being a real file, VS Code
+    restores its tab across a window reload — so the path is fixed at
+    activation (not when the tab is first opened) and `adoptRestoredScriptTab`
+    re-renders whatever was restored against the scene the engine has *now*;
+    otherwise the tab silently shows the previous window's project until it is
+    closed and reopened. That is also why the extension activates on
+    `onStartupFinished`: a tab it owns can be on screen before the user asks
+    for anything. Unsaved edits (hot exit) are still left alone.
   - Python resolution: `magpylib-studio.pythonPath` setting → workspace/.venv →
     repo-root/.venv → `python3`. Engine stderr → output channel.
   - Verified via `node` smoke test driving compiled `EngineClient` against the
