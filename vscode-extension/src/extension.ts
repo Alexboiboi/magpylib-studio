@@ -507,6 +507,9 @@ function openStudioPanel(context: vscode.ExtensionContext): void {
     vscode.ViewColumn.One,
     {
       enableScripts: true,
+      // The exception the webview guide allows: what would be lost is the
+      // camera the user has just spent time positioning, and a plotly scene
+      // is expensive to rebuild. getState/setState cannot cheaply carry it.
       retainContextWhenHidden: true,
       localResourceRoots: [context.extensionUri],
     },
@@ -536,6 +539,9 @@ function openFieldPanel(context: vscode.ExtensionContext): void {
     { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
     {
       enableScripts: true,
+      // The exception the webview guide allows: what would be lost is the
+      // camera the user has just spent time positioning, and a plotly scene
+      // is expensive to rebuild. getState/setState cannot cheaply carry it.
       retainContextWhenHidden: true,
       localResourceRoots: [context.extensionUri],
     },
@@ -1346,13 +1352,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     sceneTreeView,
-    vscode.window.registerWebviewViewProvider(InspectorViewProvider.viewId, inspector, {
-      webviewOptions: { retainContextWhenHidden: true },
-    }),
+    // No retainContextWhenHidden: the guide calls it a last resort for good
+    // reason (it keeps the whole webview running), and neither sidebar view
+    // needs it — both rebuild from the engine the moment they report ready.
+    vscode.window.registerWebviewViewProvider(InspectorViewProvider.viewId, inspector),
     vscode.window.registerTreeDataProvider('magpylib-studio.historyView', history),
-    vscode.window.registerWebviewViewProvider(VariablesViewProvider.viewId, variables, {
-      webviewOptions: { retainContextWhenHidden: true },
-    }),
+    vscode.window.registerWebviewViewProvider(VariablesViewProvider.viewId, variables),
     vscode.commands.registerCommand('magpylib-studio.addVariable', async () => {
       const name = await vscode.window.showInputBox({
         prompt: 'Variable name',

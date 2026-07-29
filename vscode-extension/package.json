@@ -621,6 +621,14 @@
         {
           "command": "magpylib-studio.rollbackTo",
           "when": "false"
+        },
+        {
+          "command": "magpylib-studio.editOperation",
+          "when": "false"
+        },
+        {
+          "command": "magpylib-studio.toggleVisibility",
+          "when": "false"
         }
       ]
     },
@@ -1303,9 +1311,10 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./ && npm run lint && npm run check:webviews",
+    "compile": "tsc -p ./ && npm run lint && npm run check:webviews && npm run check:contributions",
     "lint": "eslint src media",
     "check:webviews": "node harness/check-webview-scripts.js",
+    "check:contributions": "node harness/check-contributions.js",
     "inspect": "node harness/webview-harness.js inspector",
     "test": "vscode-test",
     "watch": "tsc -watch -p ./"

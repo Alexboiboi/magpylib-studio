@@ -501,9 +501,22 @@ and drives it.
     the system temp dir because a unix socket path cannot exceed 103
     characters and this repo's path is deep enough to blow that; and
     `.vscode-test/` holds a 300 MB VS Code download, which is gitignored.
+  - **Checked against the API guides**, not only the samples: the two sidebar
+    webviews dropped `retainContextWhenHidden` (the guide calls it a last
+    resort for its memory cost, and both rebuild from the engine on ready);
+    the two plotly panels keep it with the reason written down, since what
+    would be lost is a camera the user positioned. Commands whose handler
+    needs a tree object are hidden from the Command Palette with
+    `when: false`, because the palette invokes them with nothing —
+    `editOperation` and `toggleVisibility` were still leaking.
+    `harness/check-contributions.js` now enforces all of that at build time:
+    declared/registered/referenced commands agree, palette rules cover every
+    argument-taking command, and every menu `when` clause matches a
+    contextValue the tree can actually produce.
   - `npm run compile` is tsc + **eslint** (`eslint.config.mjs`, flat config,
     type-aware rules for `src/` and browser globals for `media/`) + the
-    webview script check, so all three run before F5 and before packaging.
+    webview script check + the contribution check, so all of it runs before
+    F5 and before packaging.
 
 ## Setup (this folder)
 
