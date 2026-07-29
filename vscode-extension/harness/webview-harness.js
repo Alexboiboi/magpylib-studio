@@ -357,6 +357,24 @@ async function main() {
       await settle();
       show(`${target.id}${target.derived ? ` (copy of ${target.derived})` : ''}`);
     }
+    // One construction step of each kind: the step form is the other half of
+    // this panel, and it is the half that renders a document's own values.
+    const { events } = await engine.request('get_events');
+    const doc = await engine.request('to_dict');
+    const fields = (id) =>
+      Object.keys((doc.events || []).find((e) => e.id === id) ?? {}).length;
+    // The richest event of each kind, so a "create" with no parameters does
+    // not stand in for every other one.
+    const richest = new Map();
+    for (const event of events) {
+      const best = richest.get(event.op);
+      if (!best || fields(event.id) > fields(best.id)) richest.set(event.op, event);
+    }
+    for (const event of richest.values()) {
+      await webview.postMessage({ type: 'operation', eventId: event.id });
+      await settle();
+      show(`step ${event.op} — ${event.label}`);
+    }
   }
 
   engine.proc.kill();

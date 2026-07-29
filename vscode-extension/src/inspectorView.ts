@@ -336,6 +336,25 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
     const STEP_SKIP = ['id', 'op', 'target', 'type', 'children', 'style',
                        'hidden_style', 'visible', 'parent'];
 
+    // Step fields that hold a name from a fixed set. An axis may also be
+    // given as a vector, which arrives as an array and gets the vector row
+    // instead — this is only for when it arrived as one of these.
+    const STEP_CHOICES = {
+      axis: ['x', 'y', 'z'],
+      plane: ['xy', 'yz', 'zx'],
+    };
+
+    // An event's own geometric vectors are points and directions, so their
+    // parts are x, y and z. A create step's parameters are not listed here:
+    // they are the object's, and the engine says what their parts are called
+    // (a dimension's depend on the shape, so it has none).
+    const STEP_COMPONENTS = {
+      anchor: ['x', 'y', 'z'],
+      step: ['x', 'y', 'z'],
+      normal: ['x', 'y', 'z'],
+      position: ['x', 'y', 'z'],
+    };
+
     async function loadStep() {
       stepEl.innerHTML = '';
       if (!stepId) return;
@@ -364,6 +383,15 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
       // other kind carries its own arguments
       const isCreate = shown.op === 'create';
       const values = isCreate ? (stored.params || {}) : stored;
+      // For a create step the fields are the object's own parameters, so the
+      // engine already says what each one's parts are called and what unit it
+      // is in — read that rather than keeping a second copy of the table here.
+      const described = {};
+      if (isCreate) {
+        for (const p of await rpc('get_params', { object_id: shown.target })) {
+          described[p.name] = p;
+        }
+      }
       const commit = (name, value) => {
         statusEl.textContent = '';
         const changes = isCreate
@@ -386,16 +414,27 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
         const row = document.createElement('div');
         row.className = 'row';
         const label = document.createElement('label');
-        label.textContent = name;
+        label.append(document.createTextNode(name + ' '));
+        label.appendChild(unitTag(described[name] && described[name].unit));
+        if (described[name]) label.title = described[name].doc;
         const wrap = document.createElement('div');
         wrap.className = 'widget';
         if (Array.isArray(value) && !Array.isArray(value[0])) {
           wrap.style.display = 'block';
           const resolved = value.map((v) => (typeof v === 'string' ? 0 : v));
+          const parts = (described[name] && described[name].components)
+            || STEP_COMPONENTS[name]
+            || value.map((_, i) => String(i + 1));
           wrap.appendChild(vecRow(
-            value.map((_, i) => String(i + 1)), resolved,
-            (v) => commit(name, v), undefined, value,
+            parts, resolved, (v) => commit(name, v), undefined, value,
           ));
+        } else if (STEP_CHOICES[name] && STEP_CHOICES[name].includes(value)) {
+          // a field whose values are named and countable: pick, don't type
+          const sel = document.createElement('select');
+          for (const option of STEP_CHOICES[name]) sel.append(new Option(option, option));
+          sel.value = value;
+          sel.addEventListener('change', () => commit(name, sel.value));
+          wrap.appendChild(sel);
         } else if (typeof value === 'number' || typeof value === 'string') {
           wrap.appendChild(numberInput(value, value, (v) => commit(name, v)));
         } else {
@@ -536,10 +575,25 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
       return Number.isFinite(number) ? number : '=' + trimmed;
     }
 
+    /** A value written as a name rather than a number: an axis "z", a mirror
+     *  plane "xy". Not everything in a step is arithmetic, and reading one of
+     *  these as a number is where the NaN came from. */
+    function isName(value) {
+      return typeof value === 'string' && !value.startsWith('=');
+    }
+
     function numberInput(value, resolved, onCommit) {
       const input = document.createElement('input');
       input.type = 'text';
       input.spellcheck = false;
+      if (isName(value)) {
+        // shown and committed verbatim: turning "z" into "=z" would make it
+        // an expression over a variable of that name, which is a different
+        // thing entirely
+        input.value = value;
+        input.addEventListener('change', () => onCommit(input.value.trim()));
+        return input;
+      }
       input.value = asWritten(value, resolved);
       const isExpression = input.value !== short(resolved);
       if (isExpression) {
