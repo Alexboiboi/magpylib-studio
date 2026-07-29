@@ -485,6 +485,16 @@ _FIELDS = {
 }
 
 
+def _field_sources():
+    """Everything magpylib accepts as a pixel field source: a field letter,
+    on its own or followed by the axes to combine — 'B', 'Bz', 'Bxy'."""
+    return [
+        f"{field}{axes}"
+        for field in _FIELDS
+        for axes in ("", "x", "y", "z", "xy", "xz", "yz", "xyz")
+    ]
+
+
 # Operations allowed inside batch() — mutating, per-object (plus clear).
 _BATCHABLE = {
     "apply_edit",
@@ -1401,7 +1411,19 @@ class MagpylibStudioSession:
         return {"pixels": list(pixel.shape[:2])} if pixel.ndim == 3 else {}
 
     def get_schema(self, object_id):
-        return style_compat.schema(self._objs[object_id])
+        schema = style_compat.schema(self._objs[object_id])
+        # magpylib's schema does not say what a pixel field source may be —
+        # only that it is one. We know: it is the set the engine evaluates.
+        # Without this the inspector has nothing to build a widget from and
+        # the property silently does not appear.
+        try:
+            source = (schema["properties"]["pixel"]["properties"]
+                      ["field"]["properties"]["source"])
+        except (KeyError, TypeError):
+            return schema
+        source.setdefault("type", ["string", "null"])
+        source.setdefault("enum", [None, *_field_sources()])
+        return schema
 
     def get_params(self, object_id):
         """The object's physics parameters (polarization, dimension, current,

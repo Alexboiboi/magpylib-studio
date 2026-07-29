@@ -1582,6 +1582,27 @@ def test_variable_bounds_are_hard_or_only_advisory(tmp_path):
     assert "variable_bounds" not in s.to_dict()
 
 
+def test_a_pixel_field_source_is_choosable():
+    """magpylib's schema says only that a pixel field source exists, not what
+    it may be — so the inspector had nothing to build a widget from and the
+    property silently did not appear. The engine knows the answer."""
+    from magpylib_studio.session import _field_sources
+
+    s = MagpylibStudioSession()
+    s.load_example("quiver")
+    source = (s.get_schema("field")["properties"]["pixel"]["properties"]
+              ["field"]["properties"]["source"])
+    assert source["enum"][0] is None  # (default) stays available
+    assert source["enum"][1:4] == ["B", "Bx", "By"]
+    assert "Jxy" in source["enum"] and "Mxyz" in source["enum"]
+
+    # every offered value is one magpylib actually takes, so a dropdown built
+    # from the schema cannot produce a rejected edit
+    for value in _field_sources():
+        assert s.apply_edit("field", "pixel.field.source", value) == {"ok": True}
+    assert s.apply_edit("field", "pixel.field.source", "nope")["ok"] is False
+
+
 def test_every_field_magpylib_can_evaluate_is_offered():
     """B and H are what a scene is usually read for; J and M are zero outside
     a magnet and constant inside it, which makes them the quick way to see
