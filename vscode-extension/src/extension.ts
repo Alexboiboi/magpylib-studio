@@ -1369,8 +1369,18 @@ export function activate(context: vscode.ExtensionContext): void {
       scriptRejected = false; // opening the tab starts from the real scene
       await writeScriptFile(!scriptDoc()?.isDirty); // never over unsaved edits
       const doc = await vscode.workspace.openTextDocument(scriptFile);
+      // Reuse the group it is already in, the way the Studio and Field panels
+      // reveal themselves. `Beside` is relative to whatever is focused, so
+      // running this from the script's own column opens another one each time.
+      const open = vscode.window.tabGroups.all
+        .flatMap((group) => group.tabs.map((tab) => ({ group, tab })))
+        .find(
+          ({ tab }) =>
+            tab.input instanceof vscode.TabInputText &&
+            tab.input.uri.fsPath === scriptFile!.fsPath,
+        );
       await vscode.window.showTextDocument(doc, {
-        viewColumn: vscode.ViewColumn.Beside,
+        viewColumn: open?.group.viewColumn ?? vscode.ViewColumn.Beside,
         preview: false,
       });
     }),
