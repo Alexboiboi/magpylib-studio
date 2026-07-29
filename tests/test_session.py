@@ -157,6 +157,23 @@ def test_remove_object(session):
         session.remove_object("cyl")  # unknown id raises, like apply_edit
 
 
+def test_inspector_offers_only_planes_the_engine_knows():
+    """The Inspector's mirror dropdown is a hardcoded list in a webview, and
+    the engine owns the real one. When they drifted, the panel offered "zx"
+    and picking it returned KeyError: 'zx' — a menu entry that cannot work.
+    Checked from the side that has the truth."""
+    import pathlib
+    import re
+
+    from magpylib_studio.session import _MIRROR_NORMALS
+
+    source = pathlib.Path(__file__).parent.parent / "vscode-extension/src/inspectorView.ts"
+    if not source.exists():  # engine installed without the extension beside it
+        pytest.skip("extension source not present")
+    listed = re.search(r"plane: \[([^\]]*)\]", source.read_text()).group(1)
+    assert sorted(re.findall(r"'(\w+)'", listed)) == sorted(_MIRROR_NORMALS)
+
+
 def test_removing_an_object_takes_its_generated_copies_with_it():
     """A pattern's copies are part of the object they came from.
 

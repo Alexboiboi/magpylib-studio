@@ -341,7 +341,10 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
     // instead — this is only for when it arrived as one of these.
     const STEP_CHOICES = {
       axis: ['x', 'y', 'z'],
-      plane: ['xy', 'yz', 'zx'],
+      // exactly the engine's _MIRROR_NORMALS keys — a test asserts that, since
+      // a dropdown offering a plane the engine has never heard of is worse
+      // than a text box ("zx" was in this list and produced a KeyError)
+      plane: ['xy', 'xz', 'yz'],
     };
 
     // An event's own geometric vectors are points and directions, so their

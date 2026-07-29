@@ -1686,8 +1686,11 @@ export function activate(context: vscode.ExtensionContext): void {
         if (obj?.type === 'Collection') {
           params.parent = obj.id; // right-clicked a group: create inside it
         }
-        await mutateFromTree('add_object', params);
-        selectObjectInStudio(context, id); // show it in the Inspector
+        // only if it was actually created: selecting an id that does not
+        // exist leaves the Inspector showing an error about it
+        if (await mutateFromTree('add_object', params)) {
+          selectObjectInStudio(context, id); // show it in the Inspector
+        }
       },
     ),
     vscode.commands.registerCommand(
