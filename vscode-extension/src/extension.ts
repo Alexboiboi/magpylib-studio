@@ -913,12 +913,29 @@ export function activate(context: vscode.ExtensionContext): void {
     if (soft === undefined) {
       return;
     }
+    // Whole-or-not is a fact about the variable, not a slider setting: a
+    // count of 7.3 is meaningless rather than merely precise.
+    const kind = await vscode.window.showQuickPick(
+      [
+        { label: 'Any value', detail: 'a length, an angle, a field', whole: false },
+        {
+          label: 'Whole numbers only',
+          detail: 'it counts things — magnets, turns, copies',
+          whole: true,
+        },
+      ],
+      { placeHolder: `${variable.name} — what kind of number?` },
+    );
+    if (!kind) {
+      return;
+    }
     await mutateFromTree('set_variable_bounds', {
       name: variable.name,
       min: hard[0],
       max: hard[1],
       soft_min: soft[0],
       soft_max: soft[1],
+      integer: kind.whole,
     });
   };
 

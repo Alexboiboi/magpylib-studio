@@ -284,6 +284,16 @@ and drives it.
     soft range for when the two differ), and `"0,"` / `", 10"` give a
     half-open range. Asking at creation is the difference between a slider
     that exists and one nobody finds.
+  - **`integer`** marks a variable that counts things (`n`, `turns`, `nx`).
+    It lives beside the bounds because it is the same kind of statement — a
+    constraint on the domain, not a hint for the slider — and it is enforced
+    the same way, at the fold, wherever the value came from: an expression
+    that lands on 10.5 is refused like a typed 7.3. The patterns now refuse a
+    fractional count too (`_whole`) instead of `int()`-ing it, which was a
+    silent way to end up with one magnet fewer than the scene claimed.
+    **Units are the obvious next tenant of that dict** and deliberately not
+    there yet: nothing consumes them, and a slot nothing reads is a promise
+    rather than a feature.
   - **Bounds, hard and soft** (`doc["variable_bounds"]`, `set_variable_bounds`):
     hard `min`/`max` are enforced **in `_build`**, not where a value is typed,
     so they hold however the variable arrived — including when it is driven by

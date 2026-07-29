@@ -115,7 +115,8 @@ def example_scene():
             "n": 10, "radius": 2.3, "gap": 1.5, "stagger": "=360 / (2 * n)",
         },
         "variable_bounds": {
-            "n": {"min": 2, "max": 60, "soft_min": 4, "soft_max": 20},
+            "n": {"min": 2, "max": 60, "soft_min": 4, "soft_max": 20,
+                  "integer": True},
             "radius": {"min": 0.5, "max": 8, "soft_min": 1.6, "soft_max": 4},
             "gap": {"min": 0, "max": 6, "soft_min": 1, "soft_max": 3},
         },
@@ -162,7 +163,8 @@ def coil_scene():
             "height": "=pitch * (turns - 1)",
         },
         "variable_bounds": {
-            "turns": {"min": 1, "max": 200, "soft_min": 4, "soft_max": 40},
+            "turns": {"min": 1, "max": 200, "soft_min": 4, "soft_max": 40,
+                      "integer": True},
             "coil_radius": {"min": 0.05, "max": 10, "soft_min": 0.3, "soft_max": 3},
             "pitch": {"min": 0.01, "max": 2, "soft_min": 0.1, "soft_max": 0.6},
             "amps": {"min": -10000, "max": 10000, "soft_min": 0, "soft_max": 500},
@@ -227,8 +229,10 @@ def array_scene():
     return {
         "variables": {"nx": 4, "ny": 3, "pitch": 1.5, "lift": 2.0},
         "variable_bounds": {
-            "nx": {"min": 1, "max": 40, "soft_min": 2, "soft_max": 10},
-            "ny": {"min": 1, "max": 40, "soft_min": 2, "soft_max": 10},
+            "nx": {"min": 1, "max": 40, "soft_min": 2, "soft_max": 10,
+                   "integer": True},
+            "ny": {"min": 1, "max": 40, "soft_min": 2, "soft_max": 10,
+                   "integer": True},
             "pitch": {"min": 0.2, "max": 10, "soft_min": 1, "soft_max": 4},
             "lift": {"min": 0.1, "max": 10, "soft_min": 0.5, "soft_max": 4},
         },
@@ -454,6 +458,17 @@ def _spec_ops(spec):
         kind = "rotate_from_rotvec" if "rotvec" in rot else "rotate_from_angax"
         ops.append({"op": kind, **rot})
     return ops + list(spec.get("transforms", []))
+
+
+def _whole(value, what):
+    """A count of 7.3 is not a coarse 7.3, it is meaningless — and rounding it
+    quietly is how a scene ends up with a magnet fewer than it says."""
+    number = float(value)
+    if number != int(number):
+        raise ValueError(f"{what} has to be a whole number, got {number:g}")
+    if int(number) < 1:
+        raise ValueError(f"{what} must be at least 1, got {int(number)}")
+    return int(number)
 
 
 def _walk_specs(specs):
@@ -822,6 +837,9 @@ class MagpylibStudioSession:
                 raise ValueError(
                     f"{name} = {value:g} is above its maximum {limits['max']:g}"
                 )
+            if limits.get("integer") and float(value) != int(value):
+                raise ValueError(f"{name} = {value:g} counts things, so it "
+                                 f"has to be a whole number")
         self._objs = {}
         self._derived = {}
         self._specs = {}  # id -> the spec its create event describes
@@ -1009,9 +1027,7 @@ class MagpylibStudioSession:
         is). The copies are generated, not declared — they exist only as long
         as the event does, which is what makes the count a single number to
         edit instead of twenty objects to keep in step."""
-        count = int(event.get("count", 1))
-        if count < 1:
-            raise ValueError(f"duplicate count must be at least 1, got {count}")
+        count = _whole(event.get("count", 1), "duplicate count")
         axis = event.get("axis", "z")
         anchor = event.get("anchor", 0)
         spin = float(event.get("spin", 0))
@@ -1037,9 +1053,7 @@ class MagpylibStudioSession:
         pattern the Collection holding it — which is why there is no separate
         grid op: composing the log already expresses it.
         """
-        count = int(event.get("count", 1))
-        if count < 1:
-            raise ValueError(f"duplicate count must be at least 1, got {count}")
+        count = _whole(event.get("count", 1), "duplicate count")
         step = event.get("step", [1, 0, 0])
         source = self._objs[object_id]
         container = self._container_for_copies(object_id)
@@ -2334,7 +2348,7 @@ class MagpylibStudioSession:
         }
 
     def set_variable_bounds(self, name, min=None, max=None,  # noqa: A002
-                            soft_min=None, soft_max=None):
+                            soft_min=None, soft_max=None, integer=None):
         """Limit a variable, so a UI can offer a slider and a typo cannot put
         the scene somewhere meaningless.
 
@@ -2342,7 +2356,13 @@ class MagpylibStudioSession:
         rejected, including one a variable arrives at through an expression.
         Soft bounds (`soft_min`/`soft_max`) are only the range worth sweeping
         or dragging through — values outside stay legal, which is the point of
-        the distinction. Passing nothing clears the limits.
+        the distinction.
+
+        `integer` says the variable counts things. That is a fact about the
+        domain, not a hint for the slider: a count of 7.3 is not a coarse
+        7.3, it is meaningless, and the patterns that consume one would
+        quietly truncate it. Enforced like the hard bounds, wherever the
+        value came from. Passing nothing clears the limits.
         """
         if name not in (self.doc.get("variables") or {}):
             return {"ok": False, "error": f"unknown variable {name!r}"}
@@ -2354,6 +2374,8 @@ class MagpylibStudioSession:
             ):
                 return {"ok": False, "error": f"{key} must be a number"}
         limits = {k: v for k, v in limits.items() if v is not None}
+        if integer:
+            limits["integer"] = True
         for lo, hi in (("min", "max"), ("soft_min", "soft_max")):
             if lo in limits and hi in limits and limits[lo] > limits[hi]:
                 return {"ok": False, "error": f"{lo} must not exceed {hi}"}

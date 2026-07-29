@@ -10,6 +10,8 @@ export interface VariableBounds {
   /** Soft limits: the range worth dragging through; outside stays legal. */
   soft_min?: number;
   soft_max?: number;
+  /** This variable counts things, so only whole values are legal. */
+  integer?: boolean;
 }
 
 export interface Variable {
@@ -256,6 +258,7 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider {
         text.type = 'text';
         text.spellcheck = false;
         text.value = isExpression ? v.expression.slice(1) : short(v.value);
+        if (b.integer) name.title += ' — whole numbers only';
         if (isExpression) { text.classList.add('expr'); text.title = 'currently ' + short(v.value); }
         text.addEventListener('change', () => commit(v.name, asValue(text.value)));
 
@@ -265,7 +268,8 @@ export class VariablesViewProvider implements vscode.WebviewViewProvider {
           slider.type = 'range';
           slider.min = low;
           slider.max = high;
-          slider.step = (high - low) / 100;
+          // a count has no values between its values
+          slider.step = b.integer ? 1 : (high - low) / 100;
           slider.value = v.value;
           slider.title = short(low) + ' .. ' + short(high);
           // live text while dragging, one edit when released

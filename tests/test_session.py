@@ -1570,6 +1570,40 @@ def test_variable_bounds_are_hard_or_only_advisory(tmp_path):
     assert "variable_bounds" not in s.to_dict()
 
 
+def test_a_variable_that_counts_things_stays_whole():
+    """A count of 7.3 is not a coarse 7.3, it is meaningless — and the
+    patterns that consume one used to truncate it silently."""
+    s = MagpylibStudioSession()
+    s.load_example("coil")
+    turns = {v["name"]: v for v in s.get_variables()["variables"]}["turns"]
+    assert turns["bounds"]["integer"] is True
+    assert len(s._leaf_sources()) == 12
+
+    assert s.set_variable("turns", 20) == {"ok": True}
+    assert len(s._leaf_sources()) == 20
+    refused = s.set_variable("turns", 7.3)
+    assert refused["ok"] is False and "whole number" in refused["error"]
+    assert len(s._leaf_sources()) == 20  # unchanged
+
+    # enforced wherever the value came from, including through an expression
+    assert s.set_variable("half", "=turns / 2") == {"ok": True}  # not a count
+    assert s.set_variable_bounds("half", integer=True)["ok"] is True
+    assert s.set_variable("turns", 21)["ok"] is False  # would make half 10.5
+    assert s.set_variable("turns", 22) == {"ok": True}
+
+    # and a pattern refuses a fractional count rather than rounding it
+    s2 = MagpylibStudioSession()
+    s2.add_object("g", "Collection")
+    s2.add_object("m", "magnet.Sphere",
+                  {"polarization": [0, 0, 1], "diameter": 1}, parent="g")
+    s2.set_variable("k", 4)
+    assert s2.duplicate_around("m", "=k", "z", anchor=[0, 0, 0]) == {"ok": True}
+    assert len(s2._leaf_sources()) == 4
+    broken = s2.set_variable("k", 6.5)
+    assert broken["ok"] is False and "whole number" in broken["error"]
+    assert len(s2._leaf_sources()) == 4
+
+
 def test_batch_builds_a_parametric_scene_in_one_step():
     """What an assistant sends for "a Halbach ring of 8": the variables, the
     one magnet written in terms of them, and the arrangement — one undo."""
