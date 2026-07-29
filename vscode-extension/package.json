@@ -87,7 +87,7 @@
       },
       {
         "command": "magpylib-studio.gotoHistory",
-        "title": "Magpylib Studio: Jump to History Point"
+        "title": "Magpylib Studio: Jump to Undo Step"
       },
       {
         "command": "magpylib-studio.newCollection",
@@ -244,14 +244,14 @@
         },
         {
           "id": "magpylib-studio.eventsView",
-          "name": "History",
+          "name": "Construction",
           "type": "webview",
-          "contextualTitle": "magpylib Scene Construction History"
+          "contextualTitle": "magpylib Scene Construction"
         },
         {
           "id": "magpylib-studio.historyView",
-          "name": "Undo Timeline",
-          "contextualTitle": "magpylib Undo Timeline",
+          "name": "Undo",
+          "contextualTitle": "magpylib Undo Steps",
           "visibility": "collapsed"
         }
       ]

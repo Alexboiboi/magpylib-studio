@@ -243,16 +243,21 @@ and drives it.
     carries them across for variables that survived the edit rather than
     dropping them on every save, and `_canonical` deletes any whose variable
     is gone.
-  - **History view** (`eventsView.ts`, webview): the construction log, one
-    row per event, in order. Create events are dimmed, ones the last fold
-    could not apply get a red left border and the reason underneath. Hover
-    gives ↑ / ↓ (a real edit — order is semantic), ✎ (pick a field, type a
-    value, expressions allowed) and ✕. Because a history edit *applies* and
-    reports what it broke, the host says so in a warning naming the first
-    casualty and pointing at undo — silently leaving red rows behind is the
-    one way this could mislead. The old snapshot timeline is still there,
-    renamed **Undo Timeline**: it is a different mechanism and two things
-    called History was worse than a longer name.
+  - **Construction view** (`eventsView.ts`, webview): the event log, one row
+    per event, in order. Create events are dimmed, ones the last fold could
+    not apply get a red left border and the reason underneath. Hover gives
+    ↑ / ↓ (a real edit — order is semantic), ✎ (pick a field, type a value,
+    expressions allowed) and ✕. Because a log edit *applies* and reports what
+    it broke, the host says so in a warning naming the first casualty and
+    pointing at undo — silently leaving red rows behind is the one way this
+    could mislead.
+  - **Neither panel is called "History".** The two are genuinely different —
+    **Construction** is the document (events, persisted, editable,
+    reorderable, exported to the script) and **Undo** is the session's
+    snapshot stack (document copies, capped at 100, gone on reload) — and
+    "history" is precisely the word that fits both, so it names neither.
+    They were briefly History and Undo Timeline, which was worse: two names
+    a reader has to hold apart rather than two words that say what they hold.
   - Sliders commit on release, with the value box updating live during the
     drag. (They lived in the Inspector briefly, as a workaround for the tree;
     that section is gone now the Variables view can hold them itself — two
