@@ -29,7 +29,12 @@ and drives it.
   `list_examples()`, `load_example(name)`), because an example is the
   shortest documentation there is and each one leans on a different feature:
   a **solenoid** (linear pattern of current loops), a **facing pair** (mirror),
-  a **magnet array** (two linear patterns composing into a grid).
+  a **magnet array** (two linear patterns composing into a grid), a
+  **parametric measuring plane** (a pixel grid whose coordinates are
+  expressions), and **a turning magnet under field arrows** — magpylib's own
+  animated-quiver example: a pose that is a *path*, so the scene animates,
+  and a sensor styled to draw its own reading
+  (`pixel.field.symbol = arrow3d`).
   All four are **written the way the studio is meant to be used**: the Halbach
   is two rings of one magnet and one circular pattern each — nine steps and
   four variables instead of twenty declared magnets and sixty-five steps, for

@@ -322,6 +322,60 @@ def pixel_field_scene(resolution=7):
     }
 
 
+def quiver_scene(pixels=12, steps=51):
+    """magpylib's animated-quiver example as a scene: a magnet turning
+    through a full revolution under a grid of field arrows, each coloured and
+    scaled by what it measures.
+
+    The two things it shows that nothing else here does — an object whose
+    pose is a *path*, so the whole scene animates, and a sensor styled to
+    draw its own reading — are both magpylib's, not the studio's. What the
+    studio adds is that the grid rides on the sensor's position, so `lift`
+    moves all 144 arrows at once.
+    """
+    edge = 2.0
+    coordinates = [
+        round(-edge + 2 * edge * i / (pixels - 1), 6) for i in range(pixels)
+    ]
+    return {
+        "variables": {"lift": 1.0, "width": 3.0},
+        "variable_bounds": {
+            "lift": {"min": 0.1, "max": 10, "soft_min": 0.5, "soft_max": 3},
+            "width": {"min": 0.1, "max": 10, "soft_min": 1, "soft_max": 5},
+        },
+        "events": [{
+            "target": "magnet", "op": "rotate_from_angax",
+            "angle": [round(360 * i / (steps - 1), 6) for i in range(steps)],
+            "axis": "y", "start": 0,
+        }],
+        "objects": [
+            {
+                "id": "magnet", "type": "magnet.Cuboid",
+                "params": {
+                    "polarization": [0, 0, 1],
+                    "dimension": [1, "=width", 1],
+                },
+                "style": {"label": "Turning magnet"},
+            },
+            {
+                "id": "field", "type": "Sensor",
+                "params": {
+                    "position": [0, 0, "=lift"],
+                    "pixel": [
+                        [[u, v, 0] for u in coordinates] for v in coordinates
+                    ],
+                },
+                "style": {
+                    "label": "Field arrows",
+                    "pixel.field.source": "B",
+                    "pixel.field.symbol": "arrow3d",
+                    "pixel.field.colormap": "Viridis",
+                },
+            },
+        ],
+    }
+
+
 # The built-in scenes, each written the way the studio is meant to be used
 # and each leaning on a different feature — which is the point of having
 # more than one: an example is the shortest documentation there is.
@@ -342,6 +396,10 @@ EXAMPLES = {
                "A magnet under a sensor whose pixel grid resizes with a "
                "variable — open the Field view and read it off the sensor",
                pixel_field_scene),
+    "quiver": ("Turning magnet, field arrows",
+               "A magnet rotating through a revolution under a grid of "
+               "arrows coloured by what they read — press Animate paths",
+               quiver_scene),
     "array": ("Magnet array",
               "A magnet patterned into a row, the row into a grid — two "
               "linear steps, both counts editable",
@@ -746,7 +804,12 @@ def _event_label(event):
         return f"turned {_vec(event.get('rotvec'), '°')}"
     # rotate_from_angax: the anchor is what makes it an orbit rather than a spin
     kind = "orbit" if event.get("anchor") is not None else "spin"
-    return f"{kind} {_lit(event.get('angle'))}° about {_axis_label(event.get('axis', 'z'))}"
+    angle = event.get("angle")
+    axis = _axis_label(event.get("axis", "z"))
+    if isinstance(angle, list):
+        # a path: the row says what it does, not every angle it passes through
+        return f"{kind} through {len(angle)} steps about {axis}, to {_lit(angle[-1])}°"
+    return f"{kind} {_lit(angle)}° about {axis}"
 
 
 def _event_source(event):

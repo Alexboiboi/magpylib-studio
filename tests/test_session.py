@@ -274,6 +274,18 @@ def test_every_example_builds_and_is_worth_opening():
     assert s.set_variable("nx", 6) == {"ok": True}
     assert len(s._leaf_sources()) == 18
 
+    # a pose that is a path, and a sensor drawing its own reading
+    s.load_example("quiver")
+    assert np.array(s._objs["magnet"].position).shape == (51, 3)
+    assert s.get_values("field")["set"]["pixel.field.symbol"] == "arrow3d"
+    assert len(s.get_figure(animation=True)["frames"]) == 51
+    # the step says what it does rather than listing 51 angles
+    assert s.get_events()["events"][-1]["label"] == (
+        "spin through 51 steps about y, to 360.0°"
+    )
+    assert s.set_variable("lift", 3.0) == {"ok": True}
+    assert list(s._objs["field"].position) == [0, 0, 3]  # all 144 arrows move
+
     # even a table of numbers is parametric: a pixel grid's resolution cannot
     # be (an expression yields a number, not an array of another length) but
     # every coordinate in it can
