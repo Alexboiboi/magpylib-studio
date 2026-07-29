@@ -31,7 +31,7 @@
       },
       {
         "command": "magpylib-studio.loadExample",
-        "title": "Magpylib Studio: Load Example Scene"
+        "title": "Magpylib Studio: Load Example Scene..."
       },
       {
         "command": "magpylib-studio.openFieldView",
@@ -285,7 +285,7 @@
     "viewsWelcome": [
       {
         "view": "magpylib-studio.sceneView",
-        "contents": "The scene is empty.\n[Add Object...](command:magpylib-studio.addObject)\nA magnet, current, sensor or collection.\n[Load Example Scene](command:magpylib-studio.loadExample)\nTwo stacked Halbach rings and a sensor path along the bore.\n[Import Python Script...](command:magpylib-studio.importScript)\nRun an existing magpylib script and edit its scene here.\n[Load Scene from File...](command:magpylib-studio.loadScene)\nOr ask Copilot chat to add objects with #magpyAdd."
+        "contents": "The scene is empty.\n[Add Object...](command:magpylib-studio.addObject)\nA magnet, current, sensor or collection.\n[Load Example Scene...](command:magpylib-studio.loadExample)\nA Halbach stack, a solenoid, a mirrored pair or a magnet array \u2014 each built from a couple of parametric steps.\n[Import Python Script...](command:magpylib-studio.importScript)\nRun an existing magpylib script and edit its scene here.\n[Load Scene from File...](command:magpylib-studio.loadScene)\nOr ask Copilot chat to add objects with #magpyAdd."
       }
     ],
     "submenus": [

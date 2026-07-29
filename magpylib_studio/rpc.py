@@ -48,6 +48,7 @@ _PUBLIC = {
     "apply_script",
     "load_captured",
     "load_example",
+    "list_examples",
     "clear_scene",
     "batch",
     "undo",

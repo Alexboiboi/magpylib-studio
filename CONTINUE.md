@@ -25,13 +25,18 @@ and drives it.
   is depth-first with a `parent` field; `to_script` emits children before
   their collection. `example_scene()`: `halbach` → `ring1`/`ring2` (10
   rotated cuboids each; ring2 staggered 18° by a *group* rotation) + sensor
-  path along the bore. **It arrives parametric**: both rings are written in
-  terms of `radius`, the upper one sits at `gap`, and both variables carry
-  bounds, so the example opens with two working sliders and dragging one
-  moves twenty magnets. That is deliberate — the example is the first thing
-  anyone opens, so it is where the parametric model has to be discoverable.
-  The soft minimum on `radius` is 1.6 for a real reason: below it, 2πr < 10
-  and the ten unit cubes would have to overlap.
+  path along the bore — and **three more scenes beside it** (`EXAMPLES`,
+  `list_examples()`, `load_example(name)`), because an example is the
+  shortest documentation there is and each one leans on a different feature:
+  a **solenoid** (linear pattern of current loops), a **facing pair** (mirror),
+  a **magnet array** (two linear patterns composing into a grid).
+  All four are **written the way the studio is meant to be used**: the Halbach
+  is two rings of one magnet and one circular pattern each — nine steps and
+  four variables instead of twenty declared magnets and sixty-five steps, for
+  a field identical to the hand-built version it replaced. Changing `n`
+  rebuilds both rings and `stagger` follows it, being `360/(2*n)` by
+  definition. The soft minimum on `radius` is 1.6 for a real reason: below
+  it, 2πr < n and the default ring's unit cubes would have to overlap.
   Object specs support an optional `"rotations"` list
   ({angle, axis, anchor?}, applied in order via `rotate_from_angax`; no
   anchor = spin in place; on a Collection rotates the whole group).

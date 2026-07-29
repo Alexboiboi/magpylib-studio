@@ -223,7 +223,7 @@ def test_load_example():
     parents = {o["id"]: o["parent"] for o in objs}
     assert parents["halbach"] is None
     assert parents["ring1"] == "halbach"
-    assert parents["r1m01"] == "ring1"
+    assert parents["r1"] == "ring1"
     assert parents["sensor"] is None
     assert len(s.get_figure()["data"]) > 0
     # the example round-trips through the generated script
@@ -232,10 +232,47 @@ def test_load_example():
     assert len(ns["halbach"].children) == 2
     assert len(ns["ring1"].children) == 10
     # ring 2 is staggered by an 18 deg group rotation
-    assert ns["r2m01"].position.round(3).tolist() != [2.3, 0, 1.5]
+    assert ns["r2"].position.round(3).tolist() != [2.3, 0, 1.5]
     # the script carries the variables, not the numbers they resolve to
     assert "radius = 2.3" in s.to_script()
     assert "position=(radius, 0, 0.0)" in s.to_script()
+
+
+def test_every_example_builds_and_is_worth_opening():
+    """Four scenes, each leaning on a different feature — an example is the
+    shortest documentation there is, so each has to show something."""
+    import numpy as np
+
+    from magpylib_studio.session import EXAMPLES
+
+    s = MagpylibStudioSession()
+    assert [e["name"] for e in s.list_examples()["examples"]] == list(EXAMPLES)
+    assert s.load_example("nope")["ok"] is False
+
+    for name in EXAMPLES:
+        assert s.load_example(name) == {"ok": True}, name
+        assert s.list_objects(), name
+        assert np.abs(np.array(s.get_field()["values"])).max() > 0, name
+        # each is built from steps, not from declared copies
+        patterns = [
+            e for e in s.get_events()["events"]
+            if e["op"] in ("duplicate_around", "duplicate_along", "mirror")
+        ]
+        assert patterns or name == "halbach", name
+        assert s.get_variables()["variables"], name
+        json.dumps(s.to_dict())
+        exec_script(s.to_script())  # and each exports as runnable magpylib
+
+    # the counts are what a variable changes, not what the document declares
+    s.load_example("coil")
+    assert len(s._leaf_sources()) == 12
+    assert s.set_variable("turns", 30) == {"ok": True}
+    assert len(s._leaf_sources()) == 30
+
+    s.load_example("array")
+    assert len(s._leaf_sources()) == 12  # nx * ny
+    assert s.set_variable("nx", 6) == {"ok": True}
+    assert len(s._leaf_sources()) == 18
 
 
 def test_example_arrives_parametric():
@@ -254,16 +291,16 @@ def test_example_arrives_parametric():
 
     # one number moves twenty magnets, in both rings
     assert s.set_variable("radius", 3.5) == {"ok": True}
-    assert np.allclose(s._objs["r1m01"].position, [3.5, 0, 0])
-    assert np.linalg.norm(s._objs["r2m05"].position[:2]).round(6) == 3.5
+    assert np.allclose(s._objs["r1"].position, [3.5, 0, 0])
+    assert np.linalg.norm(s._objs["r2#4"].position[:2]).round(6) == 3.5
     # and the rings stay where they belong on z
     assert s.set_variable("gap", 3) == {"ok": True}
-    assert s._objs["r2m01"].position[2] == 3
-    assert s._objs["r1m01"].position[2] == 0
+    assert s._objs["r2"].position[2] == 3
+    assert s._objs["r1"].position[2] == 0
 
     refused = s.set_variable("radius", 9)
     assert refused["ok"] is False and "above its maximum" in refused["error"]
-    assert np.allclose(s._objs["r1m01"].position, [3.5, 0, 0])  # unmoved
+    assert np.allclose(s._objs["r1"].position, [3.5, 0, 0])  # unmoved
     assert len(s.get_figure()["data"]) > 0  # still renders
 
 
@@ -432,21 +469,21 @@ def test_collection_transforms_carry_children():
 
     s = MagpylibStudioSession()
     s.load_example()
-    child = np.array(s._objs["r1m01"].position)
+    child = np.array(s._objs["r1"].position)
 
     assert s.move("ring1", [0, 0, 5]) == {"ok": True}
     assert np.allclose(s._objs["ring1"].position, [0, 0, 5])
-    assert np.allclose(s._objs["r1m01"].position, child + [0, 0, 5])
+    assert np.allclose(s._objs["r1"].position, child + [0, 0, 5])
 
     assert s.rotate("ring1", 90, "z", anchor=0) == {"ok": True}
-    assert np.allclose(s._objs["r1m01"].position, [0, 2.3, 5])
+    assert np.allclose(s._objs["r1"].position, [0, 2.3, 5])
 
     # a transform on the outer stack moves the nested rings too
     assert s.move("halbach", [10, 0, 0]) == {"ok": True}
-    assert np.allclose(s._objs["r1m01"].position, [10, 2.3, 5])
+    assert np.allclose(s._objs["r1"].position, [10, 2.3, 5])
 
     ns = exec_script(s.to_script())
-    assert np.allclose(ns["r1m01"].position, s._objs["r1m01"].position)
+    assert np.allclose(ns["r1"].position, s._objs["r1"].position)
     json.dumps(s.to_dict())  # recorded ops stay JSON-safe
 
 
@@ -455,11 +492,12 @@ def test_reparenting_a_collection_keeps_its_subtree():
 
     s = MagpylibStudioSession()
     s.load_example()
-    kids = np.array([s._objs[f"r2m{i:02d}"].position for i in range(1, 11)])
+    kids = np.array([child.position for child in s._objs["ring2"].children])
+    assert len(kids) == 10  # the declared magnet plus its generated copies
     assert s.move_object("ring2", None) == {"ok": True}  # out of "halbach"
     assert {o["id"]: o["parent"] for o in s.list_objects()}["ring2"] is None
     assert np.allclose(
-        kids, [s._objs[f"r2m{i:02d}"].position for i in range(1, 11)]
+        kids, [child.position for child in s._objs["ring2"].children]
     )
 
 
@@ -469,10 +507,10 @@ def test_transform_respects_parent_frame():
 
     s = MagpylibStudioSession()
     s.load_example()  # ring2 carries an 18 deg group rotation
-    assert s.set_transform("r2m01", position=[5, 0, 0]) == {"ok": True}
-    assert np.allclose(s._objs["r2m01"].position, [5, 0, 0])
-    assert s.move("r2m01", [0, 0, 1]) == {"ok": True}
-    assert np.allclose(s._objs["r2m01"].position, [5, 0, 1])
+    assert s.set_transform("r2", position=[5, 0, 0]) == {"ok": True}
+    assert np.allclose(s._objs["r2"].position, [5, 0, 0])
+    assert s.move("r2", [0, 0, 1]) == {"ok": True}
+    assert np.allclose(s._objs["r2"].position, [5, 0, 1])
 
 
 def test_move_preserves_world_pose():
@@ -482,17 +520,17 @@ def test_move_preserves_world_pose():
 
     s = MagpylibStudioSession()
     s.load_example()  # ring2 carries an 18 deg group rotation
-    pos = np.array(s._objs["r1m01"].position)
-    rot = s._objs["r1m01"].orientation.as_matrix()
+    pos = np.array(s._objs["r1"].position)
+    rot = s._objs["r1"].orientation.as_matrix()
 
-    assert s.move_object("r1m01", "ring2") == {"ok": True}
-    assert {o["id"]: o["parent"] for o in s.list_objects()}["r1m01"] == "ring2"
-    assert np.allclose(s._objs["r1m01"].position, pos)
-    assert np.allclose(s._objs["r1m01"].orientation.as_matrix(), rot)
+    assert s.move_object("r1", "ring2") == {"ok": True}
+    assert {o["id"]: o["parent"] for o in s.list_objects()}["r1"] == "ring2"
+    assert np.allclose(s._objs["r1"].position, pos)
+    assert np.allclose(s._objs["r1"].orientation.as_matrix(), rot)
 
-    assert s.move_object("r1m01") == {"ok": True}  # back out to the root
-    assert np.allclose(s._objs["r1m01"].position, pos)
-    assert np.allclose(s._objs["r1m01"].orientation.as_matrix(), rot)
+    assert s.move_object("r1") == {"ok": True}  # back out to the root
+    assert np.allclose(s._objs["r1"].position, pos)
+    assert np.allclose(s._objs["r1"].orientation.as_matrix(), rot)
 
     # objects with a position path keep it too, and the export agrees
     sensor_path = np.array(s._objs["sensor"].position)
@@ -537,7 +575,7 @@ def test_get_field_errors():
         s.get_field(points=[[0, 0, 0]])
     s.load_example()
     with pytest.raises(ValueError, match="not a Sensor"):
-        s.get_field(sensor_id="r1m01")
+        s.get_field(sensor_id="r1")
     with pytest.raises(ValueError, match="'B' or 'H'"):
         s.get_field(field="X")
     s.remove_object("sensor")
@@ -621,7 +659,7 @@ def test_field_map_from_sensor_pixel_grid():
                            before)
     assert "pixel" in s.to_script()  # exported like any other magpylib scene
 
-    assert s.set_pixel_grid("r1m01", plane="xy")["ok"] is False  # not a sensor
+    assert s.set_pixel_grid("r1", plane="xy")["ok"] is False  # not a sensor
     s.add_object("bare", "Sensor")
     with pytest.raises(ValueError, match="no pixel grid"):
         s.get_field_map(sensor_id="bare")
@@ -1035,8 +1073,8 @@ def test_the_log_alone_reconstructs_the_scene():
     s.load_example()
     s.set_variable("radius", 3.0)
     s.rotate("ring1", 30, "z", anchor=[0, 0, 0])
-    s.remove_object("r1m05")
-    s.move_object("r1m06", "ring2")
+    s.remove_object("ring2")
+    s.move_object("r1", "halbach")
     document = json.loads(json.dumps(s.to_dict()))
     field = np.array(s.get_field("sensor")["values"])
 
@@ -1095,17 +1133,17 @@ def test_editing_a_past_event_reapplies_the_later_ones():
     stagger = next(
         e for e in events if e["target"] == "ring2" and e["op"] != "create"
     )
-    assert stagger["source"] == "ring2.rotate_from_angax(18, 'z', anchor=0)"
+    assert stagger["source"] == "ring2.rotate_from_angax(stagger, 'z', anchor=0)"
 
-    before = np.array(s._objs["r2m01"].position)
+    before = np.array(s._objs["r2"].position)
     assert s.edit_event(stagger["id"], {"angle": 45}) == {"ok": True}
     # the whole group followed the edited event, not just the object it names
-    moved = np.array(s._objs["r2m01"].position)
+    moved = np.array(s._objs["r2"].position)
     assert not np.allclose(moved, before)
     assert np.allclose(np.linalg.norm(moved[:2]), np.linalg.norm(before[:2]))
     assert s.get_history()["undo"][-1] == f"edit event {stagger['id']}"
     assert s.undo() == {"ok": True}
-    assert np.allclose(s._objs["r2m01"].position, before)
+    assert np.allclose(s._objs["r2"].position, before)
 
 
 def test_event_edits_that_cannot_replay_roll_back():
@@ -1283,7 +1321,7 @@ def test_a_step_can_be_given_a_variable_after_the_fact():
     s.load_example()
     stagger = next(e for e in s.get_events()["events"]
                    if e["target"] == "ring2" and e["op"] != "create")
-    assert stagger["label"] == "orbit 18° about z"
+    assert stagger["label"] == "orbit stagger° about z"
 
     assert s.set_variable("stagger", 18) == {"ok": True}
     assert s.edit_event(stagger["id"], {"angle": "=stagger"}) == {"ok": True}
@@ -1291,10 +1329,10 @@ def test_a_step_can_be_given_a_variable_after_the_fact():
     assert relabelled["label"] == "orbit stagger° about z"
 
     # and the ring now follows it
-    before = np.array(s._objs["r2m01"].position)
+    before = np.array(s._objs["r2"].position)
     assert s.set_variable("stagger", 45) == {"ok": True}
-    assert not np.allclose(s._objs["r2m01"].position, before)
-    assert np.allclose(s._objs["r2m01"].position[:2], [1.626, 1.626], atol=1e-3)
+    assert not np.allclose(s._objs["r2"].position, before)
+    assert np.allclose(s._objs["r2"].position[:2], [1.626, 1.626], atol=1e-3)
     # exported as the variable, not as what it currently comes to
     assert "ring2.rotate_from_angax(stagger, 'z', anchor=0)" in s.to_script()
 
@@ -1307,16 +1345,16 @@ def test_a_create_event_is_where_an_object_is_changed_after_the_fact():
     s = MagpylibStudioSession()
     s.load_example()
     create = next(e for e in s.get_events()["events"]
-                  if e["op"] == "create" and e["target"] == "r1m01")
+                  if e["op"] == "create" and e["target"] == "r1")
     stored = next(e for e in s.to_dict()["events"] if e["id"] == create["id"])
     before = len(s.doc["events"])
 
     assert s.edit_event(create["id"], {
         "params": {**stored["params"], "dimension": [2, 1, 0.5]}
     }) == {"ok": True}
-    assert list(s._objs["r1m01"].dimension) == [2, 1, 0.5]
+    assert list(s._objs["r1"].dimension) == [2, 1, 0.5]
     # everything recorded after it still applies: the magnet is still orbited
-    assert np.allclose(s._objs["r1m01"].position, [2.3, 0, 0])
+    assert np.allclose(s._objs["r1"].position, [2.3, 0, 0])
     assert len(s.doc["events"]) == before  # an edit, not another entry
 
 

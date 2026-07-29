@@ -34,7 +34,8 @@ Protocol surface (all JSON-serializable in/out):
   load_script(path, scene?)            -> {"ok", "scene", "scenes": [labels], ...}
   load_captured(scene)                 -> same (switch between captured scenes)
   apply_script(path)                   -> {"ok", "warnings"?} (edited to_script back in)
-  load_example()                       -> {"ok": bool, "error"?: str}
+  list_examples()                      -> {"examples": [{name, label, description}]}
+  load_example(name?)                  -> {"ok": bool, "error"?: str}
   clear_scene()                        -> {"ok": bool, "error"?: str}
   batch(operations)                    -> {"ok": bool, "results": [...]} (1 undo step)
   undo(steps?) / redo(steps?)          -> {"ok": bool, "error"?: str}
@@ -69,71 +70,224 @@ from magpylib_studio import expressions, style_compat
 
 
 def example_scene():
-    """The built-in showcase scene: a nested Halbach stack — two rings of 10
-    rotated cuboids each (each cuboid orbited AND spun by the ring angle, the
-    classic magpylib docs pattern), ring 2 staggered by a group rotation —
-    plus a sensor path along the bore axis.
+    """The built-in showcase scene: a nested Halbach stack — two rings of
+    cuboids (each orbited AND spun by the ring angle, the classic magpylib
+    docs pattern), the upper one staggered by half a step — plus a sensor
+    path along the bore axis.
 
-    Both rings are written in terms of `radius`, and the upper one sits at
-    `gap`, so the scene arrives parametric: dragging either in the Variables
-    panel moves twenty magnets at once, which is the thing worth discovering
-    first. Their soft bounds are the range worth exploring — below a radius
-    of about 1.6 the ten unit cubes would have to overlap (2πr < 10) — while
-    the hard bounds only rule out the physically impossible.
+    Written the way the studio is meant to be used, because it is the first
+    thing anyone opens: each ring is ONE magnet and one pattern step, not ten
+    declared magnets, so the whole scene is nine steps and four variables.
+    Changing `n` rebuilds both rings, and `stagger` follows it without being
+    touched, being half a magnet step by definition.
+
+    Soft bounds mark the range worth exploring — below a radius of about 1.6
+    the ten unit cubes of the default ring would have to overlap (2πr < n) —
+    while the hard bounds only rule out the physically impossible.
     """
-    n = 10
-
     def ring(number, z):
         return {
             "id": f"ring{number}",
             "type": "Collection",
             "style": {"label": f"Ring {number}"},
-            "children": [
-                {
-                    "id": f"r{number}m{i + 1:02d}",
-                    "type": "magnet.Cuboid",
-                    "params": {
-                        "dimension": [1, 1, 1],
-                        "polarization": [1, 0, 0],
-                        "position": ["=radius", 0, z],
-                    },
-                    "rotations": [
-                        {"angle": 360 * i / n, "axis": "z", "anchor": 0},
-                        {"angle": 360 * i / n, "axis": "z"},
-                    ],
-                    "style": {"label": f"Magnet {i + 1:02d}"},
-                }
-                for i in range(n)
-            ],
+            "children": [{
+                "id": f"r{number}",
+                "type": "magnet.Cuboid",
+                "params": {
+                    "dimension": [1, 1, 1],
+                    "polarization": [1, 0, 0],
+                    "position": ["=radius", 0, z],
+                },
+                "style": {"label": f"Magnet {number}"},
+            }],
         }
 
-    ring2 = ring(2, "=gap")
-    ring2["rotations"] = [{"angle": 18, "axis": "z", "anchor": 0}]  # stagger
+    def ring_pattern(number):
+        return {
+            "target": f"r{number}", "op": "duplicate_around", "count": "=n",
+            "axis": "z", "anchor": [0, 0, 0], "spin": "=360 / n",
+        }
+
     return {
-        "variables": {"radius": 2.3, "gap": 1.5},
+        "variables": {
+            "n": 10, "radius": 2.3, "gap": 1.5, "stagger": "=360 / (2 * n)",
+        },
         "variable_bounds": {
+            "n": {"min": 2, "max": 60, "soft_min": 4, "soft_max": 20},
             "radius": {"min": 0.5, "max": 8, "soft_min": 1.6, "soft_max": 4},
             "gap": {"min": 0, "max": 6, "soft_min": 1, "soft_max": 3},
         },
+        "events": [
+            ring_pattern(1),
+            ring_pattern(2),
+            # after ring 2's copies exist, so the group carries them
+            {"target": "ring2", "op": "rotate_from_angax",
+             "angle": "=stagger", "axis": "z", "anchor": 0},
+        ],
         "objects": [
             {
                 "id": "halbach",
                 "type": "Collection",
                 "style": {"label": "Halbach stack"},
-                "children": [ring(1, 0.0), ring2],
+                "children": [ring(1, 0.0), ring(2, "=gap")],
             },
-            {
-                "id": "sensor",
-                "type": "Sensor",
-                "params": {
-                    "position": [
-                        [0, 0, round(-1.5 + 4.5 * i / 24, 3)] for i in range(25)
-                    ]
-                },
-                "style": {"label": "Sensor"},
-            },
+            _bore_sensor(-1.5, 3.0),
         ]
     }
+
+
+def _bore_sensor(start, stop, steps=25, label="Sensor"):
+    """A sensor walking a straight line, the usual way to read a scene."""
+    return {
+        "id": "sensor",
+        "type": "Sensor",
+        "params": {
+            "position": [
+                [0, 0, round(start + (stop - start) * i / (steps - 1), 3)]
+                for i in range(steps)
+            ]
+        },
+        "style": {"label": label},
+    }
+
+
+def coil_scene():
+    """A solenoid: one current loop and a linear pattern, rather than a stack
+    of declared turns. `turns` and `pitch` reshape the whole coil."""
+    return {
+        "variables": {
+            "turns": 12, "coil_radius": 1.0, "pitch": 0.25, "amps": 100,
+            "height": "=pitch * (turns - 1)",
+        },
+        "variable_bounds": {
+            "turns": {"min": 1, "max": 200, "soft_min": 4, "soft_max": 40},
+            "coil_radius": {"min": 0.05, "max": 10, "soft_min": 0.3, "soft_max": 3},
+            "pitch": {"min": 0.01, "max": 2, "soft_min": 0.1, "soft_max": 0.6},
+            "amps": {"min": -10000, "max": 10000, "soft_min": 0, "soft_max": 500},
+        },
+        "events": [{
+            "target": "turn", "op": "duplicate_along", "count": "=turns",
+            "step": [0, 0, "=pitch"],
+        }],
+        "objects": [
+            {
+                "id": "coil", "type": "Collection",
+                "style": {"label": "Solenoid"},
+                "children": [{
+                    "id": "turn", "type": "current.Circle",
+                    "params": {
+                        "current": "=amps",
+                        "diameter": "=2 * coil_radius",
+                        "position": [0, 0, "=-height / 2"],
+                    },
+                    "style": {"label": "Turn"},
+                }],
+            },
+            _bore_sensor(-2.5, 2.5, label="On axis"),
+        ],
+    }
+
+
+def pair_scene():
+    """Two magnets facing across a gap, the second a mirror of the first —
+    so it stays a mirror image while the first one is edited."""
+    return {
+        "variables": {"gap": 2.0, "size": 1.0},
+        "variable_bounds": {
+            "gap": {"min": 0.1, "max": 20, "soft_min": 0.5, "soft_max": 6},
+            "size": {"min": 0.05, "max": 5, "soft_min": 0.5, "soft_max": 2},
+        },
+        "events": [
+            {"target": "upper", "op": "mirror", "plane": "xy", "anchor": 0},
+        ],
+        "objects": [
+            {
+                "id": "pair", "type": "Collection",
+                "style": {"label": "Facing pair"},
+                "children": [{
+                    "id": "upper", "type": "magnet.Cuboid",
+                    "params": {
+                        "dimension": ["=size", "=size", "=size"],
+                        "polarization": [0, 0, -1],
+                        "position": [0, 0, "=gap / 2"],
+                    },
+                    "style": {"label": "Upper"},
+                }],
+            },
+            _bore_sensor(-3.0, 3.0, label="Through the gap"),
+        ],
+    }
+
+
+def array_scene():
+    """A magnet array: one magnet patterned into a row, the row patterned
+    into a grid — two linear steps, both counts editable."""
+    return {
+        "variables": {"nx": 4, "ny": 3, "pitch": 1.5, "lift": 2.0},
+        "variable_bounds": {
+            "nx": {"min": 1, "max": 40, "soft_min": 2, "soft_max": 10},
+            "ny": {"min": 1, "max": 40, "soft_min": 2, "soft_max": 10},
+            "pitch": {"min": 0.2, "max": 10, "soft_min": 1, "soft_max": 4},
+            "lift": {"min": 0.1, "max": 10, "soft_min": 0.5, "soft_max": 4},
+        },
+        "events": [
+            {"target": "tile", "op": "duplicate_along", "count": "=nx",
+             "step": ["=pitch", 0, 0]},
+            {"target": "row", "op": "duplicate_along", "count": "=ny",
+             "step": [0, "=pitch", 0]},
+        ],
+        "objects": [
+            {
+                "id": "array", "type": "Collection",
+                "style": {"label": "Magnet array"},
+                "children": [{
+                    "id": "row", "type": "Collection",
+                    "style": {"label": "Row"},
+                    "children": [{
+                        "id": "tile", "type": "magnet.Cuboid",
+                        "params": {
+                            "dimension": [1, 1, 1],
+                            "polarization": [0, 0, 1],
+                            "position": [0, 0, 0],
+                        },
+                        "style": {"label": "Tile"},
+                    }],
+                }],
+            },
+            {
+                "id": "sensor", "type": "Sensor",
+                "params": {
+                    "position": [
+                        [round(-1 + 6 * i / 24, 3), 1.5, "=lift"] for i in range(25)
+                    ]
+                },
+                "style": {"label": "Above the array"},
+            },
+        ],
+    }
+
+
+# The built-in scenes, each written the way the studio is meant to be used
+# and each leaning on a different feature — which is the point of having
+# more than one: an example is the shortest documentation there is.
+EXAMPLES = {
+    "halbach": ("Halbach stack",
+                "Two rings of magnets, each one magnet and a circular "
+                "pattern; the upper ring staggered by half a step",
+                example_scene),
+    "coil": ("Solenoid coil",
+             "One current loop patterned along its axis — turns and pitch "
+             "reshape the whole winding",
+             coil_scene),
+    "pair": ("Facing magnet pair",
+             "A magnet and its mirror image across a gap, which stays a "
+             "mirror image as the first is edited",
+             pair_scene),
+    "array": ("Magnet array",
+              "A magnet patterned into a row, the row into a grid — two "
+              "linear steps, both counts editable",
+              array_scene),
+}
 
 
 # Editable constructor parameters, introspected off the live object.
@@ -807,7 +961,7 @@ class MagpylibStudioSession:
         anchor = event.get("anchor", 0)
         spin = float(event.get("spin", 0))
         source = self._objs[object_id]
-        container = self._objs.get(self._parent_id(object_id)) or self.scene
+        container = self._container_for_copies(object_id)
         made = []
         for i in range(1, count):
             copy = source.copy()
@@ -833,7 +987,7 @@ class MagpylibStudioSession:
             raise ValueError(f"duplicate count must be at least 1, got {count}")
         step = event.get("step", [1, 0, 0])
         source = self._objs[object_id]
-        container = self._objs.get(self._parent_id(object_id)) or self.scene
+        container = self._container_for_copies(object_id)
         made = []
         for i in range(1, count):
             copy = source.copy()
@@ -877,7 +1031,7 @@ class MagpylibStudioSession:
         flip = np.diag([1.0, 1.0, -1.0])
 
         source = self._objs[object_id]
-        container = self._objs.get(self._parent_id(object_id)) or self.scene
+        container = self._container_for_copies(object_id)
         copy = source.copy()
         leaves = (list(copy.children_all)
                   if isinstance(copy, magpy.Collection) else [copy])
@@ -904,6 +1058,42 @@ class MagpylibStudioSession:
         self._objs[copy_id] = copy
         container.add(copy)
         self._derived[object_id] = [copy_id]
+
+    def _container_for_copies(self, object_id):
+        """Where a pattern's copies go: the group the source is in.
+
+        Checked here, at the fold, and not only when the step was recorded —
+        the object can be moved out of its group afterwards, and copies with
+        nowhere to belong would be invisible to the exported script, which
+        names the top level explicitly.
+        """
+        parent = self._parents.get(object_id)
+        if parent is None:
+            raise ValueError(
+                f"{object_id!r} is not inside a Collection, so its copies "
+                f"have no group to join"
+            )
+        return self._objs[parent]
+
+    def _parent_at(self, event_id, object_id):
+        """Which group an object was in when a given event ran.
+
+        A pattern's copies joined the group the source was in *then*, and the
+        source may have been moved since — so the exported loop has to name
+        that group, not whichever one the object ended up in.
+        """
+        parent = None
+        for event in self.doc.get("events") or []:
+            if event.get("id") == event_id:
+                break
+            if event.get("op") == "create":
+                if event["target"] == object_id:
+                    parent = event.get("parent")
+                elif object_id in (event.get("children") or []):
+                    parent = event["target"]
+            elif event.get("op") == "reparent" and event["target"] == object_id:
+                parent = event.get("parent")
+        return parent
 
     def _parent_id(self, object_id):
         for spec, parent in self._iter_specs():
@@ -1944,11 +2134,27 @@ class MagpylibStudioSession:
             result["warnings"] = warnings
         return result
 
-    def load_example(self):
-        """Load the built-in example scene (Halbach ring, coil pair, sensor)."""
-        result = self.load_scene(example_scene())
+    def list_examples(self):
+        """The built-in scenes. Each leans on a different feature, which is
+        the point of having more than one: an example is the shortest
+        documentation there is."""
+        return {
+            "examples": [
+                {"name": name, "label": label, "description": description}
+                for name, (label, description, _) in EXAMPLES.items()
+            ]
+        }
+
+    def load_example(self, name="halbach"):
+        """Load one of the built-in scenes; see list_examples()."""
+        if name not in EXAMPLES:
+            return {"ok": False,
+                    "error": f"unknown example {name!r}; "
+                             f"try one of {sorted(EXAMPLES)}"}
+        label, _, build = EXAMPLES[name]
+        result = self.load_scene(build())
         if result["ok"] and not self._history_paused and self._undo:
-            self._undo[-1]["label"] = "load example"
+            self._undo[-1]["label"] = f"load {label.lower()}"
         return result
 
     def clear_scene(self):
@@ -2341,9 +2547,10 @@ class MagpylibStudioSession:
                 body.append(
                     f"    _copy.rotate_from_angax(i * ({spin}), {axis}, anchor=None)"
                 )
-        # the copies go in the source's own group, which is why a pattern
-        # needs one: a bare list would have to be threaded into show()
-        body.append(f"    {self._parent_id(target)}.add(_copy)")
+        # the copies go in the group the source was in when this step ran,
+        # which is why a pattern needs one: a bare list would have to be
+        # threaded into show()
+        body.append(f"    {self._parent_at(event.get('id'), target)}.add(_copy)")
         return body
 
     def to_script(self):
@@ -2398,7 +2605,8 @@ class MagpylibStudioSession:
                         event.get("plane", "xy")
                     ]
                     lines.append(
-                        f"{self._parent_id(event['target'])}.add(_mirror("
+                        f"{self._parent_at(event.get('id'), event['target'])}"
+                        f".add(_mirror("
                         f"{event['target']}, {_lit(normal)}, "
                         f"{_lit(event.get('anchor', 0))}))"
                     )
