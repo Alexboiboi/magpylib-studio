@@ -398,11 +398,17 @@ and drives it.
     title bar) asks for from/to/steps and drives the Field panel's third
     mode, "Against a variable" (`get_sweep_figure`). **Duplicate Around…**
     is in the scene tree's Transform submenu.
-  - **Generated copies are inert in the tree**: they come back from
+  - **Generated copies are read-only, not inert**: they come back from
     `list_objects` with a `derived` key, and get `contextValue =
     'derivedCopy'` — deliberately outside the `magpy*` namespace that all 14
-    scene-view menu entries are gated on, so none of them match. They are
-    also not selectable and not draggable. Without that they rendered as
+    scene-view menu entries are gated on, so none of them match. They are not
+    draggable. They **are** selectable: they were not, and since 18 of the
+    24 rows in the Halbach example are copies, clicking a magnet did nothing
+    at all and the Inspector stayed blank — which read as the panel being
+    broken. Selecting one now opens it read-only, headed "generated from r1 —
+    change that object, its pattern step, or the variables", and every write
+    path in the Inspector refuses through one `refuseIfGenerated()` rather
+    than each failing its own way at the engine. Without that they rendered as
     ordinary objects whose every command failed on the engine (and whose
     inspector *read* fine, since `get_params` reads the live object, so they
     looked editable and silently weren't).

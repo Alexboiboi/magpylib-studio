@@ -138,6 +138,7 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
     /* the selected construction step, so it is obvious what just changed */
     #step:not(:empty) { border-left: 2px solid var(--vscode-focusBorder, #3987e5); padding-left: 6px; margin: 4px 0; }
     #step summary { color: var(--vscode-charts-blue, #3987e5); }
+    #header .generated { font-size: 11px; opacity: 0.8; color: var(--vscode-charts-blue, #3987e5); padding-top: 2px; }
   </style>
 </head>
 <body>
@@ -162,6 +163,9 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
     const statusEl = document.getElementById('status');
     const filterEl = document.getElementById('filter');
     let objectId;
+    // set to the source id when the selection is a generated copy: it can be
+    // looked at, but nothing can be written to it
+    let generatedFrom = null;
     let schema;
     let values = { set: {}, resolved: {} };
     let nextReqId = 1;
@@ -184,7 +188,16 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
       return out;
     }
 
+    /** Generated copies exist only as long as the step that made them. */
+    function refuseIfGenerated() {
+      if (!generatedFrom) return false;
+      statusEl.textContent = 'This is a generated copy. Edit ' + generatedFrom +
+        ', its pattern step, or the variables it is written in terms of.';
+      return true;
+    }
+
     async function applyEdit(path, value) {
+      if (refuseIfGenerated()) return;
       statusEl.textContent = '';
       const res = await rpc('apply_edit', { object_id: objectId, path, value });
       if (!res.ok) { statusEl.textContent = res.error; }
@@ -192,6 +205,7 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
     }
 
     async function resetPath(path) {
+      if (refuseIfGenerated()) return;
       statusEl.textContent = '';
       const res = await rpc('reset_style', { object_id: objectId, path });
       if (!res.ok) { statusEl.textContent = res.error; }
@@ -424,6 +438,7 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
 
       for (const p of params) {
         const commit = (value) => {
+          if (refuseIfGenerated()) return;
           statusEl.textContent = '';
           rpc('set_param', { object_id: objectId, name: p.name, value })
             .then((res) => {
@@ -554,6 +569,7 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
     }
 
     function transformOp(method, params) {
+      if (refuseIfGenerated()) return Promise.resolve();
       statusEl.textContent = '';
       return rpc(method, Object.assign({ object_id: objectId }, params))
         .then((res) => {
@@ -622,6 +638,7 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
         return;
       }
       const listed = (await rpc('list_objects', {})).find((o) => o.id === id);
+      generatedFrom = (listed && listed.derived) || null;
       headerEl.innerHTML = '';
       const name = document.createElement('div');
       name.className = 'name';
@@ -630,6 +647,13 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
       what.className = 'what';
       what.textContent = listed ? listed.type + '  ·  ' + id : id;
       headerEl.append(name, what);
+      if (generatedFrom) {
+        const made = document.createElement('div');
+        made.className = 'generated';
+        made.textContent = 'generated from ' + generatedFrom +
+          ' — change that object, its pattern step, or the variables';
+        headerEl.appendChild(made);
+      }
       [schema, values] = await Promise.all([
         rpc('get_schema', { object_id: id }),
         rpc('get_values', { object_id: id }),
