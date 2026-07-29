@@ -157,11 +157,30 @@ and drives it.
   one. **A rectangular grid is the linear pattern applied twice** — to the
   object, then to the Collection holding it — so there is no grid op to keep
   in step with the other two; composing the log already expresses it, and
-  both counts stay editable (`nx`, `ny`). Mirror and path-driven patterns are
-  the family members still missing; mirror needs deciding what reflecting a
-  polarization means, which is a physics question rather than a UI one.
-  In the UI both are behind one **Pattern…** command that asks which kind
-  first, because they are the same idea about a different thing. `count` and `spin` may be expressions, so the whole
+  both counts stay editable (`nx`, `ny`). `mirror(id, plane?, normal?,
+  anchor?)` is the **reflection**, and is the one with real physics in it:
+  - a reflection has determinant −1 and an orientation is a *proper*
+    rotation, so a mirrored frame cannot be stored as one; and polarization
+    is an **axial** vector, so its component along the normal survives while
+    the tangential ones reverse — the opposite of what position does. "The
+    polarization is in the local frame so nothing changes" gives the wrong
+    magnet.
+  - both are solved by borrowing the body's own z-flip symmetry `T`:
+    `orientation' = S·R·T` (proper again) and `polarization' = −T·J`. The
+    test checks it against physics rather than against itself: **B** is axial
+    too, so the copy's field at the mirrored point must come out as
+    `2(B·n)n − B`, for a magnet in a thoroughly general pose.
+  - only shapes with that symmetry can be reflected (Cuboid, Cylinder,
+    CylinderSegment, Sphere, Dipole, Sensor). A Tetrahedron, mesh or Polyline
+    is refused by name: reflecting it means flipping its vertices, which is a
+    different object rather than the same one placed differently.
+  - magpylib has no mirror, so `to_script` emits a `_mirror` helper
+    (`_MIRROR_HELPER`) and calls it — the script stays runnable *and*
+    parametric, the copy still following whatever the source does, and
+    `parse_script` reads the call back so the round trip is exact.
+  Path-driven patterns are the family member still missing.
+  In the UI all three are behind one **Pattern…** command that asks which
+  kind first, because they are the same idea about a different thing. `count` and `spin` may be expressions, so the whole
   arrangement is one number to edit. The copies are generated at build time,
   registered in `_objs` (so they are real field sources and real geometry)
   and reported by `list_objects` with a `derived` key naming their source —
@@ -491,6 +510,14 @@ test skips via `supports_property_paths()`).
 - **Chat Participant `@magpy`** if richer chat UX than plain tools is wanted.
 
 ## Gotchas
+
+- `to_script` writes **every definition before every step**, so a scene that
+  creates an object *after* transforming another comes back from the script
+  with the creates hoisted above the transforms. The document is unaffected;
+  it is the script round trip that reorders. Emitting in log order would mean
+  children joining their Collection with `.add()` instead of constructor
+  args, which `parse_script` would then have to tell apart from the `.add()`
+  a mirror uses.
 
 - The `get_figure` result is `json.loads(fig.to_json())` — plotly's encoder
   handles numpy/bdata; don't use `to_plotly_json()` (leaves numpy in, not

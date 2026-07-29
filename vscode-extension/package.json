@@ -1237,6 +1237,45 @@
             "step"
           ]
         }
+      },
+      {
+        "name": "magpylib-studio_mirror",
+        "displayName": "Mirror a magpylib object",
+        "toolReferenceName": "magpyMirror",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "Add ONE reflected copy of an object, as a single event. Use it for symmetric assemblies - a pair either side of a gap, a yoke, a balanced rotor. IMPORTANT, and the reason not to do this by hand: magnetic polarization is an AXIAL vector, so under a mirror the component along the plane normal is PRESERVED and the components in the plane REVERSE - the opposite of how a position reflects. Placing a copy with a negated or unchanged polarization gives the wrong magnet. 'plane' is 'xy', 'xz' or 'yz', or give an explicit 'normal' [x,y,z]; 'anchor' is a point the plane passes through (default the origin). Only shapes with a mirror symmetry of their own can be reflected (Cuboid, Cylinder, CylinderSegment, Sphere, Dipole, Sensor); a Tetrahedron, mesh or Polyline is refused, because reflecting it would mean flipping its vertices into a different object. The object must already be inside a Collection, which is where the copy goes.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "object_id": {
+              "type": "string",
+              "description": "Id of the object to mirror. Must be inside a Collection."
+            },
+            "plane": {
+              "type": "string",
+              "enum": [
+                "xy",
+                "xz",
+                "yz"
+              ],
+              "description": "Plane to reflect through. Default 'xy'."
+            },
+            "normal": {
+              "type": "array",
+              "description": "Explicit plane normal [x,y,z], instead of a named plane."
+            },
+            "anchor": {
+              "type": [
+                "number",
+                "array"
+              ],
+              "description": "A point the plane passes through; 0 for the origin."
+            }
+          },
+          "required": [
+            "object_id"
+          ]
+        }
       }
     ]
   },

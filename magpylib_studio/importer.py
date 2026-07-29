@@ -247,6 +247,31 @@ def _event_from_call(node, target, variables):
     return op
 
 
+_PLANE_NORMALS = {(0, 0, 1): "xy", (0, 1, 0): "xz", (1, 0, 0): "yz"}
+
+
+def _mirror_from_call(node, objects, variables):
+    """`group.add(_mirror(obj, normal, anchor))` back into a mirror event, or
+    None when the call is something else entirely."""
+    if node.func.attr != "add" or len(node.args) != 1:
+        return None
+    inner = node.args[0]
+    if not (isinstance(inner, ast.Call)
+            and getattr(inner.func, "id", None) == "_mirror"):
+        return None
+    if not inner.args or getattr(inner.args[0], "id", None) not in objects:
+        raise _Unparseable("_mirror")
+    event = {"op": "mirror", "target": inner.args[0].id}
+    normal = _parsed_value(inner.args[1], variables) if len(inner.args) > 1 else [0, 0, 1]
+    named = _PLANE_NORMALS.get(tuple(normal)) if isinstance(normal, list) else None
+    # a named plane reads better and is what the studio recorded
+    event.update({"plane": named} if named else {"normal": normal})
+    event["anchor"] = (
+        _parsed_value(inner.args[2], variables) if len(inner.args) > 2 else 0
+    )
+    return event
+
+
 def _duplicate_from_loop(node, objects, variables):
     """The one loop shape the studio emits — `for i in range(1, n): copy,
     rotate, add` — back into a duplicate event. Any other loop raises, and
@@ -333,6 +358,8 @@ def parse_script(source):
             if isinstance(stmt, ast.For):
                 events.append(_duplicate_from_loop(stmt, objects, set(variables)))
                 continue
+            if isinstance(stmt, ast.FunctionDef) and stmt.name == "_mirror":
+                continue  # the helper the studio emits, re-emitted on the way out
             if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
                 call = stmt.value
                 if isinstance(call.func, ast.Attribute):
@@ -342,7 +369,11 @@ def parse_script(source):
                             continue
                         if owner not in objects:
                             raise _Unparseable(owner)
-                        events.append(_event_from_call(call, owner, set(variables)))
+                        mirrored = _mirror_from_call(call, objects, set(variables))
+                        events.append(
+                            mirrored
+                            or _event_from_call(call, owner, set(variables))
+                        )
                         continue
                 raise _Unparseable(ast.unparse(stmt))
             if not isinstance(stmt, ast.Assign) or len(stmt.targets) != 1:

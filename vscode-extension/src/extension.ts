@@ -629,6 +629,7 @@ function registerLmTools(context: vscode.ExtensionContext): void {
     editTool('magpylib-studio_setVariableBounds', 'set_variable_bounds'),
     editTool('magpylib-studio_duplicateAround', 'duplicate_around'),
     editTool('magpylib-studio_duplicateAlong', 'duplicate_along'),
+    editTool('magpylib-studio_mirror', 'mirror'),
     editTool('magpylib-studio_applyEdit', 'apply_edit'),
     editTool('magpylib-studio_addObject', 'add_object'),
     editTool('magpylib-studio_removeObject', 'remove_object'),
@@ -926,12 +927,17 @@ export function activate(context: vscode.ExtensionContext): void {
         {
           label: 'Around an axis',
           detail: 'evenly spaced about an axis — a ring, a rotor, a Halbach array',
-          circular: true,
+          pattern: 'around',
         },
         {
           label: 'Along a direction',
           detail: 'evenly spaced in a line; pattern the group again for a grid',
-          circular: false,
+          pattern: 'along',
+        },
+        {
+          label: 'Mirrored',
+          detail: 'one reflected copy — the polarization reflects as physics has it',
+          pattern: 'mirror',
         },
       ],
       { placeHolder: `Pattern "${obj.label}"` },
@@ -939,7 +945,42 @@ export function activate(context: vscode.ExtensionContext): void {
     if (!kind) {
       return;
     }
-    await (kind.circular ? duplicateAround(obj) : duplicateAlong(obj));
+    if (kind.pattern === 'around') {
+      await duplicateAround(obj);
+    } else if (kind.pattern === 'along') {
+      await duplicateAlong(obj);
+    } else {
+      await mirrorObject(obj);
+    }
+  };
+
+  /** One reflected copy — see session.mirror for why it is not a sign flip. */
+  const mirrorObject = async (obj: SceneObject) => {
+    const plane = await vscode.window.showQuickPick(
+      [
+        { label: 'xy', detail: 'reflect through the xy plane (normal z)' },
+        { label: 'xz', detail: 'reflect through the xz plane (normal y)' },
+        { label: 'yz', detail: 'reflect through the yz plane (normal x)' },
+      ],
+      { placeHolder: `Mirror "${obj.label}" in which plane?` },
+    );
+    if (!plane) {
+      return;
+    }
+    const anchor = await vscode.window.showInputBox({
+      prompt: 'Point the plane passes through as x, y, z (m)',
+      value: '0, 0, 0',
+      validateInput: (v) =>
+        parseVector(v, 3) ? undefined : 'Three numbers or expressions',
+    });
+    if (!anchor) {
+      return;
+    }
+    await mutateFromTree('mirror', {
+      object_id: obj.id,
+      plane: plane.label,
+      anchor: parseVector(anchor, 3),
+    });
   };
 
   /** "N of these in a row" — see session.duplicate_along. */

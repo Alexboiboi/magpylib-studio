@@ -41,6 +41,7 @@ _PUBLIC = {
     "clear_path",
     "duplicate_around",
     "duplicate_along",
+    "mirror",
     "reset_style",
     "load_scene",
     "load_script",

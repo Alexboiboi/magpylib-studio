@@ -27,6 +27,7 @@ Protocol surface (all JSON-serializable in/out):
   clear_path(object_id, index?)        -> {"ok": bool, "error"?: str}
   duplicate_around(object_id, count, axis?, anchor?, spin?) -> {"ok": bool, ...}
   duplicate_along(object_id, count, step)  -> {"ok": bool, ...} (linear pattern)
+  mirror(object_id, plane?, normal?, anchor?) -> {"ok": bool, ...} (one reflection)
   get_transform(object_id)             -> {position, orientation, path_length, ...}
   reset_style(object_id, path?)        -> {"ok": bool, "error"?: str}
   load_scene(scene | path)             -> {"ok": bool, "error"?: str}
@@ -168,6 +169,39 @@ _PARAM_DOCS = {
 _HIDE_STYLE = {"model3d.showdefault": False, "path.show": False}
 
 
+# A mirror borrows the body's own z-flip symmetry, so only shapes that have
+# one can be reflected; the rest would need their vertices mirrored, which is
+# a different object rather than the same one placed differently.
+_MIRRORABLE = ("Cuboid", "Cylinder", "CylinderSegment", "Sphere", "Dipole",
+               "Sensor")
+
+_MIRROR_NORMALS = {"xy": [0, 0, 1], "xz": [0, 1, 0], "yz": [1, 0, 0]}
+
+# Emitted into a script that contains a mirror, since magpylib has none. Kept
+# in one piece so what runs and what parse_script reads back cannot drift.
+_MIRROR_HELPER = [
+    "def _mirror(obj, normal, anchor=(0, 0, 0)):",
+    '    """A reflected copy. Polarization is an axial vector: its component',
+    "    along the normal survives and the tangential ones reverse, which is",
+    '    the opposite of what the position does."""',
+    "    n = np.array(normal, dtype=float)",
+    "    S = np.eye(3) - 2 * np.outer(n, n) / (n @ n)",
+    "    T = np.diag([1.0, 1.0, -1.0])",
+    "    a = np.array(anchor, dtype=float)",
+    "    copy = obj.copy()",
+    "    leaves = (list(copy.children_all)",
+    "              if isinstance(copy, magpy.Collection) else [copy])",
+    "    for leaf in leaves:",
+    "        if isinstance(leaf, magpy.Collection):",
+    "            continue",
+    "        leaf.position = a + (np.array(leaf.position, dtype=float) - a) @ S.T",
+    "        leaf.orientation = R.from_matrix(S @ leaf.orientation.as_matrix() @ T)",
+    "        if getattr(leaf, 'polarization', None) is not None:",
+    "            leaf.polarization = -(np.array(leaf.polarization, dtype=float) @ T.T)",
+    "    return copy",
+]
+
+
 # Operations allowed inside batch() — mutating, per-object (plus clear).
 _BATCHABLE = {
     "apply_edit",
@@ -187,6 +221,7 @@ _BATCHABLE = {
     "remove_variable",
     "duplicate_around",
     "duplicate_along",
+    "mirror",
 }
 
 
@@ -468,6 +503,9 @@ def _event_label(event):
     if op == "duplicate_along":
         return (f"{_lit(event.get('count', 1))} copies every "
                 f"{_vec(event.get('step'), ' m')}")
+    if op == "mirror":
+        plane = event.get("plane") or _vec(event.get("normal"))
+        return f"mirrored in {plane}"
     if op == "rotate_from_rotvec":
         return f"turned {_vec(event.get('rotvec'), '°')}"
     # rotate_from_angax: the anchor is what makes it an orbit rather than a spin
@@ -495,6 +533,8 @@ def _event_source(event):
     if op == "duplicate_along":
         return (f"{target} × {_lit(event.get('count', 1))} every "
                 f"{_lit(event.get('step'))}")
+    if op == "mirror":
+        return f"{target} mirrored in {event.get('plane') or event.get('normal')}"
     return f"{target}.{_op_source(event)}"
 
 
@@ -654,6 +694,8 @@ class MagpylibStudioSession:
             self._duplicate_around(event["target"], resolved)
         elif op == "duplicate_along":
             self._duplicate_along(event["target"], resolved)
+        elif op == "mirror":
+            self._mirror(event["target"], resolved)
         else:
             _replay(target, [resolved])
 
@@ -801,6 +843,67 @@ class MagpylibStudioSession:
             container.add(copy)
             made.append(copy_id)
         self._derived[object_id] = made
+
+    def _mirror(self, object_id, event):
+        """One reflected copy.
+
+        Two things stop this being a matter of flipping a sign. A reflection
+        has determinant -1, and an orientation is a *proper* rotation, so the
+        mirrored frame cannot be stored as one. And polarization is an axial
+        vector: under a mirror its normal component survives and its
+        tangential components reverse — the opposite of what position does,
+        which is why "the polarization is in the local frame, so nothing
+        changes" gives the wrong magnet.
+
+        Both are solved at once by borrowing the body's own improper symmetry
+        T (a z-flip; every shape here is symmetric under it). Then
+
+            orientation' = S · R · T     — proper again, det(-1)(+1)(-1)
+            polarization' = -T · J       — the axial rule, in local terms
+
+        which reproduces the field a mirror image would have: B is axial too,
+        and B'(S·p) comes out as 2(B·n)n - B. There is a test.
+        """
+        normal = event.get("normal") or _MIRROR_NORMALS[event.get("plane", "xy")]
+        normal = np.array(self._resolve(normal), dtype=float)
+        length = np.linalg.norm(normal)
+        if length < 1e-12:
+            raise ValueError("a mirror plane needs a non-zero normal")
+        normal = normal / length
+        anchor = event.get("anchor", 0)
+        anchor = np.array([0.0, 0.0, 0.0] if anchor in (0, None) else anchor,
+                          dtype=float)
+        reflect = np.eye(3) - 2 * np.outer(normal, normal)
+        flip = np.diag([1.0, 1.0, -1.0])
+
+        source = self._objs[object_id]
+        container = self._objs.get(self._parent_id(object_id)) or self.scene
+        copy = source.copy()
+        leaves = (list(copy.children_all)
+                  if isinstance(copy, magpy.Collection) else [copy])
+        for leaf in leaves:
+            kind = type(leaf).__name__
+            if kind not in _MIRRORABLE:
+                raise ValueError(
+                    f"{kind} cannot be mirrored: its shape has no mirror "
+                    f"symmetry to borrow, so the reflection would have to "
+                    f"flip its vertices"
+                )
+        for leaf in leaves:
+            if isinstance(leaf, magpy.Collection):
+                continue  # its pose setter would move the children again
+            position = np.array(leaf.position, dtype=float)
+            leaf.position = anchor + (position - anchor) @ reflect.T
+            leaf.orientation = R.from_matrix(
+                reflect @ leaf.orientation.as_matrix() @ flip
+            )
+            polarization = getattr(leaf, "polarization", None)
+            if polarization is not None:
+                leaf.polarization = -(np.array(polarization, dtype=float) @ flip.T)
+        copy_id = f"{object_id}#1"
+        self._objs[copy_id] = copy
+        container.add(copy)
+        self._derived[object_id] = [copy_id]
 
     def _parent_id(self, object_id):
         for spec, parent in self._iter_specs():
@@ -1490,6 +1593,27 @@ class MagpylibStudioSession:
             [{"op": "duplicate_along", "count": count, "step": step}],
             f"duplicate {object_id}",
         )
+
+    def mirror(self, object_id, plane="xy", normal=None, anchor=0):
+        """Record a mirror: one reflected copy, in `plane` ('xy', 'xz', 'yz')
+        or about an explicit `normal`, through `anchor`.
+
+        Only shapes with a mirror symmetry of their own can be reflected —
+        see `_mirror`, which explains why, and why the polarization does not
+        simply come along unchanged.
+        """
+        self._spec(object_id)  # raise early on unknown id
+        if self._parent_id(object_id) is None:
+            return {"ok": False,
+                    "error": f"{object_id!r} must be inside a Collection to "
+                             f"mirror it — the copy needs a group to join"}
+        if normal is None and plane not in _MIRROR_NORMALS:
+            return {"ok": False,
+                    "error": f"plane must be one of {sorted(_MIRROR_NORMALS)}"}
+        op = {"op": "mirror",
+              **({"normal": normal} if normal is not None else {"plane": plane}),
+              "anchor": anchor}
+        return self._append_ops(object_id, [op], f"mirror {object_id}")
 
     def duplicate_around(self, object_id, count, axis="z", anchor=0, spin=0):
         """Record a duplicate event: `count` copies of an object spaced evenly
@@ -2230,11 +2354,19 @@ class MagpylibStudioSession:
             e for e in self.doc.get("events") or []
             if e.get("op") not in ("create", "remove", "reparent")
         ]
-        needs_scipy = any(e.get("op") == "orientation" for e in events)
+        mirrors = [e for e in events if e.get("op") == "mirror"]
+        needs_scipy = mirrors or any(e.get("op") == "orientation" for e in events)
         lines = ["import magpylib as magpy"]
+        if mirrors:
+            lines.append("import numpy as np")
         if needs_scipy:
             lines.append("from scipy.spatial.transform import Rotation as R")
         lines.append("")
+        if mirrors:
+            # A helper rather than a frozen pose per copy: magpylib has no
+            # mirror, but a script that computes one stays parametric — the
+            # copy still follows whatever the source does.
+            lines += _MIRROR_HELPER + [""]
         variables = self.doc.get("variables") or {}
         if variables:
             # Real Python variables: the script stays parametric, and reading
@@ -2261,7 +2393,16 @@ class MagpylibStudioSession:
         if events:
             lines.append("")
             for event in events:
-                if event.get("op") in ("duplicate_around", "duplicate_along"):
+                if event.get("op") == "mirror":
+                    normal = event.get("normal") or _MIRROR_NORMALS[
+                        event.get("plane", "xy")
+                    ]
+                    lines.append(
+                        f"{self._parent_id(event['target'])}.add(_mirror("
+                        f"{event['target']}, {_lit(normal)}, "
+                        f"{_lit(event.get('anchor', 0))}))"
+                    )
+                elif event.get("op") in ("duplicate_around", "duplicate_along"):
                     lines += self._duplicate_source(event)
                 else:
                     lines.append(f"{event['target']}.{_op_source(event)}")

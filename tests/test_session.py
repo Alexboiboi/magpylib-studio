@@ -1682,6 +1682,54 @@ def test_two_linear_patterns_compose_into_a_grid(tmp_path):
     assert len(s._leaf_sources()) == 30
 
 
+def test_mirror_reflects_the_physics_not_just_the_geometry(tmp_path):
+    """Polarization is an axial vector, so a mirror keeps its component along
+    the normal and reverses the others — the opposite of what the position
+    does. B is axial too, which is what makes this checkable."""
+    import numpy as np
+
+    s = MagpylibStudioSession()
+    s.add_object("asm", "Collection")
+    s.add_object("m", "magnet.Cuboid",
+                 {"polarization": [0.3, -0.5, 0.8], "dimension": [1, 2, 3],
+                  "position": [1.5, -0.8, 2.2]}, parent="asm")
+    # created before the transforms, because to_script writes every
+    # definition before every step: a scene that makes an object *after*
+    # moving another comes back with the creates hoisted
+    s.add_object("t", "magnet.Tetrahedron",
+                 {"polarization": [0, 0, 1],
+                  "vertices": [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]]},
+                 parent="asm")
+    s.rotate("m", 40, "x")  # a pose with nothing special about it
+    assert s.mirror("m", "xy") == {"ok": True}
+
+    normal = np.array([0.0, 0.0, 1.0])
+    reflect = np.eye(3) - 2 * np.outer(normal, normal)
+    point = np.array([0.7, 1.1, -1.4])
+    field = s._objs["m"].getB(point)
+    mirrored = s._objs["m#1"].getB(reflect @ point)
+    assert np.allclose(mirrored, 2 * np.dot(field, normal) * normal - field)
+
+    # a shape with no mirror symmetry of its own cannot borrow one
+    refused = s.mirror("t", "xy")
+    assert refused["ok"] is False and "no mirror symmetry" in refused["error"]
+
+    # magpylib has no mirror, so the script carries a helper — and stays
+    # parametric, the copy still following whatever the source does
+    path = tmp_path / "mirror.py"
+    before = json.dumps(s.to_dict())
+    script = s.to_script()
+    assert "def _mirror(obj, normal, anchor=(0, 0, 0)):" in script
+    assert "asm.add(_mirror(m, (0, 0, 1), 0))" in script
+    path.write_text(script, encoding="utf-8")
+    assert s.apply_script(str(path))["mode"] == "parsed"
+    assert json.dumps(s.to_dict()) == before
+    assert s.to_script() == script
+
+    ns = exec_script(script)  # and it runs outside the studio
+    assert len(ns["asm"].children) == 3
+
+
 def test_duplicate_around_needs_a_group():
     s = MagpylibStudioSession(make_scene())
     res = s.duplicate_around("cube", 4)
