@@ -212,9 +212,17 @@ and drives it.
   instead (`set_pixel_grid(id, plane, size, resolution)`) — magpylib's own
   mechanism, so the plane is a real scene object that tilts with the sensor
   and exports to the script. Sensor paths add a leading dimension to `getB`;
-  the map uses the last path step.
+  the map uses the last path step. **The Field panel can now choose that
+  source**: its map mode has an "on a plane / off a sensor" selector built
+  from `list_objects`, which reports `pixels: [rows, cols]` for any Sensor
+  carrying a grid, and defaults to a sensor when the scene has one — without
+  it, `get_field_map(sensor_id=…)` existed but was unreachable from the UI,
+  which made the pixel-grid example pointless.
 - **Field evaluation**: `get_field(sensor_id?, points?, field?)` — summed
-  B/H of all leaf sources (SI units) along a sensor path or explicit points
+  **B, H, J or M** of all leaf sources (`_FIELDS` maps each to its magpylib
+  getter and unit; J and M are zero outside a magnet and constant inside it,
+  which makes them the quick way to see what a shape covers) along a sensor
+  path or explicit points
   (numeric, for `#magpyField`). `get_field_figure(output?, animation?,
   template?)` delegates to **magpylib's own 2D rendering**
   (`show(output="B"|"Bx"|...)`) — field at the scene's sensors along their

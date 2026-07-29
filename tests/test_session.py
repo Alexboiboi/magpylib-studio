@@ -587,7 +587,7 @@ def test_get_field_errors():
     s.load_example()
     with pytest.raises(ValueError, match="not a Sensor"):
         s.get_field(sensor_id="r1")
-    with pytest.raises(ValueError, match="'B' or 'H'"):
+    with pytest.raises(ValueError, match=r"\['B', 'H', 'J', 'M'\]"):
         s.get_field(field="X")
     s.remove_object("sensor")
     with pytest.raises(ValueError, match="no sensor"):
@@ -1568,6 +1568,35 @@ def test_variable_bounds_are_hard_or_only_advisory(tmp_path):
     assert "gap" not in s.to_dict().get("variable_bounds", {})
     assert s.remove_variable("quad") == {"ok": True}
     assert "variable_bounds" not in s.to_dict()
+
+
+def test_every_field_magpylib_can_evaluate_is_offered():
+    """B and H are what a scene is usually read for; J and M are zero outside
+    a magnet and constant inside it, which makes them the quick way to see
+    what a shape actually covers."""
+    import numpy as np
+
+    from magpylib_studio.session import _FIELDS
+
+    s = MagpylibStudioSession()
+    s.add_object("m", "magnet.Cuboid",
+                 {"polarization": [0, 0, 1], "dimension": [1, 1, 1]})
+    inside, outside = [[0, 0, 0]], [[2, 0, 0]]
+    assert set(_FIELDS) == {"B", "H", "J", "M"}
+
+    units = {f: s.get_field(points=inside, field=f)["unit"] for f in _FIELDS}
+    assert units == {"B": "T", "H": "A/m", "J": "T", "M": "A/m"}
+
+    # J is the polarization itself where there is material, and nothing where
+    # there is not — the property that makes it worth plotting
+    assert np.allclose(s.get_field(points=inside, field="J")["values"], [[0, 0, 1]])
+    assert np.allclose(s.get_field(points=outside, field="J")["values"], [[0, 0, 0]])
+    assert np.array(s.get_field(points=outside, field="B")["values"]).any()
+
+    # and the same set reaches the map, off a sensor's own grid
+    s.load_example("pixels")
+    figure = s.get_field_map(sensor_id="probe", field="J")
+    assert "|J| (T)" in figure["layout"]["title"]["text"]
 
 
 def test_a_variable_that_counts_things_stays_whole():

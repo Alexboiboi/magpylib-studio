@@ -2066,11 +2066,18 @@ function createFieldViewHtml(
           <option>B</option><option>Bx</option><option>By</option><option>Bz</option>
           <option>Bxy</option>
           <option>H</option><option>Hx</option><option>Hy</option><option>Hz</option>
+          <option>J</option><option>Jx</option><option>Jy</option><option>Jz</option>
+          <option>M</option><option>Mx</option><option>My</option><option>Mz</option>
         </select>
       </label>
       <label><input type="checkbox" id="animate" /> Animate path</label>
     </span>
     <span class="map-only" hidden>
+      <label>
+        <select id="source"><option value="">on a plane</option></select>
+      </label>
+    </span>
+    <span class="plane-only" hidden>
       <label>Plane
         <select id="plane">
           <option>xy</option><option>xz</option><option>yz</option>
@@ -2085,10 +2092,28 @@ function createFieldViewHtml(
         </select>
       </label>
       <label>of
-        <select id="quantity"><option>B</option><option>H</option></select>
+        <select id="quantity">
+          <option>B</option><option>H</option>
+          <option>J</option><option>M</option>
+        </select>
       </label>
       <label><input type="checkbox" id="log" checked /> log</label>
       <label>res <input type="number" id="resolution" min="5" max="200" value="50" /></label>
+    </span>
+    <span class="map-only" hidden>
+      <label>
+        <select id="mapComponent">
+          <option value="magnitude">magnitude</option>
+          <option value="x">x</option><option value="y">y</option>
+          <option value="z">z</option>
+        </select>
+      </label>
+      <label>of
+        <select id="mapQuantity">
+          <option>B</option><option>H</option>
+          <option>J</option><option>M</option>
+        </select>
+      </label>
     </span>
     <span class="sweep-only" hidden>
       <label>
@@ -2099,7 +2124,10 @@ function createFieldViewHtml(
         </select>
       </label>
       <label>of
-        <select id="sweepField"><option>B</option><option>H</option></select>
+        <select id="sweepField">
+          <option>B</option><option>H</option>
+          <option>J</option><option>M</option>
+        </select>
       </label>
       <span id="sweepRange"></span>
     </span>
@@ -2120,6 +2148,9 @@ function createFieldViewHtml(
     const quantityEl = document.getElementById('quantity');
     const logEl = document.getElementById('log');
     const resolutionEl = document.getElementById('resolution');
+    const sourceEl = document.getElementById('source');
+    const mapComponentEl = document.getElementById('mapComponent');
+    const mapQuantityEl = document.getElementById('mapQuantity');
     const sweepComponentEl = document.getElementById('sweepComponent');
     const sweepFieldEl = document.getElementById('sweepField');
     const sweepRangeEl = document.getElementById('sweepRange');
@@ -2144,12 +2175,29 @@ function createFieldViewHtml(
 
     function isMap() { return modeEl.value === 'map'; }
 
+    /** Sensors carrying a measuring grid can be read off directly. */
+    async function loadSources() {
+      const objects = await rpc('list_objects', {});
+      const grids = objects.filter((o) => o.pixels);
+      const chosen = sourceEl.value;
+      sourceEl.innerHTML = '';
+      sourceEl.append(new Option('on a plane', ''));
+      for (const o of grids)
+        sourceEl.append(new Option(
+          o.label + ' (' + o.pixels[0] + '×' + o.pixels[1] + ')', o.id));
+      // a scene with a measuring grid almost certainly wants to read it
+      sourceEl.value = grids.some((o) => o.id === chosen) ? chosen
+        : (grids.length ? grids[0].id : '');
+    }
+
     async function refreshField() {
       const mode = modeEl.value;
       const mapMode = mode === 'map';
       const sweepMode = mode === 'sweep';
       for (const el of document.querySelectorAll('.path-only')) el.hidden = mode !== 'path';
       for (const el of document.querySelectorAll('.map-only')) el.hidden = !mapMode;
+      for (const el of document.querySelectorAll('.plane-only'))
+        el.hidden = !mapMode || !!sourceEl.value;
       for (const el of document.querySelectorAll('.sweep-only')) el.hidden = !sweepMode;
       if (sweepMode && !sweep) {
         statusEl.textContent = 'Run "Sweep a Variable…" to choose one and its range.';
@@ -2168,12 +2216,19 @@ function createFieldViewHtml(
             })
           : mapMode
           ? await rpc('get_field_map', {
-              plane: planeEl.value,
-              offset: parseFloat(offsetEl.value) || 0,
-              component: componentEl.value,
-              field: quantityEl.value,
-              log: logEl.checked && componentEl.value === 'magnitude',
-              resolution: Math.min(200, Math.max(5, parseInt(resolutionEl.value, 10) || 50)),
+              // a sensor's own grid, when one is chosen: the measuring plane
+              // is then a real object, tilting with the sensor
+              ...(sourceEl.value
+                ? { sensor_id: sourceEl.value }
+                : {
+                    plane: planeEl.value,
+                    offset: parseFloat(offsetEl.value) || 0,
+                    resolution: Math.min(200, Math.max(5,
+                      parseInt(resolutionEl.value, 10) || 50)),
+                  }),
+              component: mapComponentEl.value,
+              field: mapQuantityEl.value,
+              log: logEl.checked && mapComponentEl.value === 'magnitude',
               template: plotTemplate(),
             })
           : await rpc('get_field_figure', {
@@ -2205,6 +2260,7 @@ function createFieldViewHtml(
 
     for (const el of [outputEl, animateEl, modeEl, planeEl, offsetEl,
                       componentEl, quantityEl, logEl, resolutionEl,
+                      sourceEl, mapComponentEl, mapQuantityEl,
                       sweepComponentEl, sweepFieldEl]) {
       el.addEventListener('change', refreshField);
     }
@@ -2229,7 +2285,8 @@ function createFieldViewHtml(
         modeEl.value = 'sweep';
         refreshField();
       } else if (message.type === 'refresh') {
-        refreshField();
+        loadSources().then(refreshField)
+          .catch((err) => { statusEl.textContent = String(err); });
       }
     });
 

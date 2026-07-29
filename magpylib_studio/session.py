@@ -415,6 +415,18 @@ _MIRROR_HELPER = [
 ]
 
 
+# The fields magpylib can evaluate, with the unit each comes out in. B and H
+# are what a scene is usually read for; J and M are zero outside a magnet and
+# constant inside one, which makes them the quick way to see what a shape
+# actually covers.
+_FIELDS = {
+    "B": ("getB", "T"),
+    "H": ("getH", "A/m"),
+    "J": ("getJ", "T"),
+    "M": ("getM", "A/m"),
+}
+
+
 # Operations allowed inside batch() — mutating, per-object (plus clear).
 _BATCHABLE = {
     "apply_edit",
@@ -1300,6 +1312,9 @@ class MagpylibStudioSession:
                 "label": self._objs[spec["id"]].style.label or spec["type"],
                 "parent": parent["id"] if parent else None,
                 "visible": spec.get("visible", True),
+                # a sensor carrying a measuring grid is a field source a UI
+                # can offer to read off, so say so where it is listed
+                **self._pixel_shape(self._objs[spec["id"]]),
             })
             # copies made by a duplicate event: real objects in the field and
             # the 3D view, but generated, so they have no spec to edit
@@ -1313,6 +1328,14 @@ class MagpylibStudioSession:
                     "derived": spec["id"],
                 })
         return objects
+
+    @staticmethod
+    def _pixel_shape(obj):
+        """{"pixels": [rows, cols]} for a Sensor with a grid, else nothing."""
+        if not isinstance(obj, magpy.Sensor) or obj.pixel is None:
+            return {}
+        pixel = np.array(obj.pixel, dtype=float)
+        return {"pixels": list(pixel.shape[:2])} if pixel.ndim == 3 else {}
 
     def get_schema(self, object_id):
         return style_compat.schema(self._objs[object_id])
@@ -1429,8 +1452,10 @@ class MagpylibStudioSession:
         `sensor_id`, else the first sensor in the scene (its whole path).
         Returns {"field", "unit", "points", "values", "magnitude"} in SI.
         """
-        if field not in ("B", "H"):
-            raise ValueError(f"field must be 'B' or 'H', got {field!r}")
+        if field not in _FIELDS:
+            raise ValueError(
+                f"field must be one of {sorted(_FIELDS)}, got {field!r}"
+            )
         sources = self._leaf_sources()
         if not sources:
             raise ValueError("scene has no field sources")
@@ -1451,11 +1476,11 @@ class MagpylibStudioSession:
                     raise ValueError("scene has no sensor; pass points instead")
             observer = sensor
             pts = np.atleast_2d(sensor.position)
-        func = magpy.getB if field == "B" else magpy.getH
+        func = getattr(magpy, _FIELDS[field][0])
         values = np.atleast_2d(func(sources, observer, sumup=True))
         return {
             "field": field,
-            "unit": "T" if field == "B" else "A/m",
+            "unit": _FIELDS[field][1],
             "points": pts.tolist(),
             "values": values.tolist(),
             "magnitude": np.linalg.norm(values, axis=-1).tolist(),
@@ -1557,7 +1582,7 @@ class MagpylibStudioSession:
         sources = self._leaf_sources()
         if not sources:
             raise ValueError("scene has no field sources")
-        func = magpy.getB if field == "B" else magpy.getH
+        func = getattr(magpy, _FIELDS[field][0])
         values = np.array(func(sources, sensor, sumup=True), dtype=float)
         path_note = ""
         if values.ndim == 4:  # the sensor also has a path: map its last step
@@ -1570,7 +1595,7 @@ class MagpylibStudioSession:
         u = pixel[0, :, iu]
         v = pixel[:, 0, iv]
         return self._heatmap(
-            u, v, values, "T" if field == "B" else "A/m", field, component, log,
+            u, v, values, _FIELDS[field][1], field, component, log,
             template,
             labels=(f"sensor {'xyz'[iu]} (m)", f"sensor {'xyz'[iv]} (m)"),
             subtitle=f"over {sensor.style.label or sensor_id} "
@@ -2462,7 +2487,7 @@ class MagpylibStudioSession:
             self.doc["variables"][variable] = original
             self._build()
         return {"ok": True, "variable": variable, "field": field,
-                "unit": "T" if field == "B" else "A/m", "steps": steps}
+                "unit": _FIELDS[field][1], "steps": steps}
 
     def get_sweep_figure(self, variable, values, sensor_id=None, points=None,
                          field="B", component="magnitude", template=None):
