@@ -1274,6 +1274,31 @@ def test_edits_while_rolled_back_are_inserted_at_that_step():
     assert len(s.list_objects()) == 2
 
 
+def test_a_step_can_be_given_a_variable_after_the_fact():
+    """Putting a variable on a step that was recorded with a number: the
+    scene becomes parametric in something nobody planned for up front."""
+    import numpy as np
+
+    s = MagpylibStudioSession()
+    s.load_example()
+    stagger = next(e for e in s.get_events()["events"]
+                   if e["target"] == "ring2" and e["op"] != "create")
+    assert stagger["label"] == "orbit 18° about z"
+
+    assert s.set_variable("stagger", 18) == {"ok": True}
+    assert s.edit_event(stagger["id"], {"angle": "=stagger"}) == {"ok": True}
+    relabelled = next(e for e in s.get_events()["events"] if e["id"] == stagger["id"])
+    assert relabelled["label"] == "orbit stagger° about z"
+
+    # and the ring now follows it
+    before = np.array(s._objs["r2m01"].position)
+    assert s.set_variable("stagger", 45) == {"ok": True}
+    assert not np.allclose(s._objs["r2m01"].position, before)
+    assert np.allclose(s._objs["r2m01"].position[:2], [1.626, 1.626], atol=1e-3)
+    # exported as the variable, not as what it currently comes to
+    assert "ring2.rotate_from_angax(stagger, 'z', anchor=0)" in s.to_script()
+
+
 def test_a_create_event_is_where_an_object_is_changed_after_the_fact():
     """"Change the dimensions of that magnet" is an edit to the step that
     made it — the same edit the Inspector makes, reached from the history."""

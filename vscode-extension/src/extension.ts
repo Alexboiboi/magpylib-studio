@@ -197,6 +197,9 @@ const MUTATING_WITH_VALUES = new Set([
   'rotate',
   'add_object',
   'duplicate_around',
+  // a step's own values are typed the same way, so naming a variable in one
+  // has to create it the same way too
+  'edit_event',
 ]);
 
 /** Units shown in the Add Object prompts. */
@@ -1194,6 +1197,19 @@ export function activate(context: vscode.ExtensionContext): void {
         // the Inspector follow the history as you walk it
         selectObjectInStudio(context, operation.target);
         inspector?.showOperation(operation.id);
+      },
+    ),
+    vscode.commands.registerCommand(
+      'magpylib-studio.editOperation',
+      async (operation: SceneOperation) => {
+        // Same as selecting it, but says where the values are: a step's
+        // fields appear in the Inspector, and nothing about a tree row
+        // suggests looking at another panel.
+        selectObjectInStudio(context, operation.target);
+        inspector?.showOperation(operation.id);
+        await vscode.commands.executeCommand(
+          `${InspectorViewProvider.viewId}.focus`,
+        );
       },
     ),
     vscode.commands.registerCommand(

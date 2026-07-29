@@ -124,7 +124,8 @@ export class SceneTreeProvider
     item.tooltip = new vscode.MarkdownString(
       '`' + operation.source + '`' +
         (operation.error ? `\n\n$(error) ${operation.error}` : '') +
-        (operation.pending ? '\n\nAfter the step the history is rolled back to.' : ''),
+        (operation.pending ? '\n\nAfter the step the history is rolled back to.' : '') +
+        '\n\n$(edit) Edit Step… shows its values in the Inspector.',
     );
     item.tooltip.supportThemeIcons = true;
     item.contextValue = 'magpyOperation' + (operation.op === 'create' ? 'Create' : '');

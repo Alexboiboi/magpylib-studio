@@ -128,6 +128,9 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
     .trow button { background: var(--vscode-button-secondaryBackground, #3a3d41); color: var(--vscode-button-secondaryForeground, inherit); border: none; padding: 2px 8px; cursor: pointer; border-radius: 2px; }
     .trow button:hover { background: var(--vscode-button-secondaryHoverBackground, #45494e); }
     .hint { opacity: 0.65; padding: 0 0 2px 8px; }
+    /* the selected construction step, so it is obvious what just changed */
+    #step:not(:empty) { border-left: 2px solid var(--vscode-focusBorder, #3987e5); padding-left: 6px; margin: 4px 0; }
+    #step summary { color: var(--vscode-charts-blue, #3987e5); }
   </style>
 </head>
 <body>

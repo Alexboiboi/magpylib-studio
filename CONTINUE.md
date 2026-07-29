@@ -262,6 +262,14 @@ and drives it.
     duplicating both the tree and the script and adding only reordering.
     Steps are labelled for what they did (`_event_label`); the call that did
     it is the tooltip, and the script.
+  - **Editing a step**: click it, or ✎ *Edit Step…* which also focuses the
+    Inspector — clicking a tree row and having values appear in another panel
+    is not discoverable on its own, which is how it was found. The form takes
+    expressions like every other numeric field, so **a variable can be put on
+    a step after the fact**: type a name into an orbit's `angle` and the scene
+    becomes parametric in something nobody planned for, prompting for the
+    value if it is new (`edit_event` is in `MUTATING_WITH_VALUES` for exactly
+    that). The label follows: "orbit stagger° about z".
   - **Rollback**, the other half of a CAD feature tree: right-click a step →
     *Build Up To Here* folds only the events up to it, so you can watch the
     scene assemble. Steps after the point are dimmed and marked "not
