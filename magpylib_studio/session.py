@@ -253,6 +253,7 @@ def _canonical(doc):
     # A fixed key order as well, so "the same document" is the same text
     # however it was assembled — read back from a script, built up through
     # the API, or written by hand.
+    doc.setdefault("objects", [])  # a slot for the projection _build writes
     ordered = {key: doc[key] for key in _DOC_KEYS if key in doc}
     ordered.update({k: v for k, v in doc.items() if k not in _DOC_KEYS})
     doc.clear()
@@ -279,18 +280,44 @@ def _migrate_events(doc):
     "and then re-apply the later ones" to speak of.
     """
     events = list(doc.get("events") or [])
+    described = {e["target"] for e in events if e.get("op") == "create"}
+    creates, transforms = [], []
 
-    def walk(specs):
+    def walk(specs, parent):
         for spec in specs:
-            walk(spec.get("children") or [])
+            if spec["id"] not in described:
+                creates.append({
+                    "id": None, "op": "create", "target": spec["id"],
+                    "type": spec["type"],
+                    **({"params": spec["params"]} if spec.get("params") else {}),
+                    **({"style": spec["style"]} if spec.get("style") else {}),
+                    **({"parent": parent} if parent else {}),
+                    **({"visible": False} if spec.get("visible") is False else {}),
+                })
+            # A parent has to exist before its children can join it, so creates
+            # go depth-first from the root; the transforms keep the order the
+            # per-object build replayed them in, children before parents.
+            walk(spec.get("children") or [], spec["id"])
             for op in _spec_ops(spec):
-                events.append({"id": _next_event_id(events),
-                               "target": spec["id"], **op})
+                transforms.append({"id": None, "target": spec["id"], **op})
             spec.pop("transforms", None)
             spec.pop("rotations", None)
 
-    walk(doc.get("objects") or [])
-    doc["events"] = events
+    walk(doc.get("objects") or [], None)
+    events = creates + transforms + events
+    used, n, numbered = {e.get("id") for e in events}, 0, []
+    for event in events:
+        if event.get("id") is not None:
+            numbered.append(event)
+            continue
+        while f"e{(n := n + 1)}" in used:
+            pass
+        used.add(f"e{n}")
+        # rebuilt rather than assigned into, so the id reads first wherever
+        # the event came from — a document should not depend on that
+        numbered.append({"id": f"e{n}",
+                         **{k: v for k, v in event.items() if k != "id"}})
+    doc["events"] = numbered
     return doc
 
 
@@ -395,6 +422,26 @@ def _op_source(op):
     return f"{kind}({args})"
 
 
+def _event_source(event):
+    """One event as the line it stands for, for a history list."""
+    op = event.get("op", "rotate_from_angax")
+    target = event["target"]
+    if op == "create":
+        args = [f"{k}={_lit(v)}" for k, v in (event.get("params") or {}).items()]
+        if event.get("parent"):
+            args.append(f"parent={event['parent']!r}")
+        ctor = "Collection" if event["type"] == "Collection" else event["type"]
+        return f"{target} = magpy.{ctor}({', '.join(args)})"
+    if op == "remove":
+        return f"remove {target}"
+    if op == "reparent":
+        return f"{target} joins {event.get('parent') or 'the scene root'}"
+    if op == "duplicate_around":
+        return (f"{target} × {_lit(event.get('count', 1))} about "
+                f"{_lit(event.get('axis', 'z'))}")
+    return f"{target}.{_op_source(event)}"
+
+
 def _resolve_type(type_str):
     """'magnet.Cuboid' -> magpylib.magnet.Cuboid."""
     obj = magpy
@@ -469,21 +516,129 @@ class MagpylibStudioSession:
                 )
         self._objs = {}
         self._derived = {}
-        self.scene = magpy.Collection(
-            *[self._build_spec(s) for s in self.doc["objects"]]
-        )
+        self._specs = {}  # id -> the spec its create event describes
+        self._parents = {}  # id -> parent id or None
+        self.scene = magpy.Collection()
         for event in self.doc.get("events") or []:
+            op = event.get("op", "rotate_from_angax")
+            if op == "create":
+                self._create(event)
+                continue
+            if op == "remove":
+                self._remove(event["target"])
+                continue
             target = self._objs.get(event["target"])
             if target is None:
                 raise ValueError(
                     f"event {event.get('id')} targets unknown object "
                     f"{event['target']!r}"
                 )
+            if op == "reparent":
+                self._reparent(event["target"], event.get("parent"))
+                continue
             resolved = self._resolve(event)
-            if resolved.get("op") == "duplicate_around":
+            if op == "duplicate_around":
                 self._duplicate_around(event["target"], resolved)
             else:
                 _replay(target, [resolved])
+        # The object tree is a projection of the log, rebuilt here rather than
+        # stored: two representations of the same structure would drift.
+        self.doc["objects"] = self._project()
+
+    def _create(self, event):
+        """A create event -> a live magpylib object in its place in the tree."""
+        object_id = event["target"]
+        if object_id in self._objs:
+            raise ValueError(f"duplicate object id {object_id!r}")
+        spec = {
+            "id": object_id,
+            "type": event["type"],
+            **({"params": event["params"]} if event.get("params") else {}),
+            **({"style": event["style"]} if event.get("style") else {}),
+            **({"visible": False} if event.get("visible") is False else {}),
+        }
+        params = self._resolve(dict(event.get("params") or {}))
+        if event["type"] == "Collection":
+            # Positional children, the form a script uses: they exist already.
+            adopted = [self._objs[c] for c in event.get("children") or []]
+            obj = magpy.Collection(*adopted, **params)
+            for child in event.get("children") or []:
+                self._parents[child] = object_id
+        else:
+            obj = _resolve_type(event["type"])(**params)
+        for path, value in (event.get("style") or {}).items():
+            style_compat.set_style(obj, path, value)  # same call the GUI/LLM makes
+        self._objs[object_id] = obj
+        self._specs[object_id] = spec
+        parent = event.get("parent")
+        self._parents[object_id] = parent
+        (self._objs[parent] if parent else self.scene).add(obj)
+
+    def _remove(self, object_id):
+        """A remove event: the object and everything under it stop existing
+        from here on. Events recorded before it still happened."""
+        if object_id not in self._objs:
+            raise ValueError(f"cannot remove unknown object {object_id!r}")
+        gone = [object_id, *self._descendants(object_id)]
+        parent = self._parents.get(object_id)
+        (self._objs[parent] if parent else self.scene).remove(
+            self._objs[object_id], recursive=False
+        )
+        for dead in gone:
+            self._objs.pop(dead, None)
+            self._specs.pop(dead, None)
+            self._parents.pop(dead, None)
+            self._derived.pop(dead, None)
+
+    def _reparent(self, object_id, parent):
+        """A reparent event: from here on the object belongs to another group,
+        so later group transforms carry it and earlier ones do not."""
+        if parent is not None and parent not in self._objs:
+            raise ValueError(f"cannot reparent into unknown object {parent!r}")
+        if parent in [object_id, *self._descendants(object_id)]:
+            raise ValueError(f"cannot move {object_id!r} into its own subtree")
+        old = self._parents.get(object_id)
+        (self._objs[old] if old else self.scene).remove(
+            self._objs[object_id], recursive=False
+        )
+        (self._objs[parent] if parent else self.scene).add(self._objs[object_id])
+        self._parents[object_id] = parent
+
+    def _descendants(self, object_id):
+        below = [c for c, p in self._parents.items() if p == object_id]
+        return [*below, *[d for c in below for d in self._descendants(c)]]
+
+    def _project(self):
+        """The object tree the log describes, in creation order.
+
+        Read straight from the create events rather than from anything cached
+        at build time, so an edit to one shows up without a rebuild — which is
+        what makes `_spec()` and everything reading it still true.
+        """
+        creates = {
+            e["target"]: e
+            for e in self.doc.get("events") or []
+            if e.get("op") == "create"
+        }
+
+        def spec_of(object_id):
+            event = creates[object_id]
+            spec = {"id": object_id, "type": event["type"]}
+            for key in ("params", "style", "hidden_style"):
+                if event.get(key):
+                    spec[key] = event[key]
+            if event.get("visible") is False:
+                spec["visible"] = False
+            if event["type"] == "Collection":
+                spec["children"] = [
+                    spec_of(child)
+                    for child, parent in self._parents.items()
+                    if parent == object_id
+                ]
+            return spec
+
+        # _parents holds exactly the objects still alive, in creation order
+        return [spec_of(oid) for oid, parent in self._parents.items() if parent is None]
 
     def _duplicate_around(self, object_id, event):
         """Replay a duplicate event: `count` copies evenly spaced about an
@@ -954,7 +1109,8 @@ class MagpylibStudioSession:
             style_compat.set_style(obj, path, value)
         except Exception as e:  # noqa: BLE001 - report validation errors, don't crash
             return {"ok": False, "error": str(e)}
-        self._spec(object_id)["style"] = style_compat.set_values(obj)  # keep doc synced
+        self._create_event(object_id)["style"] = style_compat.set_values(obj)
+        self.doc["objects"] = self._project()  # keep the projection in step
         self._record_state(f"edit {object_id} {path}", before)
         return {"ok": True}
 
@@ -967,39 +1123,31 @@ class MagpylibStudioSession:
             return {"ok": False, "error": f"parent {parent!r} is not a Collection"}
 
         def mutate(doc):
-            spec = {
-                "id": object_id,
-                "type": type,
-                "params": params or {},
-                "style": style or {},
-            }
-            if type == "Collection":
-                spec["children"] = []
-            target = (
-                doc["objects"] if parent is None
-                else self._spec(parent).setdefault("children", [])
-            )
-            target.append(spec)
+            self._append({
+                "op": "create", "target": object_id, "type": type,
+                **({"params": params} if params else {}),
+                **({"style": style} if style else {}),
+                **({"parent": parent} if parent else {}),
+            })
             if rotations:
-                # Recorded at the end of the log, i.e. after whatever has
-                # already happened to the parent — the same thing the
-                # equivalent script would do.
+                # Recorded after the create, i.e. after whatever has already
+                # happened to the parent — the same thing the equivalent
+                # script would do.
                 self._log(object_id, _spec_ops({"rotations": rotations}))
 
         return self._mutate_doc(mutate, f"add {object_id}")
 
     def remove_object(self, object_id):
-        """Remove an object; removing a Collection removes its whole subtree."""
-        spec = self._spec(object_id)  # raise early on unknown id
-        gone = {s["id"] for s in _walk_specs([spec])}
+        """Remove an object; removing a Collection removes its whole subtree.
+
+        Recorded rather than erased: the events that ran while the object
+        existed still happened, and rewriting them would make the log a
+        different story from the one the scene actually went through.
+        """
+        self._spec(object_id)  # raise early on unknown id
 
         def mutate(doc):
-            self._container_of(object_id).remove(spec)
-            # the log cannot outlive its targets: replaying an event against a
-            # deleted object is an error, so the subtree's events go with it
-            doc["events"] = [
-                e for e in doc.get("events") or [] if e["target"] not in gone
-            ]
+            self._append({"op": "remove", "target": object_id})
 
         return self._mutate_doc(mutate, f"remove {object_id}")
 
@@ -1016,6 +1164,30 @@ class MagpylibStudioSession:
             {"op": "orientation",
              "rotvec": np.round(world_rot.as_rotvec(degrees=True), 9).tolist()},
         ])
+
+    # --- editing the log ---------------------------------------------------
+    def _append(self, event):
+        """Add one event to the end of the log, under a fresh id."""
+        events = self.doc.setdefault("events", [])
+        events.append({
+            "id": _next_event_id(events),
+            **{k: v for k, v in event.items() if k != "id"},
+        })
+        return events[-1]
+
+    def _create_event(self, object_id):
+        """The event that brought an object into being.
+
+        What an object *is* — its type, parameters and style — is not a
+        sequence of things that happened to it, so editing those edits this
+        event in place rather than appending another. Same reason a CAD
+        history lets you change the box you made instead of recording that you
+        changed it. Only what happened *to* it afterwards is appended.
+        """
+        for event in self.doc.get("events") or []:
+            if event.get("op") == "create" and event["target"] == object_id:
+                return event
+        raise KeyError(f"unknown object id {object_id!r}")
 
     # --- transforms --------------------------------------------------------
     def _log(self, object_id, ops):
@@ -1160,34 +1332,32 @@ class MagpylibStudioSession:
         new_id = self._unique_id(object_id)
         label = self._next_label(self._objs[object_id].style.label or src["type"])
 
-        renamed = {}  # source id -> copy's id, to redirect the copied events
-
-        def clone(spec, top):
-            new = json.loads(json.dumps(spec))
-            new["id"] = new_id if top else self._unique_id(spec["id"])
-            renamed[spec["id"]] = new["id"]
-            if top:
-                new.setdefault("style", {})["label"] = label
-            new["children"] = [
-                clone(child, False) for child in spec.get("children", [])
-            ] if spec["type"] == "Collection" else new.get("children", [])
-            return new
+        # source id -> copy's id, decided up front so the copied events can be
+        # redirected onto the new objects as they are replayed
+        renamed = {object_id: new_id}
+        for spec in _walk_specs(src.get("children") or []):
+            renamed[spec["id"]] = self._unique_id(spec["id"])
 
         def mutate(doc):
-            target = (
-                doc["objects"] if parent is None
-                else self._spec(parent).setdefault("children", [])
-            )
-            target.append(clone(src, True))
-            # A copy is not a copy without its history: replay the source's
-            # events onto the new ids, appended in their original order.
-            events = doc.setdefault("events", [])
-            copied = [
-                {**e, "target": renamed[e["target"]]}
-                for e in list(events) if e["target"] in renamed
-            ]
-            for event in copied:
-                events.append({**event, "id": _next_event_id(events)})
+            source_events = list(doc.get("events") or [])
+            for spec, spec_parent in self._iter_specs([src]):
+                create = json.loads(json.dumps(self._create_event(spec["id"])))
+                create["target"] = renamed[spec["id"]]
+                if spec is src:
+                    create.setdefault("style", {})["label"] = label
+                    if parent is not None:
+                        create["parent"] = parent
+                    else:
+                        create.pop("parent", None)
+                else:
+                    create["parent"] = renamed[spec_parent["id"]]
+                self._append(create)
+            # A copy is not a copy without its history: the source's other
+            # events replay onto the new ids, in the order they first ran.
+            for event in source_events:
+                if event.get("op") != "create" and event["target"] in renamed:
+                    self._append({**event,
+                                  "target": renamed[event["target"]]})
 
         result = self._mutate_doc(mutate, f"copy {object_id}")
         if result["ok"]:
@@ -1209,22 +1379,24 @@ class MagpylibStudioSession:
         ]
 
         def mutate(doc):
+            create = self._create_event(object_id)
             if visible:
-                spec.pop("visible", None)
+                create.pop("visible", None)
             else:
-                spec["visible"] = False
+                create["visible"] = False
             for leaf in leaves:
-                style = leaf.setdefault("style", {})
+                event = self._create_event(leaf["id"])
+                style = event.setdefault("style", {})
                 if visible:
-                    restore = leaf.pop("hidden_style", {})
+                    restore = event.pop("hidden_style", {})
                     for path in _HIDE_STYLE:
                         if path in restore:
                             style[path] = restore[path]
                         else:
                             style.pop(path, None)
                 else:
-                    if "hidden_style" not in leaf:
-                        leaf["hidden_style"] = {
+                    if "hidden_style" not in event:
+                        event["hidden_style"] = {
                             p: style[p] for p in _HIDE_STYLE if p in style
                         }
                     style.update(_HIDE_STYLE)
@@ -1249,12 +1421,10 @@ class MagpylibStudioSession:
         world_rot = obj.orientation
 
         def mutate(doc):
-            self._container_of(object_id).remove(spec)
-            target = (
-                doc["objects"] if parent is None
-                else self._spec(parent).setdefault("children", [])
-            )
-            target.append(spec)
+            # Appended, not a rewrite of where the object was created: which
+            # group transforms carried it depends on when it joined, and that
+            # is exactly what the position in the log records.
+            self._append({"op": "reparent", "target": object_id, "parent": parent})
             self._set_world_pose(object_id, world_pos, world_rot)
 
         return self._mutate_doc(mutate, f"reparent {object_id}")
@@ -1263,10 +1433,13 @@ class MagpylibStudioSession:
         """Set a constructor parameter (position, dimension, polarization, …).
         A value may be an expression over the document's variables, on its own
         or inside a vector: `[0, 0, "=gap"]`."""
-        spec = self._spec(object_id)
+        self._spec(object_id)  # raise early on unknown id
 
         def mutate(doc):
-            spec.setdefault("params", {})[name] = expressions.normalized(value)
+            # What an object *is* lives on its create event, so this edits
+            # that rather than appending — see _create_event.
+            create = self._create_event(object_id)
+            create.setdefault("params", {})[name] = expressions.normalized(value)
 
         return self._mutate_doc(mutate, f"set {object_id}.{name}")
 
@@ -1278,10 +1451,11 @@ class MagpylibStudioSession:
             return {"ok": False, "error": f"style path {path!r} is not set on {object_id!r}"}
 
         def mutate(doc):
+            create = self._create_event(object_id)
             if path is None:
-                spec["style"] = {}
+                create.pop("style", None)
             else:
-                del spec["style"][path]
+                del create["style"][path]
 
         return self._mutate_doc(mutate, f"reset {object_id} {path or 'style'}")
 
@@ -1294,6 +1468,12 @@ class MagpylibStudioSession:
                     scene = json.load(f)
             except (OSError, json.JSONDecodeError) as e:
                 return {"ok": False, "error": str(e)}
+        # A document says what it holds: since both keys are optional and an
+        # empty scene is legal, something with neither is not an empty scene,
+        # it is not a scene — and loading it as one would quietly wipe this.
+        if not isinstance(scene, dict) or not {"objects", "events"} & set(scene):
+            return {"ok": False,
+                    "error": "not a scene document: expected 'objects' or 'events'"}
 
         def mutate(doc):
             self.doc = _canonical(_migrate_events(json.loads(json.dumps(scene))))
@@ -1684,7 +1864,7 @@ class MagpylibStudioSession:
             "events": [
                 {"index": i, "id": e["id"], "target": e["target"],
                  "op": e.get("op", "rotate_from_angax"),
-                 "source": f"{e['target']}.{_op_source(e)}"}
+                 "source": _event_source(e)}
                 for i, e in enumerate(self.doc.get("events") or [])
             ]
         }
@@ -1773,7 +1953,13 @@ class MagpylibStudioSession:
         return body
 
     def to_script(self):
-        events = self.doc.get("events") or []
+        # Definitions come from the object tree, so the structural events are
+        # already expressed by it; what is left to write out is what happened
+        # to the objects afterwards.
+        events = [
+            e for e in self.doc.get("events") or []
+            if e.get("op") not in ("create", "remove", "reparent")
+        ]
         needs_scipy = any(e.get("op") == "orientation" for e in events)
         lines = ["import magpylib as magpy"]
         if needs_scipy:

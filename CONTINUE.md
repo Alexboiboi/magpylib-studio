@@ -54,9 +54,32 @@ and drives it.
   Position/orientation are excluded — they are transform-managed. Shown as
   the Inspector's **properties** section, and prompted (prefilled, with
   units) when adding an object.
+- **The document IS the log.** `doc["events"]` is the whole scene: `create`,
+  `remove` and `reparent` alongside the transforms and `duplicate_around`.
+  `doc["objects"]` is a **projection**, rebuilt by `_project()` on every
+  build and never written to — strip it from a document and the log
+  reconstructs the same scene, ids, parents, field and all (there is a test
+  for exactly that). Two stored representations of one structure would
+  drift, so there is only one.
+  - `_build` is a single pass: create → construct and attach, remove → detach
+    the subtree, reparent → move it, transforms → replay. `_create` accepts
+    either form of nesting: `parent` on the child (what the API records) or
+    `children` on the Collection (what a script's `Collection(a, b)` means).
+  - **What an object *is* lives on its create event**, so `set_param`,
+    `apply_edit`, `reset_style` and `set_visible` edit that event in place
+    rather than appending. Same reason a CAD history lets you change the box
+    you made instead of recording that you changed it — and it keeps the log
+    from growing without bound while a slider is dragged.
+  - **What happened *to* it is appended**: transforms, removals, reparents.
+    A removal does not delete the earlier events; they ran while the object
+    existed. A reparent's position in the log is what decides which group
+    transforms carried it, which is why it is not a rewrite of the create.
+  - Consequences worth knowing: an event cannot be reordered above its
+    object's create (the rebuild refuses, naming the object), and a document
+    with neither `objects` nor `events` is now rejected by `load_scene`
+    rather than read as an empty scene.
 - **Transforms — the doc records magpylib CALLS, not derived poses**, and
-  since the event-log change they live in **one ordered log for the whole
-  document**, `doc["events"]`, not per object. Each event is
+  they live in that same ordered log, not per object. Each event is
   `{id, target, op, ...}` with op in (`move`, `rotate_from_angax`,
   `rotate_from_rotvec`, `position`, `orientation`); `_build` constructs every
   object and then folds the log over them in order, so magpylib still owns
@@ -369,10 +392,16 @@ test skips via `supports_property_paths()`).
   magpylib wants. If ANSYS-style `5mm` values are ever wanted, that is a
   layer over `expressions.py`, and it needs deciding before variables get
   used widely enough that migrating them hurts.
-- **Not events yet**: creation, deletion and reparenting still mutate the
-  document directly; only transforms and duplicates are logged. Making them
-  events would let the whole scene be reconstructed from the log alone, but
-  nothing needs it yet.
+- **Undo is still snapshots.** `_undo` holds whole document copies, so the
+  History view and the event log remain two mechanisms that look alike. Now
+  that structure is event-sourced, undo could become a pointer into the log —
+  except variables and bounds are not events, so it would only be honest once
+  they are too. That is the remaining half of the unification.
+- **No invalidation reporting.** Editing an early event that breaks a later
+  one rolls the whole edit back; AEDT instead applies it and flags the
+  downstream items. Rollback is safe but tells you less.
+- **No UI for the log**, and no LM tools for it either (`get_events` /
+  `edit_event` / `move_event` / `remove_event` are RPC-only).
 - **Optimisation** on top of `sweep()` (find the gap that flattens the field)
   is a small step now that a rebuild-and-measure loop exists.
 - **Try it live**: open `vscode-extension/` in VS Code, F5, run

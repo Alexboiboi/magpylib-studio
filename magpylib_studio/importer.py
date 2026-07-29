@@ -383,11 +383,14 @@ def parse_script(source):
     except (_Unparseable, ValueError, AttributeError, IndexError) as e:
         return None, f"not in the studio's own script shape ({e})"
 
+    # No ids assigned here: the document numbers its whole log in one go when
+    # the objects become create events, and two numbering passes would give
+    # the same scene different ids depending on where it came from.
     log = []
-    for i, event in enumerate(events):
+    for event in events:
         event = dict(event)
         target = event.pop("target")
-        log.append({"id": f"e{i + 1}", "target": target, **event})
+        log.append({"target": target, **event})
     doc = {
         "objects": [s for n, s in objects.items() if n not in nested],
         "events": log,

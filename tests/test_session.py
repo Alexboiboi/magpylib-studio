@@ -1025,6 +1025,32 @@ def test_apply_script_errors_leave_the_scene_alone(tmp_path):
     assert [o["id"] for o in s.list_objects()] == ["cube", "cyl"]
 
 
+def test_the_log_alone_reconstructs_the_scene():
+    """The point of the whole thing: `objects` is a projection, so throwing it
+    away loses nothing. Creation, removal and reparenting are events, not
+    edits to a tree that the events then annotate."""
+    import numpy as np
+
+    s = MagpylibStudioSession()
+    s.load_example()
+    s.set_variable("radius", 3.0)
+    s.rotate("ring1", 30, "z", anchor=[0, 0, 0])
+    s.remove_object("r1m05")
+    s.move_object("r1m06", "ring2")
+    document = json.loads(json.dumps(s.to_dict()))
+    field = np.array(s.get_field("sensor")["values"])
+
+    log_only = {k: v for k, v in document.items() if k != "objects"}
+    assert set(log_only) == {"variables", "variable_bounds", "events"}
+    rebuilt = MagpylibStudioSession(log_only)
+
+    assert [(o["id"], o["parent"]) for o in rebuilt.list_objects()] == [
+        (o["id"], o["parent"]) for o in s.list_objects()
+    ]
+    assert np.allclose(np.array(rebuilt.get_field("sensor")["values"]), field)
+    assert json.dumps(rebuilt.to_dict()) == json.dumps(document)
+
+
 def test_legacy_per_object_transforms_migrate_into_the_log():
     """Documents written before the log keep working: their per-object ops
     fold into it in the order the old build replayed them — children first,
@@ -1042,7 +1068,14 @@ def test_legacy_per_object_transforms_migrate_into_the_log():
         }]
     }
     s = MagpylibStudioSession(json.loads(json.dumps(doc)))
-    assert [e["target"] for e in s.get_events()["events"]] == ["m", "ring"]
+    log = [(e["op"], e["target"]) for e in s.get_events()["events"]]
+    # objects come into being before anything can happen to them, parents
+    # before children; the transforms then keep the order the per-object
+    # build replayed them in, children before parents
+    assert log == [
+        ("create", "ring"), ("create", "m"),
+        ("rotate_from_angax", "m"), ("rotate_from_angax", "ring"),
+    ]
     assert "transforms" not in s._spec("m") and "rotations" not in s._spec("m")
     # 90 deg orbit then an 18 deg group orbit = 108 deg from +x, at radius 2
     import numpy as np
@@ -1057,7 +1090,11 @@ def test_editing_a_past_event_reapplies_the_later_ones():
     s = MagpylibStudioSession()
     s.load_example()  # ring2's group stagger is the last event, its magnets' earlier
     events = s.get_events()["events"]
-    stagger = next(e for e in events if e["target"] == "ring2")
+    # the log opens with the objects coming into being, then what happened
+    assert events[0]["source"].startswith("halbach = magpy.Collection(")
+    stagger = next(
+        e for e in events if e["target"] == "ring2" and e["op"] != "create"
+    )
     assert stagger["source"] == "ring2.rotate_from_angax(18, 'z', anchor=0)"
 
     before = np.array(s._objs["r2m01"].position)
@@ -1077,8 +1114,8 @@ def test_event_edits_that_cannot_replay_roll_back():
     s = MagpylibStudioSession(make_scene())
     s.rotate("cube", 90, "z", anchor=[0, 0, 0])  # an orbit, so order shows
     s.move("cube", [1, 0, 0])
-    events = s.get_events()["events"]
-    assert [e["index"] for e in events] == [0, 1]
+    events = [e for e in s.get_events()["events"] if e["op"] != "create"]
+    assert [e["op"] for e in events] == ["rotate_from_angax", "move"]
 
     pos = list(s._objs["cube"].position)
     assert s.edit_event(events[0]["id"], {"target": "ghost"})["ok"] is False
@@ -1089,19 +1126,44 @@ def test_event_edits_that_cannot_replay_roll_back():
 
     # order is semantic: orbit-then-move lands elsewhere than move-then-orbit
     assert np.allclose(pos, [1, 0, 0])
-    assert s.move_event(events[1]["id"], 0) == {"ok": True}
+    orbit_at = next(
+        e["index"] for e in s.get_events()["events"]
+        if e["op"] == "rotate_from_angax"
+    )
+    assert s.move_event(events[1]["id"], orbit_at) == {"ok": True}
     assert np.allclose(s._objs["cube"].position, [0, 1, 0])
+
+    # but nothing can be dragged above the object it acts on
+    refused = s.move_event(events[1]["id"], 0)
+    assert refused["ok"] is False and "unknown object 'cube'" in refused["error"]
+    assert np.allclose(s._objs["cube"].position, [0, 1, 0])
+
     assert s.remove_event(events[0]["id"]) == {"ok": True}
-    assert len(s.get_events()["events"]) == 1
+    assert [e["op"] for e in s.get_events()["events"] if e["op"] != "create"] == [
+        "move"
+    ]
 
 
-def test_removing_an_object_takes_its_events_with_it():
+def test_removing_an_object_is_recorded_not_erased():
+    """A removal is something that happened, so it goes on the end of the log.
+    Rewriting the earlier events out would make the log a different story from
+    the one the scene actually went through."""
     s = MagpylibStudioSession(make_scene())
     s.rotate("cube", 90, "z")
     s.rotate("cyl", 45, "z")
-    assert len(s.get_events()["events"]) == 2
     assert s.remove_object("cube") == {"ok": True}
-    assert [e["target"] for e in s.get_events()["events"]] == ["cyl"]
+
+    assert [o["id"] for o in s.list_objects()] == ["cyl"]  # gone from the scene
+    log = [(e["op"], e["target"]) for e in s.get_events()["events"]]
+    assert log[-1] == ("remove", "cube")
+    assert ("create", "cube") in log and ("rotate_from_angax", "cube") in log
+
+    # replaying the whole log still works: the events before the removal ran
+    # while the object existed, and the removal is what ends it
+    rebuilt = MagpylibStudioSession(json.loads(json.dumps(s.to_dict())))
+    assert [o["id"] for o in rebuilt.list_objects()] == ["cyl"]
+    assert s.undo() == {"ok": True}
+    assert [o["id"] for o in s.list_objects()] == ["cube", "cyl"]
 
 
 def test_copying_an_object_copies_its_events():
@@ -1114,7 +1176,8 @@ def test_copying_an_object_copies_its_events():
     assert res["ok"] is True
     # the copy replays the same construction, so it lands on the original
     assert np.allclose(s._objs[res["id"]].position, s._objs["cube"].position)
-    assert len(s.get_events()["events"]) == 4
+    copied = [e for e in s.get_events()["events"] if e["target"] == res["id"]]
+    assert [e["op"] for e in copied] == ["create", "rotate_from_angax", "move"]
 
 
 def test_expressions_are_evaluated_not_executed():
