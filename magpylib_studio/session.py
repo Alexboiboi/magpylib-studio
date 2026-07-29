@@ -481,6 +481,8 @@ _MIRROR_HELPER = [
     "    T = np.diag([1.0, 1.0, -1.0])",
     "    a = np.array(anchor, dtype=float)",
     "    copy = obj.copy()",
+    "    if obj.style.label:",
+    "        copy.style.label = obj.style.label + ' #1'  # copy() renames",
     "    leaves = (list(copy.children_all)",
     "              if isinstance(copy, magpy.Collection) else [copy])",
     "    for leaf in leaves:",
@@ -1145,6 +1147,7 @@ class MagpylibStudioSession:
             copy.rotate_from_angax(i * 360 / count, axis, anchor=anchor)
             if spin:
                 copy.rotate_from_angax(i * spin, axis, anchor=None)
+            self._name_copy(copy, source, i)
             copy_id = f"{object_id}#{i}"
             self._objs[copy_id] = copy
             container.add(copy)
@@ -1167,6 +1170,7 @@ class MagpylibStudioSession:
         for i in range(1, count):
             copy = source.copy()
             copy.move([i * float(component) for component in step])
+            self._name_copy(copy, source, i)
             copy_id = f"{object_id}#{i}"
             self._objs[copy_id] = copy
             container.add(copy)
@@ -1229,10 +1233,28 @@ class MagpylibStudioSession:
             polarization = getattr(leaf, "polarization", None)
             if polarization is not None:
                 leaf.polarization = -(np.array(polarization, dtype=float) @ flip.T)
+        self._name_copy(copy, source, 1)
         copy_id = f"{object_id}#1"
         self._objs[copy_id] = copy
         container.add(copy)
         self._derived[object_id] = [copy_id]
+
+    @staticmethod
+    def _name_copy(copy, source, index):
+        """Name a generated copy after the object it came from, numbered like
+        its id (`r1#3` -> "Magnet 1 #3").
+
+        magpylib's own `copy()` renames as it goes: it increments a trailing
+        number, so a copy of "Magnet 1" comes back as "Magnet 2". Every copy
+        in a pattern is made from the same source, so a ring of ten read as
+        one "Magnet 1" and nine identical "Magnet 2"s — nine rows claiming to
+        be an object that already exists elsewhere in the scene. That is
+        sensible behaviour for copying one object by hand and the wrong
+        answer for a pattern, where the copies are instances of a source, not
+        new objects in their own right.
+        """
+        label = source.style.label
+        copy.style.label = f"{label} #{index}" if label else None
 
     def _container_for_copies(self, object_id):
         """Where a pattern's copies go: the group the source is in.
@@ -2758,6 +2780,14 @@ class MagpylibStudioSession:
             f"for i in range(1, {count}):",
             f"    _copy = {target}.copy()",
         ]
+        # Name the copies the way the studio does, because magpylib's copy()
+        # would otherwise increment the label and give every one of them the
+        # same wrong name (see _name_copy). Written as a concatenation rather
+        # than an f-string so a label containing a brace or a quote cannot
+        # break the line.
+        label = self._objs[target].style.label if target in self._objs else None
+        if label:
+            body.append(f"    _copy.style.label = {label + ' #'!r} + str(i)")
         if event.get("op") == "duplicate_along":
             step = event.get("step") or [0, 0, 0]
             offsets = ", ".join(f"i * ({_lit(component)})" for component in step)

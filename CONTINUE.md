@@ -200,6 +200,14 @@ and drives it.
     parametric, the copy still following whatever the source does, and
     `parse_script` reads the call back so the round trip is exact.
   Path-driven patterns are the family member still missing.
+  **Copies are named after their source, numbered like their id** (`r1#3` →
+  "Magnet 1 #3"), by `_name_copy` at the fold and by a line the loop emits
+  into the script. magpylib's `copy()` increments a trailing number in the
+  label, which is right for copying one object by hand and wrong for a
+  pattern: every copy comes from the same source, so a ring of ten arrived as
+  one "Magnet 1" and nine identical "Magnet 2"s — a name already belonging to
+  a different magnet in the same scene. `parse_script` skips that assignment
+  (it is regenerated from the source), so the round trip stays exact.
   In the UI all three are behind one **Pattern…** command that asks which
   kind first, because they are the same idea about a different thing. `count` and `spin` may be expressions, so the whole
   arrangement is one number to edit. The copies are generated at build time,

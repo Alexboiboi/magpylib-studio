@@ -298,6 +298,39 @@ def test_every_example_builds_and_is_worth_opening():
     assert len(s.get_field_map(sensor_id="probe")["data"][0]["z"]) == 7
 
 
+def test_pattern_copies_are_named_after_their_source():
+    """A copy is an instance of its source, and has to say so.
+
+    magpylib's copy() increments a trailing number in the label, so every
+    copy of "Magnet 1" comes back as "Magnet 2" — and since a pattern makes
+    all of them from the same source, a ring of ten reads as one "Magnet 1"
+    and nine identical "Magnet 2"s, a name that belongs to a different magnet
+    in the same scene. They are numbered after their id instead.
+    """
+    s = MagpylibStudioSession()
+    s.load_example("halbach")
+    labels = {o["id"]: o["label"] for o in s.list_objects()}
+    assert labels["r1"] == "Magnet 1"
+    assert [labels[f"r1#{i}"] for i in (1, 5, 9)] == [
+        "Magnet 1 #1", "Magnet 1 #5", "Magnet 1 #9",
+    ]
+    assert labels["r2"] == "Magnet 2"  # not shadowed by ring 1's copies
+    assert len({*labels.values()}) == len(labels)  # every row named once
+
+    # the exported script builds the same names, so the legend of a show()
+    # agrees with the tree it came from
+    ring = exec_script(s.to_script())["ring1"]
+    assert [c.style.label for c in ring.children][:3] == [
+        "Magnet 1", "Magnet 1 #1", "Magnet 1 #2",
+    ]
+
+    # mirrors too, through the helper the script carries
+    s.load_example("pair")
+    assert {o["label"] for o in s.list_objects()} >= {"Upper", "Upper #1"}
+    mirrored = exec_script(s.to_script())["pair"].children_all
+    assert {c.style.label for c in mirrored} >= {"Upper", "Upper #1"}
+
+
 def test_example_arrives_parametric():
     """The example is the first thing anyone opens, so it is the place to
     find out that a scene can be driven by a variable."""

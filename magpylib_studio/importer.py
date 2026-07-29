@@ -291,6 +291,13 @@ def _duplicate_from_loop(node, objects, variables):
                 and getattr(stmt.value.func, "attr", None) == "copy"):
             source_name = stmt.value.func.value.id
             continue
+        # `_copy.style.label = ...`: the studio writes it so the copies are
+        # not all renamed to the same thing by magpylib, and regenerates it
+        # from the source on the way out, so reading it back is a no-op.
+        if (isinstance(stmt, ast.Assign) and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], ast.Attribute)
+                and stmt.targets[0].attr == "label"):
+            continue
         if not isinstance(stmt, ast.Expr) or not isinstance(stmt.value, ast.Call):
             raise _Unparseable("loop body")
         inner = stmt.value
