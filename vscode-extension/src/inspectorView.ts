@@ -99,14 +99,19 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';" />
   <style>
-    body { margin: 0; padding: 4px 8px; font-family: var(--vscode-font-family); font-size: 12px; color: var(--vscode-foreground); }
-    #header { font-weight: bold; margin: 4px 0; }
-    #filter { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
-    details { margin: 2px 0; }
-    summary { cursor: pointer; text-transform: uppercase; font-size: 11px; opacity: 0.8; user-select: none; }
-    .row { display: grid; grid-template-columns: minmax(80px, 1fr) minmax(90px, 1fr) 18px; gap: 4px; align-items: center; padding: 1px 0 1px 8px; }
+    body { margin: 0; padding: 0 8px 8px; font-family: var(--vscode-font-family); font-size: 12px; color: var(--vscode-foreground); }
+    /* the object being edited stays put while its properties scroll */
+    #header { position: sticky; top: 0; z-index: 1; background: var(--vscode-sideBar-background, var(--vscode-editor-background)); padding: 6px 0 5px; border-bottom: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.25)); margin-bottom: 4px; }
+    #header .name { font-weight: 600; }
+    #header .what { opacity: 0.6; font-size: 11px; }
+    #filter { width: 100%; box-sizing: border-box; margin: 4px 0 2px; }
+    details { margin: 6px 0 2px; }
+    summary { cursor: pointer; text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em; opacity: 0.7; user-select: none; padding: 2px 0; }
+    summary:hover { opacity: 1; }
+    .row { display: grid; grid-template-columns: minmax(74px, 84px) 1fr 18px; gap: 6px; align-items: center; padding: 2px 0 2px 6px; }
     .row label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .row.set label { font-weight: bold; }
+    .row label .unit { opacity: 0.5; }
+    .row.set label { font-weight: 600; }
     .widget { display: flex; gap: 3px; align-items: center; min-width: 0; }
     input, select { background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, transparent); font-size: 12px; padding: 1px 3px; min-width: 0; width: 100%; box-sizing: border-box; }
     input[type=color] { padding: 0; width: 22px; height: 18px; flex: none; }
@@ -116,8 +121,8 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
     .row.set .reset { visibility: visible; }
     #status { color: var(--vscode-errorForeground); white-space: pre-wrap; margin-top: 6px; }
     #empty { opacity: 0.7; margin-top: 10px; }
-    .vec { display: grid; grid-template-columns: 14px 1fr 14px 1fr 14px 1fr; gap: 3px; align-items: center; padding: 1px 0 1px 8px; }
-    .vec span { opacity: 0.7; text-align: right; }
+    .vec { display: grid; grid-template-columns: repeat(3, 11px 1fr); gap: 3px; align-items: center; }
+    .vec span { opacity: 0.55; text-align: right; font-size: 10px; }
     .vec input { width: 100%; box-sizing: border-box; }
     .vec.readonly input { opacity: 0.6; background: transparent; border-color: transparent; cursor: default; }
     /* a field holding an expression rather than a number, hovering shows its value */
@@ -127,7 +132,9 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
     .trow select { width: auto; }
     .trow button { background: var(--vscode-button-secondaryBackground, #3a3d41); color: var(--vscode-button-secondaryForeground, inherit); border: none; padding: 2px 8px; cursor: pointer; border-radius: 2px; }
     .trow button:hover { background: var(--vscode-button-secondaryHoverBackground, #45494e); }
-    .hint { opacity: 0.65; padding: 0 0 2px 8px; }
+    .hint { opacity: 0.6; padding: 0 0 3px 6px; font-size: 11px; }
+    textarea { width: 100%; box-sizing: border-box; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, transparent); font-family: var(--vscode-editor-font-family, monospace); font-size: 11px; resize: vertical; }
+    .matrix summary { text-transform: none; letter-spacing: 0; font-size: 11px; opacity: 0.85; padding-left: 6px; }
     /* the selected construction step, so it is obvious what just changed */
     #step:not(:empty) { border-left: 2px solid var(--vscode-focusBorder, #3987e5); padding-left: 6px; margin: 4px 0; }
     #step summary { color: var(--vscode-charts-blue, #3987e5); }
@@ -136,9 +143,11 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
 <body>
   <div id="header"></div>
   <div id="step"></div>
-  <input id="filter" type="text" placeholder="Filter properties…" />
   <div id="params"></div>
   <div id="transform"></div>
+  <!-- the filter sits with what it filters: the style list, which is the
+       only long one and the only one it touches -->
+  <input id="filter" type="text" placeholder="Filter style properties…" hidden />
   <div id="props"></div>
   <div id="empty">Select an object in the Scene view.</div>
   <div id="status"></div>
@@ -387,6 +396,21 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
       stepEl.appendChild(box);
     }
 
+    /** "7 × 7 × 3", so a table says what it is before it says what it holds. */
+    function shapeOf(value) {
+      const dims = [];
+      for (let v = value; Array.isArray(v); v = v[0]) dims.push(v.length);
+      return dims.join(' × ');
+    }
+
+    /** The unit, kept quiet next to the name it belongs to. */
+    function unitTag(unit) {
+      const el = document.createElement('span');
+      el.className = 'unit';
+      el.textContent = unit ? '(' + unit + ')' : '';
+      return el;
+    }
+
     // --- properties section: the object's physics parameters --------------
     async function loadParams() {
       const params = await rpc('get_params', { object_id: objectId });
@@ -412,7 +436,8 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
           const row = document.createElement('div');
           row.className = 'row';
           const label = document.createElement('label');
-          label.textContent = p.name;
+          label.append(document.createTextNode(p.name + ' '));
+          label.appendChild(unitTag(p.unit));
           label.title = p.doc;
           const input = numberInput(
             p.written === undefined ? p.value : p.written, p.value, commit,
@@ -423,35 +448,45 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
           row.append(label, wrap, document.createElement('span'));
           box.appendChild(row);
         } else if (p.kind === 'vector') {
-          const head = document.createElement('div');
-          head.className = 'hint';
-          head.textContent = p.name;
-          head.title = p.doc;
-          box.appendChild(head);
-          box.appendChild(
-            vecRow(p.value.map((_, i) => String(i + 1)), p.value, commit,
-                   undefined, p.written),
-          );
+          // one row like every other property, so the labels line up
+          const row = document.createElement('div');
+          row.className = 'row';
+          const label = document.createElement('label');
+          label.append(document.createTextNode(p.name + ' '));
+          label.appendChild(unitTag(p.unit));
+          label.title = p.doc;
+          const wrap = document.createElement('div');
+          wrap.className = 'widget';
+          wrap.style.display = 'block';
+          wrap.appendChild(vecRow(
+            p.components || p.value.map((_, i) => String(i + 1)),
+            p.value, commit, undefined, p.written,
+          ));
+          row.append(label, wrap, document.createElement('span'));
+          box.appendChild(row);
         } else {
-          // matrices (vertices, faces, sensor pixels): edit as JSON
-          const head = document.createElement('div');
-          head.className = 'hint';
-          head.textContent = p.name + ' (' + p.value.length + ' rows, JSON)';
-          head.title = p.doc;
-          const area = document.createElement('input');
-          area.type = 'text';
-          area.value = JSON.stringify(p.value);
+          // Tables (vertices, faces, sensor pixels). A 12x12 pixel grid on
+          // one line of JSON is not an editor, it is a wall — so the shape is
+          // what you see, and the numbers are there when you want them.
+          const table = document.createElement('details');
+          table.className = 'matrix';
+          const shape = document.createElement('summary');
+          shape.textContent = p.name + ' — ' + shapeOf(p.value) +
+            (p.unit ? ' (' + p.unit + ')' : '');
+          shape.title = p.doc;
+          const area = document.createElement('textarea');
+          area.rows = Math.min(8, p.value.length + 1);
+          area.spellcheck = false;
+          area.value = p.value.map((r) => JSON.stringify(r)).join(',\n');
           area.addEventListener('change', () => {
             try {
-              commit(JSON.parse(area.value));
+              commit(JSON.parse('[' + area.value + ']'));
             } catch (err) {
-              statusEl.textContent = 'invalid JSON: ' + err;
+              statusEl.textContent = p.name + ': ' + err;
             }
           });
-          const wrap = document.createElement('div');
-          wrap.className = 'trow';
-          wrap.appendChild(area);
-          box.append(head, wrap);
+          table.append(shape, area);
+          box.appendChild(table);
         }
       }
       paramsEl.appendChild(box);
@@ -577,6 +612,7 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
       objectId = id;
       emptyEl.style.display = id ? 'none' : '';
       statusEl.textContent = '';
+      filterEl.hidden = !id;
       if (!id) {
         headerEl.textContent = '';
         propsEl.innerHTML = '';
@@ -585,7 +621,15 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
         stepEl.innerHTML = '';
         return;
       }
-      headerEl.textContent = id;
+      const listed = (await rpc('list_objects', {})).find((o) => o.id === id);
+      headerEl.innerHTML = '';
+      const name = document.createElement('div');
+      name.className = 'name';
+      name.textContent = (listed && listed.label) || id;
+      const what = document.createElement('div');
+      what.className = 'what';
+      what.textContent = listed ? listed.type + '  ·  ' + id : id;
+      headerEl.append(name, what);
       [schema, values] = await Promise.all([
         rpc('get_schema', { object_id: id }),
         rpc('get_values', { object_id: id }),

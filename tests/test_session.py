@@ -1582,6 +1582,24 @@ def test_variable_bounds_are_hard_or_only_advisory(tmp_path):
     assert "variable_bounds" not in s.to_dict()
 
 
+def test_params_say_their_unit_and_component_names():
+    """The Inspector should not have to dig a unit out of a doc string, nor
+    label a polarization's components 1, 2, 3."""
+    s = MagpylibStudioSession()
+    s.load_example("quiver")
+    params = {p["name"]: p for p in s.get_params("magnet")}
+    assert params["polarization"]["unit"] == "T"
+    assert params["polarization"]["components"] == ["x", "y", "z"]
+    # a dimension's components have no names — they depend on the shape, and
+    # its doc says which, so it deliberately carries none
+    assert params["dimension"]["unit"] == "m"
+    assert "components" not in params["dimension"]
+    assert "Cuboid" in params["dimension"]["doc"]
+
+    pixel = next(p for p in s.get_params("field") if p["name"] == "pixel")
+    assert pixel["kind"] == "matrix" and pixel["unit"] == "m"
+
+
 def test_a_pixel_field_source_is_choosable():
     """magpylib's schema says only that a pixel field source exists, not what
     it may be — so the inspector had nothing to build a widget from and the

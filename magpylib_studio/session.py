@@ -421,6 +421,27 @@ _PARAM_ATTRS = (
     "pixel",
 )
 
+# The unit each parameter is in, said outright rather than left inside the
+# prose of _PARAM_DOCS for a UI to dig back out with a regex.
+_PARAM_UNITS = {
+    "polarization": "T",
+    "magnetization": "A/m",
+    "dimension": "m",
+    "diameter": "m",
+    "vertices": "m",
+    "current": "A",
+    "moment": "A·m²",
+    "pixel": "m",
+}
+
+# What the components of a vector parameter are called, where they have
+# names. A dimension's do not: they depend on the shape, and its doc says so.
+_PARAM_COMPONENTS = {
+    "polarization": ("x", "y", "z"),
+    "magnetization": ("x", "y", "z"),
+    "moment": ("x", "y", "z"),
+}
+
 _PARAM_DOCS = {
     "polarization": "magnetic polarization J (T), in object coordinates",
     "magnetization": "magnetization M (A/m) — derived from polarization",
@@ -1449,6 +1470,9 @@ class MagpylibStudioSession:
                 "value": plain,
                 "kind": kind,
                 "doc": _PARAM_DOCS.get(name, ""),
+                "unit": _PARAM_UNITS.get(name, ""),
+                **({"components": list(_PARAM_COMPONENTS[name])}
+                   if name in _PARAM_COMPONENTS else {}),
             }
             # `value` is what magpylib holds; when the document says it in
             # terms of a variable, the editor needs the expression as well —
