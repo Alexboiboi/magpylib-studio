@@ -41,6 +41,19 @@ suite('magpylib-studio', () => {
     assert.deepStrictEqual(missing, [], 'declared but never registered');
   });
 
+  test('every declared language model tool is live', () => {
+    const extension = vscode.extensions.getExtension(EXTENSION_ID)!;
+    const declared: string[] = extension.packageJSON.contributes.languageModelTools.map(
+      (t: { name: string }) => t.name,
+    );
+    const live = new Set(vscode.lm.tools.map((t) => t.name));
+    assert.deepStrictEqual(
+      declared.filter((name) => !live.has(name)),
+      [],
+      'declared in package.json but not registered',
+    );
+  });
+
   test('the engine builds a scene and the virtual document shows it', async function () {
     this.timeout(60000);
     await vscode.commands.executeCommand('magpylib-studio.loadExample', 'halbach');

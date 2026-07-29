@@ -456,11 +456,6 @@
           "group": "inline@2"
         },
         {
-          "command": "magpylib-studio.addObject",
-          "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpyCollection/",
-          "group": "inline@3"
-        },
-        {
           "command": "magpylib-studio.renameObject",
           "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpy/",
           "group": "0_edit@1"

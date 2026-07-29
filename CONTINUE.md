@@ -501,6 +501,16 @@ and drives it.
     the system temp dir because a unix socket path cannot exceed 103
     characters and this repo's path is deep enough to blow that; and
     `.vscode-test/` holds a 300 MB VS Code download, which is gitignored.
+  - **Language model tools carry `prepareInvocation`**: an invocation line
+    saying what is about to happen ("Removing r1", "Patterning r1 about an
+    axis"), and for the three that destroy something — `clear_scene`,
+    `remove_object`, `remove_event` — a confirmation that names it. The
+    guide's point is that a dialog naming nothing in particular is one people
+    click through, and `remove_object` in particular now says out loud that
+    a pattern's copies go with the object. `check-contributions.js` also
+    checks the tool contract (declared vs registered, and that each carries
+    displayName / modelDescription / inputSchema), and an integration test
+    asserts all 24 are live in a real host.
   - **Checked against the API guides**, not only the samples: the two sidebar
     webviews dropped `retainContextWhenHidden` (the guide calls it a last
     resort for its memory cost, and both rebuild from the engine on ready);

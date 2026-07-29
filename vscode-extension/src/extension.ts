@@ -592,10 +592,69 @@ function toolResult(payload: unknown): vscode.LanguageModelToolResult {
   ]);
 }
 
+/** What a tool is about to do, in the words of the thing it will do it to. */
+function invocationMessage(method: string, input: Record<string, unknown>): string {
+  const id = (input.object_id ?? input.event_id ?? input.name) as string | undefined;
+  const target = id ? ` ${id}` : '';
+  const said: Record<string, string> = {
+    add_object: `Adding ${(input.type as string) ?? 'an object'}${target}`,
+    remove_object: `Removing${target}`,
+    remove_event: `Removing step${target}`,
+    set_param: `Setting ${(input.name as string) ?? 'a parameter'} on${target}`,
+    apply_edit: `Styling${target}`,
+    move: `Moving${target}`,
+    rotate: `Rotating${target}`,
+    set_transform: `Placing${target}`,
+    duplicate_around: `Patterning${target} about an axis`,
+    duplicate_along: `Patterning${target} along a direction`,
+    mirror: `Mirroring${target}`,
+    set_variable: `Setting${target}`,
+    set_variable_bounds: `Bounding${target}`,
+    edit_event: `Editing step${target}`,
+    move_event: `Reordering step${target}`,
+    clear_scene: 'Clearing the scene',
+    undo: 'Undoing the last change',
+    batch: `Applying ${(input.operations as unknown[])?.length ?? 0} changes`,
+  };
+  return said[method] ?? `Running ${method}`;
+}
+
+/**
+ * The tools that cannot be shrugged off if the model gets them wrong, with
+ * what the user should be told before agreeing. The guide's point is that a
+ * confirmation naming nothing in particular is one people click through.
+ */
+function confirmation(
+  method: string,
+  input: Record<string, unknown>,
+): { title: string; message: vscode.MarkdownString } | undefined {
+  const id = (input.object_id ?? input.event_id) as string | undefined;
+  const text = {
+    clear_scene: ['Clear the scene?', 'Every object, step and variable goes. Undo can bring them back.'],
+    remove_object: [
+      `Remove ${id}?`,
+      `${id} goes, along with everything inside it **and any copies a pattern made from it**.`,
+    ],
+    remove_event: [
+      `Remove step ${id}?`,
+      'Later steps that depended on it will be reported as broken rather than removed.',
+    ],
+  }[method];
+  return text && { title: text[0], message: new vscode.MarkdownString(text[1]) };
+}
+
 function registerLmTools(context: vscode.ExtensionContext): void {
   /** Read-only tool: forward input as RPC params, return the result. */
   const queryTool = (toolName: string, method: string) =>
     vscode.lm.registerTool(toolName, {
+      prepareInvocation(options: vscode.LanguageModelToolInvocationPrepareOptions<object>) {
+        return {
+          invocationMessage: invocationMessage(
+            method,
+            options.input as Record<string, unknown>,
+          ),
+        };
+      },
       async invoke(options: vscode.LanguageModelToolInvocationOptions<object>) {
         return toolResult(
           await getEngine(context).request(
@@ -609,6 +668,13 @@ function registerLmTools(context: vscode.ExtensionContext): void {
    *  failed batch still changed the scene, so refresh regardless of ok. */
   const editTool = (toolName: string, method: string) =>
     vscode.lm.registerTool(toolName, {
+      prepareInvocation(options: vscode.LanguageModelToolInvocationPrepareOptions<object>) {
+        const input = options.input as Record<string, unknown>;
+        return {
+          invocationMessage: invocationMessage(method, input),
+          confirmationMessages: confirmation(method, input),
+        };
+      },
       async invoke(options: vscode.LanguageModelToolInvocationOptions<object>) {
         const result = (await getEngine(context).request(
           method,
@@ -1361,6 +1427,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('magpylib-studio.addVariable', async () => {
       const name = await vscode.window.showInputBox({
         prompt: 'Variable name',
+        placeHolder: 'letters, digits, underscores — e.g. gap, n, radius',
         validateInput: (v) =>
           /^[A-Za-z_]\w*$/.test(v)
             ? undefined
@@ -1932,6 +1999,7 @@ export function activate(context: vscode.ExtensionContext): void {
       async (obj?: SceneObject) => {
         const id = await vscode.window.showInputBox({
           prompt: 'Id for the new collection',
+          placeHolder: 'letters, digits, underscores — e.g. ring, rotor',
           validateInput: (v) =>
             /^[A-Za-z_]\w*$/.test(v)
               ? undefined

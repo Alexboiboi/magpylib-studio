@@ -52,6 +52,26 @@ for (const command of needsArgument) {
   }
 }
 
+// Language model tools have the same two-sided contract as commands: a name
+// declared in package.json and a registration in the code. Registering one
+// that is not declared throws at activation.
+const tools = pkg.contributes.languageModelTools ?? [];
+const declaredTools = new Set(tools.map((t) => t.name));
+const registeredTools = new Set(
+  [...src.matchAll(/(?:queryTool|editTool)\(\s*'([\w.-]+)'/g)].map((m) => m[1]),
+);
+for (const tool of declaredTools) {
+  if (!registeredTools.has(tool)) problems.push(`${tool}: tool declared, never registered`);
+}
+for (const tool of registeredTools) {
+  if (!declaredTools.has(tool)) problems.push(`${tool}: tool registered, not declared`);
+}
+for (const tool of tools) {
+  for (const field of ['displayName', 'modelDescription', 'inputSchema']) {
+    if (!tool[field]) problems.push(`${tool.name}: tool is missing ${field}`);
+  }
+}
+
 // Menu visibility keys off contextValue, which only the tree sets. A value is
 // often built from pieces ('magpyObject' + 'Visible'), so take every string
 // literal in the assignment and every concatenation of two of them: over-
@@ -82,6 +102,6 @@ if (problems.length) {
   process.exit(1);
 }
 console.log(
-  `ok    contributions (${declared.size} commands, ` +
+  `ok    contributions (${declared.size} commands, ${declaredTools.size} lm tools, ` +
     `${Object.keys(palette).length} palette rules, ${composed.size} context values)`,
 );
