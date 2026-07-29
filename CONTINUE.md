@@ -149,6 +149,17 @@ and drives it.
   cycles, is unknown, or that some object rejects rolls back.
   `to_script` emits them as real Python assignments, so the exported script
   is parametric too.
+- **The rule is visible, and says so as you type.** `expression_help()`
+  returns the operators, functions and constants **read off the allow-list
+  that enforces them**, so the help cannot drift from what evaluates — there
+  is a test comparing the two, and its examples are themselves checked. The
+  Variables panel shows it under "what can go in a value"; every variable
+  input box carries a one-line version as placeholder text and validates
+  through `check_expression()`, which names what went wrong ("'sinh' is not
+  one of the functions an expression may call", "Subscript is not allowed in
+  an expression") while it is being typed rather than after it is rejected.
+  Names are deliberately *not* checked there: one that does not exist yet is
+  well formed, and gets offered for creation instead.
 - **Sweeps**: `sweep(variable, values, sensor_id?/points?, field?)` re-folds
   the document once per value and reads the field; `get_sweep_figure(...)`
   plots it (one hue light→dark over observation points — same quantity in
