@@ -12,6 +12,29 @@ export interface SceneObject {
   derived?: string;
 }
 
+/** One step of the construction, shown under the object it happened to. */
+export interface SceneOperation {
+  kind: 'operation';
+  index: number;
+  id: string;
+  target: string;
+  op: string;
+  /** What it did, in words: "orbit 36° about z". */
+  label: string;
+  /** The call that did it, for the tooltip. */
+  source: string;
+  /** Recorded, but after the point the history is rolled back to. */
+  pending?: boolean;
+  /** The last rebuild could not apply it. */
+  error?: string;
+}
+
+export type SceneNode = SceneObject | SceneOperation;
+
+export function isOperation(node: SceneNode): node is SceneOperation {
+  return (node as SceneOperation).kind === 'operation';
+}
+
 // Wireframe SVGs in media/icons, one per magpylib class, colored by
 // category (magnets red, currents blue, sensors green, misc gray).
 const TYPE_ICON_FILES: Record<string, string> = {
@@ -42,6 +65,19 @@ function iconFor(
 
 const TREE_MIME = 'application/vnd.code.tree.magpylib-studio.sceneview';
 
+/** A glyph per kind of step, so the shape of a history reads at a glance. */
+const OPERATION_ICONS: Record<string, string> = {
+  create: 'add',
+  remove: 'trash',
+  reparent: 'type-hierarchy',
+  move: 'move',
+  position: 'pin',
+  orientation: 'compass',
+  rotate_from_angax: 'sync',
+  rotate_from_rotvec: 'sync',
+  duplicate_around: 'circuit-board',
+};
+
 /**
  * Sidebar scene outline. The engine reports a flat list with `parent` ids
  * (depth-first); the root call fetches and caches it, child calls slice it.
@@ -50,26 +86,68 @@ const TREE_MIME = 'application/vnd.code.tree.magpylib-studio.sceneview';
  */
 export class SceneTreeProvider
   implements
-    vscode.TreeDataProvider<SceneObject>,
-    vscode.TreeDragAndDropController<SceneObject>
+    vscode.TreeDataProvider<SceneNode>,
+    vscode.TreeDragAndDropController<SceneNode>
 {
   private emitter = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.emitter.event;
   readonly dragMimeTypes = [TREE_MIME];
   readonly dropMimeTypes = [TREE_MIME];
   private objects: SceneObject[] = [];
+  private operations: SceneOperation[] = [];
 
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly listObjects: () => Promise<SceneObject[]>,
     private readonly moveObject: (id: string, parent: string | null) => Promise<void>,
+    private readonly listOperations: () => Promise<SceneOperation[]>,
   ) {}
 
   refresh(): void {
     this.emitter.fire();
   }
 
-  getTreeItem(obj: SceneObject): vscode.TreeItem {
+  getTreeItem(node: SceneNode): vscode.TreeItem {
+    return isOperation(node) ? this.operationItem(node) : this.objectItem(node);
+  }
+
+  /**
+   * One step of the construction. Named for what it did rather than for the
+   * call that did it - the call is in the tooltip, and in the script tab.
+   */
+  private operationItem(operation: SceneOperation): vscode.TreeItem {
+    const item = new vscode.TreeItem(
+      operation.label,
+      vscode.TreeItemCollapsibleState.None,
+    );
+    item.id = `op-${operation.id}`;
+    item.tooltip = new vscode.MarkdownString(
+      '`' + operation.source + '`' +
+        (operation.error ? `\n\n$(error) ${operation.error}` : '') +
+        (operation.pending ? '\n\nAfter the step the history is rolled back to.' : ''),
+    );
+    item.tooltip.supportThemeIcons = true;
+    item.contextValue = 'magpyOperation' + (operation.op === 'create' ? 'Create' : '');
+    item.iconPath = operation.error
+      ? new vscode.ThemeIcon('error', new vscode.ThemeColor('errorForeground'))
+      : new vscode.ThemeIcon(
+          OPERATION_ICONS[operation.op] ?? 'circle-small-filled',
+          operation.pending
+            ? new vscode.ThemeColor('disabledForeground')
+            : undefined,
+        );
+    if (operation.pending) {
+      item.description = 'not applied';
+    }
+    item.command = {
+      command: 'magpylib-studio.selectOperation',
+      title: 'Show this step',
+      arguments: [operation],
+    };
+    return item;
+  }
+
+  private objectItem(obj: SceneObject): vscode.TreeItem {
     const hasChildren = this.objects.some((o) => o.parent === obj.id);
     const item = new vscode.TreeItem(
       obj.label,
@@ -112,28 +190,43 @@ export class SceneTreeProvider
     return item;
   }
 
-  async getChildren(element?: SceneObject): Promise<SceneObject[]> {
+  async getChildren(element?: SceneNode): Promise<SceneNode[]> {
     if (!element) {
-      this.objects = await this.listObjects();
+      [this.objects, this.operations] = await Promise.all([
+        this.listObjects(),
+        this.listOperations(),
+      ]);
       return this.objects.filter((o) => o.parent === null);
     }
-    return this.objects.filter((o) => o.parent === element.id);
+    if (isOperation(element)) {
+      return [];
+    }
+    // An object's own steps first, then whatever it contains: how this came
+    // to be, before what is inside it.
+    return [
+      ...this.operations.filter((op) => op.target === element.id),
+      ...this.objects.filter((o) => o.parent === element.id),
+    ];
   }
 
-  handleDrag(source: readonly SceneObject[], dataTransfer: vscode.DataTransfer): void {
-    // generated copies cannot be reparented: they are not in the document
-    const movable = source.filter((o) => !o.derived);
+  handleDrag(source: readonly SceneNode[], dataTransfer: vscode.DataTransfer): void {
+    // Generated copies cannot be reparented: they are not in the document.
+    // Steps are not dragged either - they are reordered from their own menu,
+    // where "earlier"/"later" says what moving one actually means.
+    const movable = source.filter(
+      (o): o is SceneObject => !isOperation(o) && !o.derived,
+    );
     if (movable.length) {
       dataTransfer.set(TREE_MIME, new vscode.DataTransferItem(movable));
     }
   }
 
   async handleDrop(
-    target: SceneObject | undefined,
+    target: SceneNode | undefined,
     dataTransfer: vscode.DataTransfer,
   ): Promise<void> {
     const source = dataTransfer.get(TREE_MIME)?.value as SceneObject[] | undefined;
-    if (!source?.length) {
+    if (!source?.length || (target && isOperation(target))) {
       return;
     }
     const parent =

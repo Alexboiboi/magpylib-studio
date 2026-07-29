@@ -4,21 +4,25 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { EngineClient } from './engineClient';
 import { HistoryEntry, HistoryTreeProvider } from './historyView';
-import { EventsViewProvider, SceneEvent } from './eventsView';
 import { Variable, VariablesViewProvider } from './variablesView';
 import { InspectorViewProvider } from './inspectorView';
-import { SceneObject, SceneTreeProvider } from './sceneTree';
+import {
+  isOperation,
+  SceneNode,
+  SceneObject,
+  SceneOperation,
+  SceneTreeProvider,
+} from './sceneTree';
 
 let engine: EngineClient | undefined;
 let currentPanel: vscode.WebviewPanel | undefined;
 let fieldPanel: vscode.WebviewPanel | undefined;
 let selectedObjectId: string | undefined;
 let sceneTree: SceneTreeProvider | undefined;
-let sceneTreeView: vscode.TreeView<SceneObject> | undefined;
+let sceneTreeView: vscode.TreeView<SceneNode> | undefined;
 let clipboard: { id: string; cut: boolean } | undefined;
 let historyTree: HistoryTreeProvider | undefined;
 let variablesTree: VariablesViewProvider | undefined;
-let eventsTree: EventsViewProvider | undefined;
 let inspector: InspectorViewProvider | undefined;
 let engineOutput: vscode.OutputChannel | undefined;
 let sceneDocEmitter: vscode.EventEmitter<vscode.Uri> | undefined;
@@ -459,9 +463,11 @@ function getNonce(): string {
   ).join('');
 }
 
-/** The tree item a keyboard shortcut should act on (menus pass it directly). */
+/** The tree item a keyboard shortcut should act on (menus pass it directly).
+ *  Steps are selectable too, but the object shortcuts do not apply to them. */
 function treeSelection(): SceneObject | undefined {
-  return sceneTreeView?.selection[0];
+  const selected = sceneTreeView?.selection[0];
+  return selected && !isOperation(selected) ? selected : undefined;
 }
 
 /** The magpylib logo, shared by the activity bar and the panel tabs. */
@@ -568,7 +574,6 @@ function broadcastMutation(): void {
     sceneTree?.refresh();
     historyTree?.refresh();
     variablesTree?.refresh();
-    eventsTree?.refresh();
     inspector?.refresh();
     refreshScript?.();
     sceneDocEmitter?.fire(SCENE_JSON_URI);
@@ -647,6 +652,22 @@ export function activate(context: vscode.ExtensionContext): void {
     async (id, parent) => {
       await mutateFromTree('move_object', { object_id: id, parent });
     },
+    async () => {
+      try {
+        const { events, rollback } = await getEngine(context).request<{
+          events: Omit<SceneOperation, 'kind'>[];
+          rollback: number | null;
+        }>('get_events');
+        // the engine owns this state — any edit returns to the end of the
+        // history — so the context key is read back rather than tracked
+        void vscode.commands.executeCommand(
+          'setContext', 'magpylib-studio.rolledBack', rollback !== null,
+        );
+        return events.map((event) => ({ ...event, kind: 'operation' as const }));
+      } catch {
+        return [];
+      }
+    },
   );
   sceneTree = tree;
 
@@ -682,25 +703,6 @@ export function activate(context: vscode.ExtensionContext): void {
     broadcastMutation,
   );
   variablesTree = variables;
-
-  const events = new EventsViewProvider(
-    (method, params) => getEngine(context).request(method, params),
-    (action, event) => {
-      void (async () => {
-        if (action === 'up' || action === 'down') {
-          await applyLogEdit('move_event', {
-            event_id: event.id,
-            index: event.index + (action === 'up' ? -1 : 1),
-          });
-        } else if (action === 'remove') {
-          await applyLogEdit('remove_event', { event_id: event.id });
-        } else if (action === 'edit') {
-          await editEventValue(event);
-        }
-      })();
-    },
-  );
-  eventsTree = events;
 
   inspector = new InspectorViewProvider(
     context.extensionUri,
@@ -907,71 +909,6 @@ export function activate(context: vscode.ExtensionContext): void {
       );
     }
     broadcastMutation();
-  };
-
-  /** Change one value on a past event; everything after it re-applies. */
-  const editEventValue = async (event: SceneEvent) => {
-    // the document's own copy, since get_events renders events rather than
-    // listing the fields they carry
-    const document = await getEngine(context).request<{
-      events?: Record<string, unknown>[];
-    }>('to_dict');
-    const stored = document.events?.find((e) => e.id === event.id) ?? {};
-    // On a create it is the constructor parameters that are worth changing —
-    // that is what "change the dimensions after the fact" means, and it is
-    // the same edit the Inspector makes, reached from the step that made it.
-    const isCreate = event.op === 'create';
-    const params = (stored.params ?? {}) as Record<string, unknown>;
-    const source = isCreate ? params : stored;
-    const fields = Object.keys(source).filter(
-      (key) => !['id', 'op', 'target', 'type', 'children', 'style',
-                 'hidden_style', 'visible', 'parent'].includes(key),
-    );
-    if (!fields.length) {
-      vscode.window.showInformationMessage(
-        isCreate
-          ? `Magpylib Studio: ${event.target} has no constructor parameters to change.`
-          : 'Magpylib Studio: this entry has no value to change.',
-      );
-      return;
-    }
-    const field = await vscode.window.showQuickPick(
-      fields.map((name) => ({
-        label: name,
-        detail: JSON.stringify(source[name]),
-      })),
-      { placeHolder: `${event.source} — which value?` },
-    );
-    if (!field) {
-      return;
-    }
-    const current = source[field.label];
-    const text = await vscode.window.showInputBox({
-      prompt: `${field.label} of ${event.source}`,
-      value: Array.isArray(current)
-        ? current.map((v) => (typeof v === 'string' ? v.replace(/^=/, '') : v)).join(', ')
-        : String(typeof current === 'string' ? current.replace(/^=/, '') : current),
-      validateInput: (v) => (v.trim() ? undefined : 'A value'),
-    });
-    if (text === undefined) {
-      return;
-    }
-    const parsed = Array.isArray(current) ? parseTerms(text) : asDocumentValue(text);
-    if (parsed === undefined) {
-      vscode.window.showErrorMessage('Magpylib Studio: could not read that value.');
-      return;
-    }
-    if (!(await ensureVariablesDefined([parsed]))) {
-      return;
-    }
-    await applyLogEdit('edit_event', {
-      event_id: event.id,
-      // edit_event replaces whole top-level fields, so a single parameter
-      // goes back inside the params it came from
-      changes: isCreate
-        ? { params: { ...params, [field.label]: parsed } }
-        : { [field.label]: parsed },
-    });
   };
 
   /** "N of these around an axis" as one event — see session.duplicate_around. */
@@ -1208,9 +1145,6 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.registerWebviewViewProvider(VariablesViewProvider.viewId, variables, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
-    vscode.window.registerWebviewViewProvider(EventsViewProvider.viewId, events, {
-      webviewOptions: { retainContextWhenHidden: true },
-    }),
     vscode.commands.registerCommand('magpylib-studio.addVariable', async () => {
       const name = await vscode.window.showInputBox({
         prompt: 'Variable name',
@@ -1245,6 +1179,51 @@ export function activate(context: vscode.ExtensionContext): void {
       'magpylib-studio.duplicateAround',
       async (obj: SceneObject) => duplicateAround(obj),
     ),
+    vscode.commands.registerCommand(
+      'magpylib-studio.selectOperation',
+      (operation: SceneOperation) => {
+        // selecting a step shows the object it acted on, so the 3D view and
+        // the Inspector follow the history as you walk it
+        selectObjectInStudio(context, operation.target);
+        inspector?.showOperation(operation.id);
+      },
+    ),
+    vscode.commands.registerCommand(
+      'magpylib-studio.operationEarlier',
+      async (operation: SceneOperation) =>
+        applyLogEdit('move_event', {
+          event_id: operation.id,
+          index: Math.max(0, operation.index - 1),
+        }),
+    ),
+    vscode.commands.registerCommand(
+      'magpylib-studio.operationLater',
+      async (operation: SceneOperation) =>
+        applyLogEdit('move_event', {
+          event_id: operation.id,
+          index: operation.index + 1,
+        }),
+    ),
+    vscode.commands.registerCommand(
+      'magpylib-studio.removeOperation',
+      async (operation: SceneOperation) =>
+        applyLogEdit('remove_event', { event_id: operation.id }),
+    ),
+    vscode.commands.registerCommand(
+      'magpylib-studio.rollbackTo',
+      async (operation: SceneOperation) => {
+        // "up to and including this step", which is what pointing at a step
+        // means; the bar in a CAD tree sits below the feature it stops after
+        await getEngine(context).request('set_rollback', {
+          index: operation.index + 1,
+        });
+        broadcastMutation();
+      },
+    ),
+    vscode.commands.registerCommand('magpylib-studio.rollbackClear', async () => {
+      await getEngine(context).request('set_rollback', {});
+      broadcastMutation();
+    }),
     vscode.commands.registerCommand('magpylib-studio.sweep', async () => sweepVariable()),
     vscode.commands.registerCommand(
       'magpylib-studio.gotoHistory',

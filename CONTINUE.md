@@ -252,21 +252,29 @@ and drives it.
     carries them across for variables that survived the edit rather than
     dropping them on every save, and `_canonical` deletes any whose variable
     is gone.
-  - **Construction view** (`eventsView.ts`, webview): the event log, one row
-    per event, in order. Create events are dimmed, ones the last fold could
-    not apply get a red left border and the reason underneath. Hover gives
-    ↑ / ↓ (a real edit — order is semantic), ✎ (pick a field, type a value,
-    expressions allowed) and ✕. Because a log edit *applies* and reports what
-    it broke, the host says so in a warning naming the first casualty and
-    pointing at undo — silently leaving red rows behind is the one way this
-    could mislead.
-  - **Neither panel is called "History".** The two are genuinely different —
-    **Construction** is the document (events, persisted, editable,
-    reorderable, exported to the script) and **Undo** is the session's
-    snapshot stack (document copies, capped at 100, gone on reload) — and
-    "history" is precisely the word that fits both, so it names neither.
-    They were briefly History and Undo Timeline, which was worse: two names
-    a reader has to hold apart rather than two words that say what they hold.
+  - **The history lives in the Scene tree, under the object it happened to.**
+    Each object expands to its own steps ("created", "orbit 36° about z")
+    before its children, so reading the tree is reading how the scene was
+    built. Selecting a step shows its values in the Inspector, editable in
+    place. That is AEDT's shape — a model tree plus a property grid — and it
+    is why there is no separate history panel: **there was one for two
+    commits and it was a worse script tab**, one line of Python per row,
+    duplicating both the tree and the script and adding only reordering.
+    Steps are labelled for what they did (`_event_label`); the call that did
+    it is the tooltip, and the script.
+  - **Rollback**, the other half of a CAD feature tree: right-click a step →
+    *Build Up To Here* folds only the events up to it, so you can watch the
+    scene assemble. Steps after the point are dimmed and marked "not
+    applied"; the Scene title bar gains *Show The Whole Scene* while it is
+    active (context key `magpylib-studio.rolledBack`, read back from the
+    engine rather than tracked in the UI). It is a **view**: `to_dict`,
+    `to_script` and Save Scene As still see the whole document — only what is
+    built is partial (`_objects_view`) — and any edit returns to the end of
+    the history first. Inserting *at* the rollback point is the piece not
+    done; it would have to decide what "after here" then means.
+  - The remaining panel called **Undo** is the session's snapshot stack, and
+    is not history in the document sense: document copies, capped at 100,
+    gone on reload.
   - Sliders commit on release, with the value box updating live during the
     drag. (They lived in the Inspector briefly, as a workaround for the tree;
     that section is gone now the Variables view can hold them itself — two

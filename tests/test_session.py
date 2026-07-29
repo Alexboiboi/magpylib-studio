@@ -1181,6 +1181,63 @@ def test_editing_history_reports_what_it_broke_instead_of_refusing():
     assert len(s._leaf_sources()) == 4  # and the whole ring is back
 
 
+def test_events_are_labelled_for_what_they_did():
+    """The tree shows these, so they read as steps a person took rather than
+    as the call that carried them out — that is `source`, and the script."""
+    s = MagpylibStudioSession()
+    s.add_object("ring", "Collection")
+    s.add_object("m", "magnet.Cuboid",
+                 {"polarization": [1, 0, 0], "dimension": [1, 1, 1]}, parent="ring")
+    s.rotate("m", 45, "z", anchor=[0, 0, 0])  # an anchor makes it an orbit
+    s.rotate("m", 90, "z")  # without one it is a spin in place
+    s.move("m", [0, 0, 2])
+    s.duplicate_around("m", 6, "z", anchor=[0, 0, 0])
+    s.move_object("m", None)
+
+    assert [e["label"] for e in s.get_events()["events"]] == [
+        "created",
+        "created",
+        "orbit 45° about z",
+        "spin 90° about z",
+        "moved by (0, 0, 2) m",
+        "6 copies about z",
+        "moved to the scene root",
+        "placed at (0.0, 0.0, 2.0) m",
+        "oriented (0.0, 0.0, 135.0)°",
+    ]
+    # the call is still there, for the tooltip and the script
+    orbit = s.get_events()["events"][2]
+    assert orbit["source"] == "m.rotate_from_angax(45, 'z', anchor=(0, 0, 0))"
+
+
+def test_rollback_shows_the_scene_as_it_stood():
+    """A history you can only read is far less use than one you can step
+    through and watch build. It is a view, so nothing is written."""
+    import numpy as np
+
+    s = MagpylibStudioSession()
+    s.load_example()
+    whole = json.dumps(s.to_dict())
+    field = np.array(s.get_field("sensor")["values"])
+
+    assert s.set_rollback(2)["ok"] is True
+    assert [o["id"] for o in s.list_objects()] == ["halbach", "ring1"]
+    listed = s.get_events()["events"]
+    assert listed[1].get("pending") is None and listed[2]["pending"] is True
+    assert s.get_events()["rollback"] == 2
+    assert json.dumps(s.to_dict()) == whole  # a view, not an edit
+
+    assert s.set_rollback(999)["ok"] is False
+    assert s.set_rollback()["ok"] is True  # the whole scene again
+    assert np.allclose(np.array(s.get_field("sensor")["values"]), field)
+
+    # an edit is made to the scene, not to the preview, so it returns first
+    s.set_rollback(2)
+    assert s.set_variable("radius", 2.5) == {"ok": True}
+    assert s.get_events()["rollback"] is None
+    assert len(s.list_objects()) == 24
+
+
 def test_a_create_event_is_where_an_object_is_changed_after_the_fact():
     """"Change the dimensions of that magnet" is an edit to the step that
     made it — the same edit the Inspector makes, reached from the history."""

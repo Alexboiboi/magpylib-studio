@@ -168,6 +168,33 @@
       {
         "command": "magpylib-studio.setVariableBounds",
         "title": "Set Bounds..."
+      },
+      {
+        "command": "magpylib-studio.selectOperation",
+        "title": "Show This Step"
+      },
+      {
+        "command": "magpylib-studio.operationEarlier",
+        "title": "Move Step Earlier",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "magpylib-studio.operationLater",
+        "title": "Move Step Later",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "magpylib-studio.removeOperation",
+        "title": "Remove Step"
+      },
+      {
+        "command": "magpylib-studio.rollbackTo",
+        "title": "Build Up To Here"
+      },
+      {
+        "command": "magpylib-studio.rollbackClear",
+        "title": "Show The Whole Scene",
+        "icon": "$(history)"
       }
     ],
     "keybindings": [
@@ -241,12 +268,6 @@
           "name": "Variables",
           "contextualTitle": "magpylib Scene Variables",
           "type": "webview"
-        },
-        {
-          "id": "magpylib-studio.eventsView",
-          "name": "Construction",
-          "type": "webview",
-          "contextualTitle": "magpylib Scene Construction"
         },
         {
           "id": "magpylib-studio.historyView",
@@ -371,6 +392,11 @@
           "command": "magpylib-studio.sweep",
           "when": "view == magpylib-studio.variablesView",
           "group": "navigation@2"
+        },
+        {
+          "command": "magpylib-studio.rollbackClear",
+          "when": "view == magpylib-studio.sceneView && magpylib-studio.rolledBack",
+          "group": "navigation@0"
         }
       ],
       "explorer/context": [
@@ -456,6 +482,26 @@
           "command": "magpylib-studio.resetStyle",
           "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpy/",
           "group": "2_modify@2"
+        },
+        {
+          "command": "magpylib-studio.operationEarlier",
+          "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpyOperation/",
+          "group": "inline@0"
+        },
+        {
+          "command": "magpylib-studio.operationLater",
+          "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpyOperation/",
+          "group": "inline@1"
+        },
+        {
+          "command": "magpylib-studio.rollbackTo",
+          "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpyOperation/",
+          "group": "0_step@1"
+        },
+        {
+          "command": "magpylib-studio.removeOperation",
+          "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpyOperation/",
+          "group": "0_step@2"
         }
       ],
       "commandPalette": [
@@ -517,6 +563,26 @@
         },
         {
           "command": "magpylib-studio.setVariableBounds",
+          "when": "false"
+        },
+        {
+          "command": "magpylib-studio.selectOperation",
+          "when": "false"
+        },
+        {
+          "command": "magpylib-studio.operationEarlier",
+          "when": "false"
+        },
+        {
+          "command": "magpylib-studio.operationLater",
+          "when": "false"
+        },
+        {
+          "command": "magpylib-studio.removeOperation",
+          "when": "false"
+        },
+        {
+          "command": "magpylib-studio.rollbackTo",
           "when": "false"
         }
       ]

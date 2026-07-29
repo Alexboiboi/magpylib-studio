@@ -8,6 +8,7 @@ const MUTATING = new Set([
   'set_transform',
   'clear_path',
   'set_param',
+  'edit_event',
 ]);
 
 /**
@@ -77,6 +78,13 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  /** Show one construction step's own values above the object it acted on. */
+  showOperation(eventId: string | undefined): void {
+    if (this.view && this.ready) {
+      this.view.webview.postMessage({ type: 'operation', eventId });
+    }
+  }
+
   /** External change (chat tool, tree action): re-pull values. */
   refresh(): void {
     if (this.view && this.ready) {
@@ -124,6 +132,7 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
 </head>
 <body>
   <div id="header"></div>
+  <div id="step"></div>
   <input id="filter" type="text" placeholder="Filter properties…" />
   <div id="params"></div>
   <div id="transform"></div>
@@ -133,6 +142,7 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
   <script>
     const vscodeApi = acquireVsCodeApi();
     const headerEl = document.getElementById('header');
+    const stepEl = document.getElementById('step');
     const propsEl = document.getElementById('props');
     const transformEl = document.getElementById('transform');
     const paramsEl = document.getElementById('params');
@@ -288,6 +298,90 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
         details.append(summary, ...rows);
         propsEl.appendChild(details);
       }
+    }
+
+    // --- step section: the selected construction step's own values --------
+    //
+    // Selecting a step in the Scene tree shows what it did, right above the
+    // object it did it to: the property grid of a CAD history, rather than a
+    // dialog you have to open and close.
+    let stepId = null;
+
+    const STEP_SKIP = ['id', 'op', 'target', 'type', 'children', 'style',
+                       'hidden_style', 'visible', 'parent'];
+
+    async function loadStep() {
+      stepEl.innerHTML = '';
+      if (!stepId) return;
+      const [listed, document_] = await Promise.all([
+        rpc('get_events', {}), rpc('to_dict', {}),
+      ]);
+      const shown = listed.events.find((e) => e.id === stepId);
+      const stored = (document_.events || []).find((e) => e.id === stepId);
+      if (!shown || !stored) { stepId = null; return; }
+
+      const box = document.createElement('details');
+      box.open = true;
+      const summary = document.createElement('summary');
+      summary.textContent = 'step — ' + shown.label;
+      summary.title = shown.source;
+      box.appendChild(summary);
+      if (shown.error) {
+        const why = document.createElement('div');
+        why.className = 'hint';
+        why.style.color = 'var(--vscode-errorForeground)';
+        why.textContent = shown.error;
+        box.appendChild(why);
+      }
+
+      // a create step carries the object's constructor parameters; every
+      // other kind carries its own arguments
+      const isCreate = shown.op === 'create';
+      const values = isCreate ? (stored.params || {}) : stored;
+      const commit = (name, value) => {
+        statusEl.textContent = '';
+        const changes = isCreate
+          ? { params: Object.assign({}, values, { [name]: value }) }
+          : { [name]: value };
+        rpc('edit_event', { event_id: stepId, changes })
+          .then((res) => {
+            if (res && res.ok === false) statusEl.textContent = res.error;
+            else if (res && res.broken && res.broken.length)
+              statusEl.textContent = res.broken.length +
+                ' later step(s) no longer apply — undo to put them back';
+            return reloadAll();
+          })
+          .catch((err) => { statusEl.textContent = String(err); });
+      };
+
+      for (const name of Object.keys(values)) {
+        if (STEP_SKIP.includes(name)) continue;
+        const value = values[name];
+        const row = document.createElement('div');
+        row.className = 'row';
+        const label = document.createElement('label');
+        label.textContent = name;
+        const wrap = document.createElement('div');
+        wrap.className = 'widget';
+        if (Array.isArray(value) && !Array.isArray(value[0])) {
+          wrap.style.display = 'block';
+          const resolved = value.map((v) => (typeof v === 'string' ? 0 : v));
+          wrap.appendChild(vecRow(
+            value.map((_, i) => String(i + 1)), resolved,
+            (v) => commit(name, v), undefined, value,
+          ));
+        } else if (typeof value === 'number' || typeof value === 'string') {
+          wrap.appendChild(numberInput(value, value, (v) => commit(name, v)));
+        } else {
+          const fixed = document.createElement('span');
+          fixed.className = 'hint';
+          fixed.textContent = JSON.stringify(value);
+          wrap.appendChild(fixed);
+        }
+        row.append(label, wrap, document.createElement('span'));
+        box.appendChild(row);
+      }
+      stepEl.appendChild(box);
     }
 
     // --- properties section: the object's physics parameters --------------
@@ -567,6 +661,7 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
         propsEl.innerHTML = '';
         transformEl.innerHTML = '';
         paramsEl.innerHTML = '';
+        stepEl.innerHTML = '';
         return;
       }
       headerEl.textContent = id;
@@ -578,10 +673,17 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
       await Promise.all([loadParams(), loadTransform()]);
     }
 
+    /** The step form and the object's own sections, both back from source. */
+    async function reloadAll() {
+      await loadStep();
+      if (objectId) await reloadValues();
+    }
+
     filterEl.addEventListener('input', render);
 
     window.addEventListener('message', (event) => {
       const message = event.data;
+      const fail = (err) => { statusEl.textContent = String(err); };
       if (message.type === 'rpcResult' || message.type === 'rpcError') {
         const entry = pending.get(message.reqId);
         if (!entry) return;
@@ -589,9 +691,15 @@ export class InspectorViewProvider implements vscode.WebviewViewProvider {
         if (message.type === 'rpcResult') entry.resolve(message.result);
         else entry.reject(new Error(message.method + ': ' + message.error));
       } else if (message.type === 'select') {
-        loadObject(message.objectId).catch((err) => { statusEl.textContent = String(err); });
+        // picking an object directly is not picking a step: clear the form
+        // before loading, so a stale step cannot linger above a new object
+        stepId = null;
+        loadObject(message.objectId).catch(fail);
+      } else if (message.type === 'operation') {
+        stepId = message.eventId;
+        loadStep().catch(fail);
       } else if (message.type === 'refresh') {
-        if (objectId) reloadValues().catch((err) => { statusEl.textContent = String(err); });
+        reloadAll().catch(fail);
       }
     });
 

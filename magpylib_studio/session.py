@@ -422,6 +422,54 @@ def _op_source(op):
     return f"{kind}({args})"
 
 
+def _vec(value, unit=""):
+    """A vector as something to read, not as an argument list."""
+    if not isinstance(value, list):
+        return f"{_lit(value)}{unit}"
+    if value and isinstance(value[0], list):
+        return f"{len(value)} steps"
+    inner = ", ".join(_lit(v) for v in value)
+    return f"({inner}){unit}"
+
+
+def _axis_label(value):
+    """An axis to read: `z`, not `'z'` — a label is not source."""
+    if expressions.is_expression(value):
+        return expressions.source_of(value)
+    return value if isinstance(value, str) else _vec(value)
+
+
+def _event_label(event):
+    """What an event did, named for the doing of it.
+
+    The tree shows these, so they read as steps a person took — "orbit 36°
+    about z" — rather than as the call that carried it out. The call is what
+    `source` is for, and what the script tab shows.
+    """
+    op = event.get("op", "rotate_from_angax")
+    if op == "create":
+        return "created"
+    if op == "remove":
+        return "removed"
+    if op == "reparent":
+        parent = event.get("parent")
+        return f"moved into {parent}" if parent else "moved to the scene root"
+    if op == "move":
+        return f"moved by {_vec(event.get('displacement'), ' m')}"
+    if op == "position":
+        return f"placed at {_vec(event.get('value'), ' m')}"
+    if op == "orientation":
+        return f"oriented {_vec(event.get('rotvec'), '°')}"
+    if op == "duplicate_around":
+        return (f"{_lit(event.get('count', 1))} copies about "
+                f"{_axis_label(event.get('axis', 'z'))}")
+    if op == "rotate_from_rotvec":
+        return f"turned {_vec(event.get('rotvec'), '°')}"
+    # rotate_from_angax: the anchor is what makes it an orbit rather than a spin
+    kind = "orbit" if event.get("anchor") is not None else "spin"
+    return f"{kind} {_lit(event.get('angle'))}° about {_axis_label(event.get('axis', 'z'))}"
+
+
 def _event_source(event):
     """One event as the line it stands for, for a history list."""
     op = event.get("op", "rotate_from_angax")
@@ -474,6 +522,8 @@ class MagpylibStudioSession:
         self._vars: dict[str, float] = {}  # resolved at each build
         self._derived: dict[str, list[str]] = {}  # source id -> generated copies
         self._broken: list[dict] = []  # events the last fold could not apply
+        self._rollback: int | None = None  # view only: fold up to here
+        self._objects_view: list = []  # the tree that is actually built
         # In-session undo/redo (durable history stays in git via to_script):
         # each entry is {"label", "doc"} — the doc state BEFORE the change.
         self._undo: list[dict] = []
@@ -521,7 +571,7 @@ class MagpylibStudioSession:
         self._parents = {}  # id -> parent id or None
         self._broken = []  # events the fold could not apply, in order
         self.scene = magpy.Collection()
-        for event in self.doc.get("events") or []:
+        for event in self._folded_events():
             try:
                 self._apply(event)
             except Exception as e:  # noqa: BLE001 - one bad event is not a
@@ -536,7 +586,41 @@ class MagpylibStudioSession:
                 })
         # The object tree is a projection of the log, rebuilt here rather than
         # stored: two representations of the same structure would drift.
-        self.doc["objects"] = self._project()
+        self._objects_view = self._project()
+        if self._rollback is None:
+            self.doc["objects"] = self._objects_view
+        # ...but a rolled-back build is a preview, so the document keeps the
+        # tree of the whole log. Otherwise saving while stepping through the
+        # history would write out a scene missing everything after the step.
+
+    def _folded_events(self):
+        """The events this build takes in, which is all of them unless the
+        history is rolled back to an earlier step."""
+        events = self.doc.get("events") or []
+        return events if self._rollback is None else events[: self._rollback]
+
+    def set_rollback(self, index=None):
+        """Show the scene as it stood after the first `index` events, or the
+        whole of it again with no argument.
+
+        Borrowed from the rollback bar of a CAD feature tree: a history you
+        can only read is far less use than one you can step through and watch
+        build. It costs a rebuild, which is milliseconds, and it is a view of
+        the document rather than a change to it — so nothing is saved and the
+        next edit returns to the end.
+        """
+        total = len(self.doc.get("events") or [])
+        if index is not None and not 0 <= index <= total:
+            return {"ok": False, "error": f"index must be 0..{total}"}
+        previous = self._rollback
+        self._rollback = index
+        try:
+            self._build()
+        except Exception as e:  # noqa: BLE001 - restore the view that worked
+            self._rollback = previous
+            self._build()
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "rollback": index, "events": total}
 
     def _apply(self, event):
         """Fold one event into the scene being built."""
@@ -726,6 +810,11 @@ class MagpylibStudioSession:
         """
         snapshot = json.loads(json.dumps(self.doc))
         broken_before = {b["id"] for b in self._broken}
+        # An edit is made to the scene, not to the preview of an earlier step,
+        # so it returns to the end of the history first. (Inserting *at* the
+        # rollback point is the other half of the CAD gesture, and a bigger
+        # question: it would have to decide what "after here" then means.)
+        self._rollback = None
         try:
             mutate(self.doc)
             _canonical(self.doc)
@@ -774,7 +863,8 @@ class MagpylibStudioSession:
     # --- introspection -----------------------------------------------------
     def list_objects(self):
         objects = []
-        for spec, parent in self._iter_specs():
+        # what is built, which is the whole document unless it is rolled back
+        for spec, parent in self._iter_specs(self._objects_view):
             objects.append({
                 "id": spec["id"],
                 "type": spec["type"],
@@ -1904,14 +1994,21 @@ class MagpylibStudioSession:
         """The scene's construction history, in order: what each event did,
         and for any the last fold could not apply, why not."""
         broken = {b["id"]: b["error"] for b in self._broken}
+        events = self.doc.get("events") or []
+        applied = len(events) if self._rollback is None else self._rollback
         return {
+            "rollback": self._rollback,
             "events": [
                 {"index": i, "id": e["id"], "target": e["target"],
                  "op": e.get("op", "rotate_from_angax"),
+                 "label": _event_label(e),
                  "source": _event_source(e),
+                 # past the rollback point: part of the scene, not of what is
+                 # currently being shown
+                 **({"pending": True} if i >= applied else {}),
                  **({"error": broken[e["id"]]} if e["id"] in broken else {})}
-                for i, e in enumerate(self.doc.get("events") or [])
-            ]
+                for i, e in enumerate(events)
+            ],
         }
 
     def _event_index(self, event_id):

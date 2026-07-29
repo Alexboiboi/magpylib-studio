@@ -60,6 +60,7 @@ _PUBLIC = {
     "set_variable_bounds",
     "remove_variable",
     "get_events",
+    "set_rollback",
     "edit_event",
     "remove_event",
     "move_event",
