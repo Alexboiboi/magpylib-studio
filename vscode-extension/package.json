@@ -243,9 +243,15 @@
           "type": "webview"
         },
         {
-          "id": "magpylib-studio.historyView",
+          "id": "magpylib-studio.eventsView",
           "name": "History",
-          "contextualTitle": "magpylib Scene History",
+          "type": "webview",
+          "contextualTitle": "magpylib Scene Construction History"
+        },
+        {
+          "id": "magpylib-studio.historyView",
+          "name": "Undo Timeline",
+          "contextualTitle": "magpylib Undo Timeline",
           "visibility": "collapsed"
         }
       ]
@@ -1038,6 +1044,84 @@
           },
           "required": [
             "name"
+          ]
+        }
+      },
+      {
+        "name": "magpylib-studio_getEvents",
+        "displayName": "List the magpylib scene history",
+        "toolReferenceName": "magpyEvents",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "List the scene's construction history in order: each event's id, index, what it did, and - for any the last rebuild could not apply - an 'error' saying why. Call this before editing history, to see what is there and what is already broken. The scene's construction history: doc['events'] is the whole scene, not a side record - `create` events bring objects into being, `remove`/`reparent` and the transforms say what happened to them afterwards, and the object tree is derived from folding all of it. Rebuilding always folds the whole log, so changing an early event re-applies everything after it.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "magpylib-studio_editEvent",
+        "displayName": "Edit a past magpylib scene event",
+        "toolReferenceName": "magpyEditEvent",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "Change one past event and re-apply everything recorded after it - the way to answer 'make that rotation 30 degrees instead' without redoing the work that followed. 'changes' holds only the fields to replace, e.g. {\"angle\": 30} or {\"count\": \"=n\"}; values may be expressions over the variables. Editing what an object *is* (its params or style) is NOT done here - use the set param or apply edit tools, which edit its create event in place. If the edit leaves later events with nothing to act on, it still applies and returns them under 'broken'; if the edited event itself cannot replay, it is rolled back and reported. The scene's construction history: doc['events'] is the whole scene, not a side record - `create` events bring objects into being, `remove`/`reparent` and the transforms say what happened to them afterwards, and the object tree is derived from folding all of it. Rebuilding always folds the whole log, so changing an early event re-applies everything after it.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "event_id": {
+              "type": "string",
+              "description": "Id of the event, from the list history tool (e.g. 'e12')."
+            },
+            "changes": {
+              "type": "object",
+              "description": "Fields to replace, e.g. {\"angle\": 30, \"anchor\": [0,0,0]}."
+            }
+          },
+          "required": [
+            "event_id",
+            "changes"
+          ]
+        }
+      },
+      {
+        "name": "magpylib-studio_removeEvent",
+        "displayName": "Remove a past magpylib scene event",
+        "toolReferenceName": "magpyRemoveEvent",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "Drop one event from the history and rebuild without it - use it to undo something that happened early without losing what came after. Whatever depended on it comes back under 'broken' rather than blocking the removal. To delete an OBJECT use the remove object tool instead; that records a removal rather than erasing how the object came to be. The scene's construction history: doc['events'] is the whole scene, not a side record - `create` events bring objects into being, `remove`/`reparent` and the transforms say what happened to them afterwards, and the object tree is derived from folding all of it. Rebuilding always folds the whole log, so changing an early event re-applies everything after it.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "event_id": {
+              "type": "string",
+              "description": "Id of the event to drop."
+            }
+          },
+          "required": [
+            "event_id"
+          ]
+        }
+      },
+      {
+        "name": "magpylib-studio_moveEvent",
+        "displayName": "Reorder the magpylib scene history",
+        "toolReferenceName": "magpyMoveEvent",
+        "canBeReferencedInPrompt": true,
+        "modelDescription": "Move one event to another position in the history. This is a real change, not a cosmetic one: transforms do not commute, so an orbit followed by a move lands somewhere else than a move followed by an orbit. An event cannot be placed above the create event of the object it acts on - it would have nothing to act on, and comes back under 'broken'. The scene's construction history: doc['events'] is the whole scene, not a side record - `create` events bring objects into being, `remove`/`reparent` and the transforms say what happened to them afterwards, and the object tree is derived from folding all of it. Rebuilding always folds the whole log, so changing an early event re-applies everything after it.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "event_id": {
+              "type": "string",
+              "description": "Id of the event to move."
+            },
+            "index": {
+              "type": "number",
+              "description": "Position to move it to, as listed by the list history tool."
+            }
+          },
+          "required": [
+            "event_id",
+            "index"
           ]
         }
       }

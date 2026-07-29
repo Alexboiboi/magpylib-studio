@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { EngineClient } from './engineClient';
 import { HistoryEntry, HistoryTreeProvider } from './historyView';
+import { EventsViewProvider, SceneEvent } from './eventsView';
 import { Variable, VariablesViewProvider } from './variablesView';
 import { InspectorViewProvider } from './inspectorView';
 import { SceneObject, SceneTreeProvider } from './sceneTree';
@@ -17,6 +18,7 @@ let sceneTreeView: vscode.TreeView<SceneObject> | undefined;
 let clipboard: { id: string; cut: boolean } | undefined;
 let historyTree: HistoryTreeProvider | undefined;
 let variablesTree: VariablesViewProvider | undefined;
+let eventsTree: EventsViewProvider | undefined;
 let inspector: InspectorViewProvider | undefined;
 let engineOutput: vscode.OutputChannel | undefined;
 let sceneDocEmitter: vscode.EventEmitter<vscode.Uri> | undefined;
@@ -566,6 +568,7 @@ function broadcastMutation(): void {
     sceneTree?.refresh();
     historyTree?.refresh();
     variablesTree?.refresh();
+    eventsTree?.refresh();
     inspector?.refresh();
     refreshScript?.();
     sceneDocEmitter?.fire(SCENE_JSON_URI);
@@ -609,6 +612,10 @@ function registerLmTools(context: vscode.ExtensionContext): void {
     queryTool('magpylib-studio_getSchema', 'get_schema'),
     queryTool('magpylib-studio_getField', 'get_field'),
     queryTool('magpylib-studio_getVariables', 'get_variables'),
+    queryTool('magpylib-studio_getEvents', 'get_events'),
+    editTool('magpylib-studio_editEvent', 'edit_event'),
+    editTool('magpylib-studio_removeEvent', 'remove_event'),
+    editTool('magpylib-studio_moveEvent', 'move_event'),
     queryTool('magpylib-studio_sweep', 'sweep'),
     editTool('magpylib-studio_setVariable', 'set_variable'),
     editTool('magpylib-studio_setVariableBounds', 'set_variable_bounds'),
@@ -675,6 +682,25 @@ export function activate(context: vscode.ExtensionContext): void {
     broadcastMutation,
   );
   variablesTree = variables;
+
+  const events = new EventsViewProvider(
+    (method, params) => getEngine(context).request(method, params),
+    (action, event) => {
+      void (async () => {
+        if (action === 'up' || action === 'down') {
+          await applyLogEdit('move_event', {
+            event_id: event.id,
+            index: event.index + (action === 'up' ? -1 : 1),
+          });
+        } else if (action === 'remove') {
+          await applyLogEdit('remove_event', { event_id: event.id });
+        } else if (action === 'edit') {
+          await editEventValue(event);
+        }
+      })();
+    },
+  );
+  eventsTree = events;
 
   inspector = new InspectorViewProvider(
     context.extensionUri,
@@ -855,6 +881,83 @@ export function activate(context: vscode.ExtensionContext): void {
       max: hard[1],
       soft_min: soft[0],
       soft_max: soft[1],
+    });
+  };
+
+  /**
+   * A history edit reports what it broke rather than refusing, so the result
+   * needs saying out loud — silently leaving red entries behind would be the
+   * one way this feature could mislead.
+   */
+  const applyLogEdit = async (method: string, params: Record<string, unknown>) => {
+    const result = (await getEngine(context).request(method, params)) as {
+      ok: boolean;
+      error?: string;
+      broken?: { source: string; error: string }[];
+    };
+    if (!result.ok) {
+      vscode.window.showErrorMessage(`Magpylib Studio: ${result.error}`);
+    } else if (result.broken?.length) {
+      const [first] = result.broken;
+      vscode.window.showWarningMessage(
+        `Magpylib Studio: ${result.broken.length} later ` +
+          `${result.broken.length === 1 ? 'entry' : 'entries'} no longer ` +
+          `${result.broken.length === 1 ? 'applies' : 'apply'} — ` +
+          `${first.source} (${first.error}). Undo to put it back.`,
+      );
+    }
+    broadcastMutation();
+  };
+
+  /** Change one value on a past event; everything after it re-applies. */
+  const editEventValue = async (event: SceneEvent) => {
+    // the document's own copy, since get_events renders events rather than
+    // listing the fields they carry
+    const document = await getEngine(context).request<{
+      events?: Record<string, unknown>[];
+    }>('to_dict');
+    const stored = document.events?.find((e) => e.id === event.id) ?? {};
+    const fields = Object.keys(stored).filter(
+      (key) => !['id', 'op', 'target', 'type', 'children'].includes(key),
+    );
+    if (!fields.length) {
+      vscode.window.showInformationMessage(
+        'Magpylib Studio: this entry has no value to change.',
+      );
+      return;
+    }
+    const field = await vscode.window.showQuickPick(
+      fields.map((name) => ({
+        label: name,
+        detail: JSON.stringify(stored[name]),
+      })),
+      { placeHolder: `${event.source} — which value?` },
+    );
+    if (!field) {
+      return;
+    }
+    const current = stored[field.label];
+    const text = await vscode.window.showInputBox({
+      prompt: `${field.label} of ${event.source}`,
+      value: Array.isArray(current)
+        ? current.map((v) => (typeof v === 'string' ? v.replace(/^=/, '') : v)).join(', ')
+        : String(typeof current === 'string' ? current.replace(/^=/, '') : current),
+      validateInput: (v) => (v.trim() ? undefined : 'A value'),
+    });
+    if (text === undefined) {
+      return;
+    }
+    const parsed = Array.isArray(current) ? parseTerms(text) : asDocumentValue(text);
+    if (parsed === undefined) {
+      vscode.window.showErrorMessage('Magpylib Studio: could not read that value.');
+      return;
+    }
+    if (!(await ensureVariablesDefined([parsed]))) {
+      return;
+    }
+    await applyLogEdit('edit_event', {
+      event_id: event.id,
+      changes: { [field.label]: parsed },
     });
   };
 
@@ -1090,6 +1193,9 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.window.registerTreeDataProvider('magpylib-studio.historyView', history),
     vscode.window.registerWebviewViewProvider(VariablesViewProvider.viewId, variables, {
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
+    vscode.window.registerWebviewViewProvider(EventsViewProvider.viewId, events, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
     vscode.commands.registerCommand('magpylib-studio.addVariable', async () => {

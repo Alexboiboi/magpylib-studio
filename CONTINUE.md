@@ -243,6 +243,16 @@ and drives it.
     carries them across for variables that survived the edit rather than
     dropping them on every save, and `_canonical` deletes any whose variable
     is gone.
+  - **History view** (`eventsView.ts`, webview): the construction log, one
+    row per event, in order. Create events are dimmed, ones the last fold
+    could not apply get a red left border and the reason underneath. Hover
+    gives ↑ / ↓ (a real edit — order is semantic), ✎ (pick a field, type a
+    value, expressions allowed) and ✕. Because a history edit *applies* and
+    reports what it broke, the host says so in a warning naming the first
+    casualty and pointing at undo — silently leaving red rows behind is the
+    one way this could mislead. The old snapshot timeline is still there,
+    renamed **Undo Timeline**: it is a different mechanism and two things
+    called History was worse than a longer name.
   - Sliders commit on release, with the value box updating live during the
     drag. (They lived in the Inspector briefly, as a workaround for the tree;
     that section is gone now the Variables view can hold them itself — two
@@ -416,8 +426,9 @@ test skips via `supports_property_paths()`).
   the previous value to step back to. Making it hold one means appending
   every slider drag. AEDT is the same shape — a history tree plus a separate
   undo — and for the same reason.
-- **No UI for the log**, and no LM tools for it either (`get_events` /
-  `edit_event` / `move_event` / `remove_event` are RPC-only).
+- The events panel shows the log but cannot yet **drag** to reorder (↑/↓
+  buttons only), and editing a create event's params redirects you to the
+  Inspector rather than doing it in place.
 - **Optimisation** on top of `sweep()` (find the gap that flattens the field)
   is a small step now that a rebuild-and-measure loop exists.
 - **Try it live**: open `vscode-extension/` in VS Code, F5, run
