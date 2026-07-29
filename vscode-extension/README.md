@@ -171,12 +171,18 @@ the equivalents are `npm run compile`, `npm run watch` and `npm test` — the
 last downloads a VS Code build the first time and runs the suite in a real
 host.
 
-*From a package* — build a `.vsix` and install it into your normal VS Code:
+*From a package* — take the `.vsix` from the [latest release][releases], or
+build one, and install it into your normal VS Code:
 
 ```sh
-npx @vscode/vsce package
+npx @vscode/vsce package        # or download it from Releases
 code --install-extension magpylib-studio-vscode-0.0.1.vsix
 ```
+
+Not on the Marketplace yet: the engine is not on PyPI, so installing from
+there would leave you with a UI and nothing behind it.
+
+[releases]: https://github.com/Alexboiboi/magpylib-studio/releases
 
 **3. Point it at the interpreter.** Settings → `magpylib-studio.pythonPath` →
 `~/magpylib-studio-venv/bin/python`. Skip this only if your workspace has a

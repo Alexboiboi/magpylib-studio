@@ -4,6 +4,16 @@
   "description": "VS Code extension shell for the magpylib-studio headless engine.",
   "version": "0.0.1",
   "publisher": "magpylib",
+  "license": "BSD-3-Clause",
+  "icon": "media/icon.png",
+  "preview": true,
+  "keywords": [
+    "magpylib",
+    "magnetics",
+    "magnetic field",
+    "simulation",
+    "physics"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/Alexboiboi/magpylib-studio.git"
@@ -1374,7 +1384,8 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run license && npm run compile",
+    "license": "node -e \"require('fs').copyFileSync('../LICENSE','LICENSE')\"",
     "compile": "tsc -p ./ && npm run lint && npm run check:webviews && npm run check:contributions",
     "lint": "eslint src media",
     "check:webviews": "node harness/check-webview-scripts.js",

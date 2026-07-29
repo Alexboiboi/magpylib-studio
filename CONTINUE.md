@@ -642,6 +642,18 @@ test skips via `supports_property_paths()`).
 
 ## Next steps (pick one)
 
+- **Publish the engine to PyPI — the real blocker for the Marketplace.**
+  `magpylib-studio` is a 404 on PyPI (checked), so a Marketplace install would
+  be followed by "now pip install this git URL", which fails at first contact.
+  With it published, the "no interpreter found" error can grow an **Install
+  the engine** button that runs `pip install magpylib-studio` into the chosen
+  interpreter — the failure becomes a one-click fix. Everything else is done:
+  LICENSE (BSD-3-Clause, matching magpylib), `license`/`icon`/`preview` in
+  package.json, a 128×128 icon, CI on both magpylib versions, and a tag-driven
+  release workflow that attaches the `.vsix`. The one remaining bit of
+  paperwork is the **publisher id**: `publisher` is `magpylib`, the upstream
+  project's name — either get their blessing or publish under your own.
+
 - **Custom editor / multi-document — the remaining stage of the persistence
   work.** Scenes are now files (`.magpy.json`, save/open/revert, a dirty mark
   in the Scene view title, a crash backup, reopen-on-activation), but the

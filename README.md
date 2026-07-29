@@ -177,6 +177,24 @@ save that goes to the file it came from without asking, a document from a
 newer version being refused without disturbing the open one, and the crash
 backup being written and restorable.
 
-It packages: `npx @vscode/vsce package` produces a 1.5 MB `.vsix`. Publishing
-still needs a LICENSE, a publisher id and a 128×128 PNG icon. See
-[CONTINUE.md](CONTINUE.md) for the current state and what is next.
+Both suites and the packaging run in CI on every push, the engine against
+**both magpylib versions** — the claim above used to be checked by hand.
+Pushing a `v*` tag builds the `.vsix` and attaches it to a GitHub release.
+
+It is **not on the Marketplace**, and the reason is not polish: the engine is
+not on PyPI, so installing the extension there would be followed by "now go
+and pip install this git URL" — a failure at first contact, before anyone sees
+a feature. Publishing the engine is what unblocks that, and lets the extension
+offer to install it into the interpreter you point at instead of telling you
+to. Until then, a release asset is the honest channel. (A publisher id is also
+needed: `publisher` is currently `magpylib`, which is the upstream project's
+name, not this repo's.)
+
+See [CONTINUE.md](CONTINUE.md) for the current state and what is next.
+
+## License
+
+BSD-3-Clause — the same as [magpylib][mplib] itself. See [LICENSE](LICENSE).
+This is an independent companion tool, not a magpylib project.
+
+[mplib]: https://github.com/magpylib/magpylib

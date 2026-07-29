@@ -1,0 +1,69 @@
+# Tag a version, get an installable .vsix on the release page.
+#
+#     git tag v0.0.1 && git push origin v0.0.1
+#
+# This is deliberately *not* Marketplace publishing. That needs a publisher id
+# on the Marketplace and a PAT in secrets, and — more to the point — the engine
+# on PyPI, so that installing the extension is not followed by "now go and pip
+# install this git URL". Until then a release asset is the honest channel:
+#
+#     code --install-extension magpylib-studio-vscode-0.0.1.vsix
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write # to create the release and attach the .vsix
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+      - run: pip install -e ".[dev]"
+
+      # Shipping an untested build is the one thing a release must not do.
+      - name: Engine tests
+        run: python -m pytest -q
+      - name: Install
+        working-directory: vscode-extension
+        run: npm ci
+      - name: Integration tests
+        working-directory: vscode-extension
+        run: xvfb-run -a npm test
+
+      # vsce runs vscode:prepublish, which copies the LICENSE in and compiles.
+      - name: Package
+        working-directory: vscode-extension
+        run: npx @vscode/vsce package --out "${{ github.workspace }}/magpylib-studio-${{ github.ref_name }}.vsix"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: magpylib-studio-*.vsix
+          generate_release_notes: true
+          body: |
+            Install into VS Code:
+
+            ```sh
+            code --install-extension magpylib-studio-${{ github.ref_name }}.vsix
+            ```
+
+            The extension is the UI only — it drives a Python engine, which
+            has to be installed separately into an interpreter it can find:
+
+            ```sh
+            pip install "magpylib-studio @ git+https://github.com/Alexboiboi/magpylib-studio.git"
+            ```
+
+            Then set `magpylib-studio.pythonPath` to that interpreter.

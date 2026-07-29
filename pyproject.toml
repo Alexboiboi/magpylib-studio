@@ -1,6 +1,8 @@
 [project]
 name = "magpylib-studio"
 version = "0.1.0"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
 description = "Headless magpylib editing engine for GUI/LLM frontends (e.g. a VS Code extension backend)."
 requires-python = ">=3.11"
 # Works with released magpylib; `magpylib_studio/style_compat.py` fills in the
