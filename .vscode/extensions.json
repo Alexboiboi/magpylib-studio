@@ -1,0 +1,5 @@
+{
+  // The extension folder used to carry its own recommendation, for the TSLint
+  // plugin — deprecated in 2019 in favour of ESLint, which this repo now has.
+  "recommendations": ["dbaeumer.vscode-eslint", "ms-python.python"]
+}

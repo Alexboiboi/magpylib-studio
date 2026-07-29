@@ -518,6 +518,24 @@ and drives it.
     webview script check + the contribution check, so all of it runs before
     F5 and before packaging.
 
+## Developing the extension
+
+Open the **repo root** and press F5. There is no second window to open first:
+the launch config lives at `.vscode/launch.json` and points
+`--extensionDevelopmentPath` at `vscode-extension/`, so the engine stays in
+the workspace where you can edit it. Two windows total — yours and the
+Extension Development Host — which is how extension debugging works and as
+few as it goes.
+
+The host opens `sandbox/`. That is deliberate: extension storage is *per
+workspace*, and the script tab's `scene.py` lives there, so a host with no
+folder open falls back to global storage shared with every other folder-less
+window — which is how the script tab ended up showing a previous project's
+scene. A fixed folder makes it deterministic.
+
+Three configs: **Run Extension** (compiles first), **Run Extension (no
+build)** for when `npm run watch` is already going, and **Extension Tests**.
+
 ## Setup (this folder)
 
 ```sh

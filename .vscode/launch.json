@@ -1,8 +1,12 @@
 {
   // F5 from the repo root, which is where both halves live: the engine is a
-  // Python package here, the extension is a folder inside it. Without this
-  // the only launch config was vscode-extension/.vscode/launch.json, which
-  // means opening that folder alone and losing the engine from the workspace.
+  // Python package here, the extension is a folder inside it. There is no
+  // second window to open first — that was an artifact of the only launch
+  // config living in vscode-extension/, and it is gone.
+  //
+  // The host opens `sandbox/` rather than nothing, so that its workspace —
+  // and therefore the extension storage holding the script tab's scene.py —
+  // is the same one every time. See sandbox/README.md.
   "version": "0.2.0",
   "configurations": [
     {
@@ -10,8 +14,36 @@
       "type": "extensionHost",
       "request": "launch",
       "runtimeExecutable": "${execPath}",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}/vscode-extension"],
+      "args": [
+        "${workspaceFolder}/sandbox",
+        "--extensionDevelopmentPath=${workspaceFolder}/vscode-extension"
+      ],
       "outFiles": ["${workspaceFolder}/vscode-extension/out/**/*.js"],
+      "preLaunchTask": "npm: compile"
+    },
+    {
+      // Same host, without rebuilding first — for when tsc is already
+      // watching and you just want the window back.
+      "name": "Run Extension (no build)",
+      "type": "extensionHost",
+      "request": "launch",
+      "runtimeExecutable": "${execPath}",
+      "args": [
+        "${workspaceFolder}/sandbox",
+        "--extensionDevelopmentPath=${workspaceFolder}/vscode-extension"
+      ],
+      "outFiles": ["${workspaceFolder}/vscode-extension/out/**/*.js"]
+    },
+    {
+      "name": "Extension Tests",
+      "type": "extensionHost",
+      "request": "launch",
+      "runtimeExecutable": "${execPath}",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/vscode-extension",
+        "--extensionTestsPath=${workspaceFolder}/vscode-extension/out/test"
+      ],
+      "outFiles": ["${workspaceFolder}/vscode-extension/out/test/**/*.js"],
       "preLaunchTask": "npm: compile"
     }
   ]
