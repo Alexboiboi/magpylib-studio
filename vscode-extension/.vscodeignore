@@ -1,0 +1,22 @@
+# What does NOT go in the VSIX. Without this file vsce ships everything it
+# finds, which here meant the TypeScript sources, their sourcemaps, the test
+# harnesses and a stray .ruff_cache — none of which a user installs an
+# extension to receive.
+#
+# out/ and media/ are deliberately absent: they are the extension.
+
+src/**
+harness/**
+tsconfig.json
+package-lock.json
+.vscode/**
+.gitignore
+.vscodeignore
+
+# Sourcemaps point at sources that are not shipped.
+out/**/*.map
+
+# Tooling leftovers.
+.ruff_cache/**
+**/__pycache__/**
+*.vsix

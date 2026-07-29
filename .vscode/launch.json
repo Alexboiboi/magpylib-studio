@@ -1,0 +1,18 @@
+{
+  // F5 from the repo root, which is where both halves live: the engine is a
+  // Python package here, the extension is a folder inside it. Without this
+  // the only launch config was vscode-extension/.vscode/launch.json, which
+  // means opening that folder alone and losing the engine from the workspace.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "runtimeExecutable": "${execPath}",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}/vscode-extension"],
+      "outFiles": ["${workspaceFolder}/vscode-extension/out/**/*.js"],
+      "preLaunchTask": "npm: compile"
+    }
+  ]
+}

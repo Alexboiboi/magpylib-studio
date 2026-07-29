@@ -4,12 +4,32 @@
   "description": "VS Code extension shell for the magpylib-studio headless engine.",
   "version": "0.0.1",
   "publisher": "magpylib",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Alexboiboi/magpylib-studio.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Alexboiboi/magpylib-studio/issues"
+  },
   "engines": {
     "vscode": "^1.95.0"
   },
   "categories": [
     "Visualization",
     "AI"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "The engine runs as a Python interpreter found in the workspace, and the script tab executes the scene as Python."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "The engine is a local process that reads and writes real files."
+    }
+  },
+  "extensionKind": [
+    "workspace"
   ],
   "activationEvents": [
     "onStartupFinished"
