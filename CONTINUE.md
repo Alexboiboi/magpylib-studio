@@ -200,6 +200,13 @@ and drives it.
     parametric, the copy still following whatever the source does, and
     `parse_script` reads the call back so the round trip is exact.
   Path-driven patterns are the family member still missing.
+  **A removal takes the copies with it** — they are part of the object they
+  came from, and left behind they were invisible (nothing lists a copy whose
+  source is gone) while still standing in the scene and contributing to every
+  field it computed. **`to_script` emits only what happened to objects the
+  log still holds**, since a removed object leaves no definition and a step
+  naming it was a `NameError` in the exported file. Both are invariants in
+  the tests now, checked across every example rather than in one scene.
   **Copies are named after their source, numbered like their id** (`r1#3` →
   "Magnet 1 #3"), by `_name_copy` at the fold and by a line the loop emits
   into the script. magpylib's `copy()` increments a trailing number in the

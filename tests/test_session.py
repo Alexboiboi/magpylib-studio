@@ -157,6 +157,32 @@ def test_remove_object(session):
         session.remove_object("cyl")  # unknown id raises, like apply_edit
 
 
+def test_removing_an_object_takes_its_generated_copies_with_it():
+    """A pattern's copies are part of the object they came from.
+
+    Left behind they are invisible — nothing lists a copy once its source is
+    gone — while still standing in the scene and contributing to every field
+    it computes: nine magnets you cannot see, select or delete.
+    """
+    from magpylib_studio.session import EXAMPLES
+
+    for name in EXAMPLES:
+        s = MagpylibStudioSession()
+        s.load_example(name)
+        victim = next(o["id"] for o in s.list_objects()
+                      if not o.get("derived") and o["type"] != "Collection")
+        s.remove_object(victim)
+
+        listed = {o["id"] for o in s.list_objects()}
+        known = {id(o): k for k, o in s._objs.items()}
+        standing = {known[id(o)] for o in s.scene.sources_all if id(o) in known}
+        assert not standing - listed, f"{name}: ghosts {sorted(standing - listed)}"
+
+        # and what is exported still runs: an object that was removed leaves
+        # no definition, so a step naming it would be a NameError
+        exec_script(s.to_script())
+
+
 def test_set_param_moves_object_and_syncs_doc(session):
     assert session.set_param("cube", "position", [0, 0, 3]) == {"ok": True}
     assert list(session._objs["cube"].position) == [0, 0, 3]
@@ -434,6 +460,20 @@ def test_copy_object_follows_magpylib_label_convention(session):
         "Cube_02"
     )
     assert len({o["id"] for o in session.list_objects()}) == 4
+
+    # An unplaced copy belongs beside its source. For a patterned object that
+    # is not a nicety: its copied pattern step needs a group to add to, so
+    # landing at the root made copying it fail outright.
+    s = MagpylibStudioSession()
+    s.load_example("halbach")
+    copied = s.copy_object("r1")
+    assert copied["ok"] is True, copied.get("error")
+    rows = {o["id"]: o for o in s.list_objects()}
+    assert rows[copied["id"]]["parent"] == "ring1"  # beside r1, not at the root
+    assert sum(1 for o in rows.values() if o.get("derived") == copied["id"]) == 9
+    exec_script(s.to_script())
+    # naming a destination still overrides that, root included
+    assert s.copy_object("sensor", parent=None)["ok"] is True
 
     # a copied collection brings its subtree, and can be pasted into a group
     session.add_object("grp", "Collection")

@@ -469,6 +469,11 @@ _MIRRORABLE = ("Cuboid", "Cylinder", "CylinderSegment", "Sphere", "Dipole",
 
 _MIRROR_NORMALS = {"xy": [0, 0, 1], "xz": [0, 1, 0], "yz": [1, 0, 0]}
 
+# "no parent was given", which is not the same as "the scene root": a copy
+# with no destination belongs beside what it was copied from. JSON cannot
+# express this, so an RPC caller either omits the argument or names a place.
+_BESIDE = object()
+
 # Emitted into a script that contains a mirror, since magpylib has none. Kept
 # in one piece so what runs and what parse_script reads back cannot drift.
 _MIRROR_HELPER = [
@@ -1074,10 +1079,18 @@ class MagpylibStudioSession:
             self._objs[object_id], recursive=False
         )
         for dead in gone:
+            # A pattern's copies are part of the object they came from, so
+            # they go with it. Left behind they would be invisible — nothing
+            # lists them once their source is gone — while still standing in
+            # the scene, contributing to every field it computes.
+            for copy_id in self._derived.pop(dead, []):
+                copy = self._objs.pop(copy_id, None)
+                if copy is not None:
+                    # wherever it ended up: the copies of a group are groups
+                    self.scene.remove(copy, recursive=True, errors="ignore")
             self._objs.pop(dead, None)
             self._specs.pop(dead, None)
             self._parents.pop(dead, None)
-            self._derived.pop(dead, None)
 
     def _reparent(self, object_id, parent):
         """A reparent event: from here on the object belongs to another group,
@@ -2084,11 +2097,21 @@ class MagpylibStudioSession:
             if candidate not in used:
                 return candidate
 
-    def copy_object(self, object_id, parent=None):
+    def copy_object(self, object_id, parent=_BESIDE):
         """Duplicate an object (a Collection copies its whole subtree). The
-        copy's label gets magpylib's iteration suffix."""
+        copy's label gets magpylib's iteration suffix.
+
+        With no `parent` the copy lands beside its source, which is where a
+        copy belongs and — for an object inside a group — the only place its
+        own pattern step can put *its* copies: a pattern needs a group to add
+        to, so copying a patterned magnet to the scene root used to fail
+        outright. Passing `parent` explicitly still says where it goes, and
+        `None` still means the root, so a paste can put it anywhere.
+        """
         src = self._spec(object_id)
-        if parent is not None and self._spec(parent)["type"] != "Collection":
+        if parent is not _BESIDE and parent is not None and (
+            self._spec(parent)["type"] != "Collection"
+        ):
             return {"ok": False, "error": f"parent {parent!r} is not a Collection"}
         new_id = self._unique_id(object_id)
         label = self._next_label(self._objs[object_id].style.label or src["type"])
@@ -2106,7 +2129,9 @@ class MagpylibStudioSession:
                 create["target"] = renamed[spec["id"]]
                 if spec is src:
                     create.setdefault("style", {})["label"] = label
-                    if parent is not None:
+                    if parent is _BESIDE:
+                        pass  # keep the source's own parent
+                    elif parent is not None:
                         create["parent"] = parent
                     else:
                         create.pop("parent", None)
@@ -2814,9 +2839,15 @@ class MagpylibStudioSession:
         # Definitions come from the object tree, so the structural events are
         # already expressed by it; what is left to write out is what happened
         # to the objects afterwards.
+        # Only what happened to objects the log still holds. An object that
+        # was removed leaves no definition behind, so a step naming it would
+        # be a NameError in the exported file — the removal is expressed by
+        # its absence, and so is everything that was done to it.
+        alive = {spec["id"] for spec in _walk_specs(self.doc.get("objects") or [])}
         events = [
             e for e in self.doc.get("events") or []
             if e.get("op") not in ("create", "remove", "reparent")
+            and e.get("target") in alive
         ]
         mirrors = [e for e in events if e.get("op") == "mirror"]
         needs_scipy = mirrors or any(e.get("op") == "orientation" for e in events)
