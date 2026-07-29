@@ -473,6 +473,7 @@ class MagpylibStudioSession:
         self._objs: dict[str, object] = {}
         self._vars: dict[str, float] = {}  # resolved at each build
         self._derived: dict[str, list[str]] = {}  # source id -> generated copies
+        self._broken: list[dict] = []  # events the last fold could not apply
         # In-session undo/redo (durable history stays in git via to_script):
         # each entry is {"label", "doc"} — the doc state BEFORE the change.
         self._undo: list[dict] = []
@@ -518,32 +519,45 @@ class MagpylibStudioSession:
         self._derived = {}
         self._specs = {}  # id -> the spec its create event describes
         self._parents = {}  # id -> parent id or None
+        self._broken = []  # events the fold could not apply, in order
         self.scene = magpy.Collection()
         for event in self.doc.get("events") or []:
-            op = event.get("op", "rotate_from_angax")
-            if op == "create":
-                self._create(event)
-                continue
-            if op == "remove":
-                self._remove(event["target"])
-                continue
-            target = self._objs.get(event["target"])
-            if target is None:
-                raise ValueError(
-                    f"event {event.get('id')} targets unknown object "
-                    f"{event['target']!r}"
-                )
-            if op == "reparent":
-                self._reparent(event["target"], event.get("parent"))
-                continue
-            resolved = self._resolve(event)
-            if op == "duplicate_around":
-                self._duplicate_around(event["target"], resolved)
-            else:
-                _replay(target, [resolved])
+            try:
+                self._apply(event)
+            except Exception as e:  # noqa: BLE001 - one bad event is not a
+                # broken document: the rest of the log still describes a
+                # scene, and refusing to build it would leave nothing to
+                # look at while fixing the event that went wrong.
+                self._broken.append({
+                    "id": event.get("id"),
+                    "target": event.get("target"),
+                    "source": _event_source(event),
+                    "error": f"{type(e).__name__}: {e}",
+                })
         # The object tree is a projection of the log, rebuilt here rather than
         # stored: two representations of the same structure would drift.
         self.doc["objects"] = self._project()
+
+    def _apply(self, event):
+        """Fold one event into the scene being built."""
+        op = event.get("op", "rotate_from_angax")
+        if op == "create":
+            self._create(event)
+            return
+        if op == "remove":
+            self._remove(event["target"])
+            return
+        target = self._objs.get(event["target"])
+        if target is None:
+            raise ValueError(f"targets unknown object {event['target']!r}")
+        if op == "reparent":
+            self._reparent(event["target"], event.get("parent"))
+            return
+        resolved = self._resolve(event)
+        if op == "duplicate_around":
+            self._duplicate_around(event["target"], resolved)
+        else:
+            _replay(target, [resolved])
 
     def _create(self, event):
         """A create event -> a live magpylib object in its place in the tree."""
@@ -697,25 +711,37 @@ class MagpylibStudioSession:
         self._objs[spec["id"]] = obj
         return obj
 
-    def _mutate_doc(self, mutate, label="edit"):
+    def _mutate_doc(self, mutate, label="edit", tolerant=False):
         """Apply `mutate(doc)` and rebuild; on any failure restore the old doc.
 
         The doc stays the single source of truth: structural edits go through
         the same build path as startup, so a doc that builds once always
         rebuilds — bad mutations are rolled back and reported, never applied.
         Successful mutations push the prior state onto the undo stack.
+
+        `tolerant` is for edits to the log itself. Changing something that
+        happened early can leave a later event with nothing to act on, and
+        refusing the edit for that reason would make history uneditable — so
+        those calls apply, and report what they broke instead.
         """
         snapshot = json.loads(json.dumps(self.doc))
+        broken_before = {b["id"] for b in self._broken}
         try:
             mutate(self.doc)
             _canonical(self.doc)
             self._build()
+            new_breakage = [b for b in self._broken if b["id"] not in broken_before]
+            if new_breakage and not tolerant:
+                raise ValueError(new_breakage[0]["error"])
         except Exception as e:  # noqa: BLE001 - report every failure to the caller
             self.doc = snapshot
             self._build()
             return {"ok": False, "error": str(e)}
         self._record_state(label, snapshot)
-        return {"ok": True}
+        result = {"ok": True}
+        if new_breakage:
+            result["broken"] = new_breakage
+        return result
 
     def _iter_specs(self, specs=None, parent=None):
         """Depth-first (spec, parent_spec) pairs over the whole document."""
@@ -1478,7 +1504,10 @@ class MagpylibStudioSession:
         def mutate(doc):
             self.doc = _canonical(_migrate_events(json.loads(json.dumps(scene))))
 
-        return self._mutate_doc(mutate, "load scene")
+        # Tolerant: a document is allowed to carry events that no longer
+        # apply — you can make one that way — so it has to be allowed to open
+        # again, with the breakage reported rather than the file refused.
+        return self._mutate_doc(mutate, "load scene", tolerant=True)
 
     def load_script(self, path, scene=0):
         """Import an existing magpylib script by EXECUTING it (same trust as
@@ -1858,13 +1887,15 @@ class MagpylibStudioSession:
 
     # --- the event log -----------------------------------------------------
     def get_events(self):
-        """The ordered transform log, as the scene's editable construction
-        history: each entry is the magpylib call that produced it."""
+        """The scene's construction history, in order: what each event did,
+        and for any the last fold could not apply, why not."""
+        broken = {b["id"]: b["error"] for b in self._broken}
         return {
             "events": [
                 {"index": i, "id": e["id"], "target": e["target"],
                  "op": e.get("op", "rotate_from_angax"),
-                 "source": _event_source(e)}
+                 "source": _event_source(e),
+                 **({"error": broken[e["id"]]} if e["id"] in broken else {})}
                 for i, e in enumerate(self.doc.get("events") or [])
             ]
         }
@@ -1878,8 +1909,14 @@ class MagpylibStudioSession:
     def edit_event(self, event_id, changes):
         """Change a past event in place; everything recorded after it is
         re-applied on top, because the scene is rebuilt by folding the whole
-        log. An edit that cannot replay (a bad axis, a target that no longer
-        exists) is reported and rolled back, leaving the log as it was."""
+        log.
+
+        An edit that cannot itself replay is rolled back. One that applies but
+        leaves *later* events with nothing to act on goes through and returns
+        them under "broken" — refusing it would mean history could only be
+        edited when nothing depended on it, which is most of the time not the
+        interesting case.
+        """
         index = self._event_index(event_id)
         if not isinstance(changes, dict) or not changes:
             return {"ok": False, "error": "changes must be a non-empty object"}
@@ -1887,18 +1924,36 @@ class MagpylibStudioSession:
             return {"ok": False, "error": "an event's id is not editable"}
 
         def mutate(doc):
-            doc["events"][index] = {**doc["events"][index], **_plain(changes)}
+            edited = {**doc["events"][index], **_plain(changes)}
+            doc["events"][index] = edited
+            self._must_apply = edited["id"]
 
-        return self._mutate_doc(mutate, f"edit event {event_id}")
+        return self._edit_log(mutate, f"edit event {event_id}")
+
+    def _edit_log(self, mutate, label):
+        """A deliberate edit to the log: applied even when it breaks what came
+        after, as long as the edited event itself still works."""
+        self._must_apply = None
+        result = self._mutate_doc(mutate, label, tolerant=True)
+        if result["ok"] and self._must_apply:
+            failed = next(
+                (b for b in self._broken if b["id"] == self._must_apply), None
+            )
+            if failed:  # the edit itself is the thing that cannot replay
+                self.undo()
+                self._redo.clear()
+                return {"ok": False, "error": failed["error"]}
+        return result
 
     def remove_event(self, event_id):
-        """Drop one event and re-fold the log without it."""
+        """Drop one event and re-fold the log without it. Whatever depended on
+        it comes back under "broken" rather than blocking the removal."""
         index = self._event_index(event_id)
 
         def mutate(doc):
             del doc["events"][index]
 
-        return self._mutate_doc(mutate, f"remove event {event_id}")
+        return self._edit_log(mutate, f"remove event {event_id}")
 
     def move_event(self, event_id, index):
         """Reorder the log. Transforms do not commute, so this is a real edit:
@@ -1909,9 +1964,11 @@ class MagpylibStudioSession:
             return {"ok": False, "error": f"index must be 0..{len(events) - 1}"}
 
         def mutate(doc):
-            doc["events"].insert(index, doc["events"].pop(current))
+            moved = doc["events"].pop(current)
+            doc["events"].insert(index, moved)
+            self._must_apply = moved["id"]
 
-        return self._mutate_doc(mutate, f"move event {event_id}")
+        return self._edit_log(mutate, f"move event {event_id}")
 
     def goto_history(self, index):
         """Jump to any point on the timeline (undoing or redoing as needed)."""

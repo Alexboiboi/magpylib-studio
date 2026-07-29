@@ -1144,6 +1144,62 @@ def test_event_edits_that_cannot_replay_roll_back():
     ]
 
 
+def test_editing_history_reports_what_it_broke_instead_of_refusing():
+    """Editing an early event usually breaks something later. Refusing for
+    that reason would mean history is only editable when nothing depends on
+    it, which is not the interesting case — so it applies and says what fell
+    over, the way a CAD history flags the items it could not rebuild."""
+    s = MagpylibStudioSession()
+    s.add_object("ring", "Collection")
+    s.add_object("m", "magnet.Cuboid",
+                 {"polarization": [1, 0, 0], "dimension": [1, 1, 1],
+                  "position": [2, 0, 0]}, parent="ring")
+    s.rotate("m", 45, "z", anchor=[0, 0, 0])
+    s.duplicate_around("m", 4, "z", anchor=[0, 0, 0])
+    assert len(s._leaf_sources()) == 4
+
+    create = next(e for e in s.get_events()["events"]
+                  if e["op"] == "create" and e["target"] == "m")
+    result = s.remove_event(create["id"])
+    assert result["ok"] is True
+    assert [b["error"] for b in result["broken"]] == [
+        "ValueError: targets unknown object 'm'"
+    ] * 2
+
+    # the rest of the scene still builds, and the log says which entries did
+    # not apply rather than dropping them
+    assert [o["id"] for o in s.list_objects()] == ["ring"]
+    flagged = [e for e in s.get_events()["events"] if "error" in e]
+    assert [e["op"] for e in flagged] == ["rotate_from_angax", "duplicate_around"]
+
+    # a document may hold them, so it must be able to open again
+    reopened = MagpylibStudioSession(json.loads(json.dumps(s.to_dict())))
+    assert [o["id"] for o in reopened.list_objects()] == ["ring"]
+    assert len(reopened.get_events()["events"]) == 3
+
+    assert s.undo() == {"ok": True}
+    assert len(s._leaf_sources()) == 4  # and the whole ring is back
+
+
+def test_ordinary_edits_still_refuse_to_break_things():
+    """Only deliberate edits to the log are tolerant. A normal edit that
+    would break the scene is still rolled back and reported."""
+    s = MagpylibStudioSession(make_scene())
+    assert s.add_object("x", "magnet.Nope")["ok"] is False
+    assert s.add_object("y", "magnet.Sphere", params={"bogus": 1})["ok"] is False
+    assert s.add_object("cube", "magnet.Sphere")["ok"] is False  # duplicate id
+    assert [o["id"] for o in s.list_objects()] == ["cube", "cyl"]
+    assert not s._broken
+
+    # and an edit to an event that cannot itself replay is rolled back too
+    rotate = s.rotate("cube", 30, "z")
+    assert rotate == {"ok": True}
+    event = next(e for e in s.get_events()["events"] if e["op"] != "create")
+    assert s.edit_event(event["id"], {"axis": "sideways"})["ok"] is False
+    assert not s._broken
+    assert s.get_events()["events"][-1]["source"].endswith("(30, 'z')")
+
+
 def test_removing_an_object_is_recorded_not_erased():
     """A removal is something that happened, so it goes on the end of the log.
     Rewriting the earlier events out would make the log a different story from

@@ -74,8 +74,21 @@ and drives it.
     A removal does not delete the earlier events; they ran while the object
     existed. A reparent's position in the log is what decides which group
     transforms carried it, which is why it is not a rewrite of the create.
+  - **One bad event does not break the document.** The fold catches per-event
+    failures into `self._broken` and carries on, so the rest of the log still
+    describes a scene to look at while fixing the entry that went wrong.
+    `get_events` marks those entries with `error`.
+  - **Strict for ordinary edits, tolerant for edits to the log.** Any normal
+    mutation that would break something is rolled back and reported, as
+    before. `edit_event` / `move_event` / `remove_event` go through
+    `_edit_log` instead: they apply and return what fell over under
+    `"broken"` — refusing would mean history is only editable when nothing
+    depends on it, which is not the interesting case. The edited event itself
+    must still work; if it is the thing that cannot replay, the edit is
+    undone. `load_scene` is tolerant too: a document may hold broken events,
+    so it has to be able to open again.
   - Consequences worth knowing: an event cannot be reordered above its
-    object's create (the rebuild refuses, naming the object), and a document
+    object's create (it lands in `broken`, naming the object), and a document
     with neither `objects` nor `events` is now rejected by `load_scene`
     rather than read as an empty scene.
 - **Transforms — the doc records magpylib CALLS, not derived poses**, and
@@ -397,9 +410,12 @@ test skips via `supports_property_paths()`).
   that structure is event-sourced, undo could become a pointer into the log —
   except variables and bounds are not events, so it would only be honest once
   they are too. That is the remaining half of the unification.
-- **No invalidation reporting.** Editing an early event that breaks a later
-  one rolls the whole edit back; AEDT instead applies it and flags the
-  downstream items. Rollback is safe but tells you less.
+- **Undo stays snapshots, on purpose.** It cannot become a pointer into the
+  log, because the log is deliberately *not* append-only: what an object is
+  lives on its create event and is edited in place, so the log does not hold
+  the previous value to step back to. Making it hold one means appending
+  every slider drag. AEDT is the same shape — a history tree plus a separate
+  undo — and for the same reason.
 - **No UI for the log**, and no LM tools for it either (`get_events` /
   `edit_event` / `move_event` / `remove_event` are RPC-only).
 - **Optimisation** on top of `sweep()` (find the gap that flattens the field)
