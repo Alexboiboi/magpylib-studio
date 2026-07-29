@@ -156,11 +156,11 @@ export class EventsViewProvider implements vscode.WebviewViewProvider {
         acts.append(
           button('↑', 'Move earlier', 'up', event, i > 0),
           button('↓', 'Move later', 'down', event, i < events.length - 1),
-          // what an object *is* is edited in the Inspector; this edits what
-          // happened to it, so a create has nothing to offer here
+          // on a create this edits the object's constructor parameters —
+          // changing a dimension after the fact, from the step that set it
           button('✎', event.op === 'create'
-            ? 'Edit this object in the Inspector'
-            : 'Change a value…', 'edit', event, event.op !== 'create'),
+            ? 'Change a parameter…'
+            : 'Change a value…', 'edit', event, true),
           button('✕', 'Remove from the history', 'remove', event, true),
         );
         row.append(src, acts);

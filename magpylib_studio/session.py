@@ -1185,11 +1185,25 @@ class MagpylibStudioSession:
         to move the object again. Before the log existed this had to measure
         the frame its ancestors would re-apply, by building a probe scene.
         """
-        self._log(object_id, [
+        ops = [
             {"op": "position", "value": np.round(world_pos, 9).tolist()},
             {"op": "orientation",
              "rotvec": np.round(world_rot.as_rotvec(degrees=True), 9).tolist()},
-        ])
+        ]
+        # A pin supersedes the pin it directly follows. Nudging a position
+        # field is one act of placing an object, not a dozen — and a log that
+        # grew by two entries per nudge would be unreadable, which is the
+        # thing it most needs not to be. Only at the very end of the log:
+        # once anything else has happened, order matters and this must append.
+        events = self.doc.setdefault("events", [])
+        tail = events[-2:]
+        if (len(tail) == 2
+                and all(e.get("target") == object_id for e in tail)
+                and [e.get("op") for e in tail] == ["position", "orientation"]):
+            events[-2] = {**tail[0], **_plain(ops[0])}
+            events[-1] = {**tail[1], **_plain(ops[1])}
+        else:
+            self._log(object_id, ops)
 
     # --- editing the log ---------------------------------------------------
     def _append(self, event):

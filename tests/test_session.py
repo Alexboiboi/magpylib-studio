@@ -1181,6 +1181,52 @@ def test_editing_history_reports_what_it_broke_instead_of_refusing():
     assert len(s._leaf_sources()) == 4  # and the whole ring is back
 
 
+def test_a_create_event_is_where_an_object_is_changed_after_the_fact():
+    """"Change the dimensions of that magnet" is an edit to the step that
+    made it — the same edit the Inspector makes, reached from the history."""
+    import numpy as np
+
+    s = MagpylibStudioSession()
+    s.load_example()
+    create = next(e for e in s.get_events()["events"]
+                  if e["op"] == "create" and e["target"] == "r1m01")
+    stored = next(e for e in s.to_dict()["events"] if e["id"] == create["id"])
+    before = len(s.doc["events"])
+
+    assert s.edit_event(create["id"], {
+        "params": {**stored["params"], "dimension": [2, 1, 0.5]}
+    }) == {"ok": True}
+    assert list(s._objs["r1m01"].dimension) == [2, 1, 0.5]
+    # everything recorded after it still applies: the magnet is still orbited
+    assert np.allclose(s._objs["r1m01"].position, [2.3, 0, 0])
+    assert len(s.doc["events"]) == before  # an edit, not another entry
+
+
+def test_placing_an_object_repeatedly_does_not_grow_the_log():
+    """Nudging a position field is one act of placing something. A log that
+    grew by two entries per nudge would be unreadable, which is the thing it
+    most needs not to be."""
+    s = MagpylibStudioSession()
+    s.add_object("m", "magnet.Cuboid",
+                 {"polarization": [0, 0, 1], "dimension": [1, 1, 1]})
+    s.add_object("n", "magnet.Sphere", {"polarization": [0, 0, 1], "diameter": 1})
+    for x in range(4):
+        s.set_transform("m", position=[x, 0, 0])
+    assert [e["op"] for e in s.doc["events"]] == [
+        "create", "create", "position", "orientation"
+    ]
+
+    # but once anything else has happened, order matters and it must append
+    s.set_transform("n", position=[9, 0, 0])
+    s.set_transform("m", position=[7, 0, 0])
+    assert [e["op"] for e in s.doc["events"]] == [
+        "create", "create", "position", "orientation",
+        "position", "orientation", "position", "orientation",
+    ]
+    assert list(s._objs["m"].position) == [7, 0, 0]
+    assert list(s._objs["n"].position) == [9, 0, 0]
+
+
 def test_ordinary_edits_still_refuse_to_break_things():
     """Only deliberate edits to the log are tolerant. A normal edit that
     would break the scene is still rolled back and reported."""

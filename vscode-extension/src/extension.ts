@@ -917,26 +917,35 @@ export function activate(context: vscode.ExtensionContext): void {
       events?: Record<string, unknown>[];
     }>('to_dict');
     const stored = document.events?.find((e) => e.id === event.id) ?? {};
-    const fields = Object.keys(stored).filter(
-      (key) => !['id', 'op', 'target', 'type', 'children'].includes(key),
+    // On a create it is the constructor parameters that are worth changing —
+    // that is what "change the dimensions after the fact" means, and it is
+    // the same edit the Inspector makes, reached from the step that made it.
+    const isCreate = event.op === 'create';
+    const params = (stored.params ?? {}) as Record<string, unknown>;
+    const source = isCreate ? params : stored;
+    const fields = Object.keys(source).filter(
+      (key) => !['id', 'op', 'target', 'type', 'children', 'style',
+                 'hidden_style', 'visible', 'parent'].includes(key),
     );
     if (!fields.length) {
       vscode.window.showInformationMessage(
-        'Magpylib Studio: this entry has no value to change.',
+        isCreate
+          ? `Magpylib Studio: ${event.target} has no constructor parameters to change.`
+          : 'Magpylib Studio: this entry has no value to change.',
       );
       return;
     }
     const field = await vscode.window.showQuickPick(
       fields.map((name) => ({
         label: name,
-        detail: JSON.stringify(stored[name]),
+        detail: JSON.stringify(source[name]),
       })),
       { placeHolder: `${event.source} — which value?` },
     );
     if (!field) {
       return;
     }
-    const current = stored[field.label];
+    const current = source[field.label];
     const text = await vscode.window.showInputBox({
       prompt: `${field.label} of ${event.source}`,
       value: Array.isArray(current)
@@ -957,7 +966,11 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     await applyLogEdit('edit_event', {
       event_id: event.id,
-      changes: { [field.label]: parsed },
+      // edit_event replaces whole top-level fields, so a single parameter
+      // goes back inside the params it came from
+      changes: isCreate
+        ? { params: { ...params, [field.label]: parsed } }
+        : { [field.label]: parsed },
     });
   };
 

@@ -69,7 +69,16 @@ and drives it.
     `apply_edit`, `reset_style` and `set_visible` edit that event in place
     rather than appending. Same reason a CAD history lets you change the box
     you made instead of recording that you changed it — and it keeps the log
-    from growing without bound while a slider is dragged.
+    from growing without bound while a slider is dragged. This is also what
+    makes "change that magnet's dimensions after the fact" work: it is an
+    edit to the step that made it, reachable from the Inspector *and* from
+    the ✎ on its Construction row, which offers the constructor parameters.
+  - **A pose pin supersedes the pin it follows.** `set_transform` writes
+    `position`/`orientation` events, and the Inspector's position field calls
+    it on every change — so without coalescing, four nudges left eight
+    entries, six of them dead. It now rewrites the trailing pair when they
+    are the last thing in the log and belong to the same object; once
+    anything else has happened, order matters and it appends.
   - **What happened *to* it is appended**: transforms, removals, reparents.
     A removal does not delete the earlier events; they ran while the object
     existed. A reparent's position in the log is what decides which group
