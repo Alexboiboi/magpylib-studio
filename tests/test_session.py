@@ -249,19 +249,19 @@ def test_every_example_builds_and_is_worth_opening():
     assert [e["name"] for e in s.list_examples()["examples"]] == list(EXAMPLES)
     assert s.load_example("nope")["ok"] is False
 
+    shown = set()
     for name in EXAMPLES:
         assert s.load_example(name) == {"ok": True}, name
         assert s.list_objects(), name
         assert np.abs(np.array(s.get_field()["values"])).max() > 0, name
-        # each is built from steps, not from declared copies
-        patterns = [
-            e for e in s.get_events()["events"]
-            if e["op"] in ("duplicate_around", "duplicate_along", "mirror")
-        ]
-        assert patterns or name == "halbach", name
-        assert s.get_variables()["variables"], name
+        assert s.get_variables()["variables"], name  # all of them parametric
+        shown.update(e["op"] for e in s.get_events()["events"])
         json.dumps(s.to_dict())
         exec_script(s.to_script())  # and each exports as runnable magpylib
+
+    # between them the examples show every way of generating objects, which
+    # is the reason for having four rather than one
+    assert {"duplicate_around", "duplicate_along", "mirror"} <= shown
 
     # the counts are what a variable changes, not what the document declares
     s.load_example("coil")
@@ -273,6 +273,17 @@ def test_every_example_builds_and_is_worth_opening():
     assert len(s._leaf_sources()) == 12  # nx * ny
     assert s.set_variable("nx", 6) == {"ok": True}
     assert len(s._leaf_sources()) == 18
+
+    # even a table of numbers is parametric: a pixel grid's resolution cannot
+    # be (an expression yields a number, not an array of another length) but
+    # every coordinate in it can
+    s.load_example("pixels")
+    grid = np.array(s._objs["probe"].pixel)
+    assert grid.shape == (7, 7, 3)
+    assert np.allclose(grid[0, 0], [-2, -2, 0])
+    assert s.set_variable("span", 8.0) == {"ok": True}
+    assert np.allclose(np.array(s._objs["probe"].pixel)[0, 0], [-4, -4, 0])
+    assert len(s.get_field_map(sensor_id="probe")["data"][0]["z"]) == 7
 
 
 def test_example_arrives_parametric():

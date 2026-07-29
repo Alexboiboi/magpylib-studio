@@ -267,6 +267,55 @@ def array_scene():
     }
 
 
+def pixel_field_scene(resolution=7):
+    """A magnet under a measuring plane: a Sensor whose pixel grid is written
+    in terms of `span`, so the patch being measured resizes with it.
+
+    magpylib's own field-on-a-plane examples build a meshgrid of observer
+    points; here that grid belongs to a Sensor, so it is a real scene object
+    — drawn in the 3D view, carried by the sensor's pose, and exported. A
+    pixel grid is a table of numbers, and this one shows that even a table
+    can be parametric: resolution cannot be (an expression yields a number,
+    not an array of a different length), but every coordinate in it can.
+    """
+    steps = [
+        (i / (resolution - 1)) - 0.5 for i in range(resolution)
+    ]  # -0.5 … +0.5, scaled by `span` at build time
+
+    def coordinate(fraction):
+        return 0 if fraction == 0 else f"=span * {fraction:.6g}"
+
+    return {
+        "variables": {"span": 4.0, "lift": 1.5, "mag": 1.0},
+        "variable_bounds": {
+            "span": {"min": 0.1, "max": 40, "soft_min": 1, "soft_max": 10},
+            "lift": {"min": 0.05, "max": 20, "soft_min": 0.5, "soft_max": 5},
+            "mag": {"min": 0.05, "max": 10, "soft_min": 0.5, "soft_max": 3},
+        },
+        "objects": [
+            {
+                "id": "magnet", "type": "magnet.Cuboid",
+                "params": {
+                    "dimension": ["=mag", "=mag", "=mag"],
+                    "polarization": [0, 0, 1],
+                },
+                "style": {"label": "Magnet"},
+            },
+            {
+                "id": "probe", "type": "Sensor",
+                "params": {
+                    "position": [0, 0, "=lift"],
+                    "pixel": [
+                        [[coordinate(u), coordinate(v), 0] for u in steps]
+                        for v in steps
+                    ],
+                },
+                "style": {"label": "Measuring plane"},
+            },
+        ],
+    }
+
+
 # The built-in scenes, each written the way the studio is meant to be used
 # and each leaning on a different feature — which is the point of having
 # more than one: an example is the shortest documentation there is.
@@ -283,6 +332,10 @@ EXAMPLES = {
              "A magnet and its mirror image across a gap, which stays a "
              "mirror image as the first is edited",
              pair_scene),
+    "pixels": ("Field on a plane",
+               "A magnet under a sensor whose pixel grid resizes with a "
+               "variable — open the Field view and read it off the sensor",
+               pixel_field_scene),
     "array": ("Magnet array",
               "A magnet patterned into a row, the row into a grid — two "
               "linear steps, both counts editable",
