@@ -20,12 +20,15 @@ python3 -m venv ~/magpylib-studio-venv
 
 # 2. the extension
 git clone https://github.com/Alexboiboi/magpylib-studio.git
-cd magpylib-studio/vscode-extension && npm install && npm run compile
+cd magpylib-studio/vscode-extension && npm install && cd ..
 ```
 
-Open `vscode-extension/` in VS Code and press `F5`. In the window that opens,
-set `magpylib-studio.pythonPath` to `~/magpylib-studio-venv/bin/python`, click
-the magpylib icon in the activity bar and press **Load Example Scene**.
+Open **the repo root** in VS Code and press `F5` — not the `vscode-extension/`
+folder: the launch config is at the root so the engine stays in the workspace
+you can edit, and F5 compiles before it launches. A second window opens (the
+Extension Development Host, on `sandbox/`). In it, set
+`magpylib-studio.pythonPath` to `~/magpylib-studio-venv/bin/python`, click the
+magpylib icon in the activity bar and press **Load Example Scene**.
 
 Full walkthrough, including building an installable `.vsix`, in the
 [extension README](vscode-extension/README.md#try-it-out).
@@ -56,10 +59,18 @@ pickers) either way. The test suite runs against both.
 ### Development
 
 ```sh
+# the engine
 uv venv --python 3.13 .venv
 VIRTUAL_ENV=$PWD/.venv uv pip install -e ".[dev]"
 .venv/bin/python -m pytest -q
+
+# the extension (from vscode-extension/)
+npm install
+npm run compile     # tsc + eslint + webview and contribution checks
+npm test            # four tests in a real Extension Development Host
 ```
+
+Then open the repo root in VS Code and press `F5`.
 
 ## Design decisions
 
@@ -138,7 +149,21 @@ printf '%s\n' \
 
 ## Status
 
-The engine is covered by ~50 tests against both magpylib versions. The VS Code
-extension compiles clean and is exercised by a stdio smoke test, but has no
-automated UI tests yet and is not packaged as a `.vsix` — see
+The engine is covered by 90 tests against both magpylib versions
+(`.venv/bin/python -m pytest -q`).
+
+The extension is checked at three levels, all wired into `npm run compile` so
+they run before every F5 and before packaging: type-checking and ESLint over
+both the host code and the webview scripts; two contribution checks (every
+declared command registered, every menu clause matching a context value the
+tree can set, every palette entry safe to invoke with no argument); and a DOM
+harness that runs a panel's real script against a real engine
+(`npm run inspect -- halbach`). On top of that, `npm test` runs four
+integration tests **inside a real Extension Development Host** — activation,
+the engine subprocess answering through the virtual `scene.json`, a removal
+taking a pattern's copies with it, and the script tab applying an edit on
+save.
+
+It packages: `npx @vscode/vsce package` produces a 1.5 MB `.vsix`. Publishing
+still needs a LICENSE, a publisher id and a 128×128 PNG icon. See
 [CONTINUE.md](CONTINUE.md) for the current state and what is next.

@@ -133,16 +133,26 @@ is optional and adds path-valued physics properties (`current=[100, 200, 300]`):
 
 **2. Run the extension**, either way:
 
-*From source* — clone the repo, then:
+*From source* — clone the repo, install the node dependencies, then open the
+**repo root** in VS Code and press `F5`:
 
 ```sh
-cd vscode-extension
-npm install
-npm run compile          # or: npm run watch
+cd vscode-extension && npm install && cd ..
+code .          # the repo root, not vscode-extension/
 ```
 
-Open **this folder** in VS Code and press `F5`; a second window opens (the
-Extension Development Host) with the extension loaded.
+`F5` compiles (tsc, eslint and two contribution checks) and opens one further
+window — the Extension Development Host, with the extension loaded and
+`sandbox/` as its workspace. Two windows total, which is as few as extension
+debugging goes. The launch config lives at the repo root deliberately: opening
+`vscode-extension/` as its own workspace works too, but then the Python engine
+is outside the window you are editing in.
+
+Other configs on the F5 menu: **Run Extension (no build)** for when
+`npm run watch` is already running, and **Extension Tests**. From a terminal
+the equivalents are `npm run compile`, `npm run watch` and `npm test` — the
+last downloads a VS Code build the first time and runs the suite in a real
+host.
 
 *From a package* — build a `.vsix` and install it into your normal VS Code:
 
