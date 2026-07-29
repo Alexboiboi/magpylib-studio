@@ -11,17 +11,33 @@ newline-delimited JSON-RPC over stdio.
   (camera held across edits via `uirevision`). Just the plot: selection and
   editing live in the sidebar.
 - **Scene view** — the magpylib-logo icon in the activity bar opens a sidebar
-  tree of the scene's objects, one icon per type (magnets red, currents blue,
-  sensors green). Clicking an object opens/reveals the plot and loads it in
-  the Inspector; right-click offers *Remove Object* and *Reset Style*. The
-  scene starts **empty**: the view shows a **Load Example Scene** button
-  (Halbach ring + coil pair + sensor). Flat for now — it mirrors the engine's
-  single-collection document.
-- **History view** — the session timeline, newest first: every scene change
-  as a checkpoint (the current one marked, future ones dimmed). Click any
-  entry to jump the scene there, both backwards and forwards; the timeline
-  itself stays put. Undo/redo icons sit on the Scene and History view
-  titles (Cmd+Z / Cmd+Shift+Z still work inside the panels).
+  tree of the scene's objects, nested as they are grouped, one icon per type
+  (magnets red, currents blue, sensors green). Clicking an object opens the
+  plot and loads it in the Inspector. The scene starts **empty**: the view
+  offers **Load Example Scene…**, which picks between five — a Halbach stack,
+  a solenoid, a mirrored pair, a magnet array and a parametric measuring
+  plane, each built from a couple of steps rather than a heap of objects.
+- **The construction history is in that tree**, under the object it happened
+  to: expand a magnet and you get *created*, *orbit 36° about z*, and so on,
+  before whatever it contains. Steps are named for what they did; the call
+  that did it is the tooltip. Hover one for *Edit Step…* (its values open in
+  the Inspector, expressions included), move it earlier or later — order is
+  semantic — or remove it. Editing an early step re-applies everything after
+  it; anything that no longer applies is flagged in place with the reason,
+  rather than the edit being refused.
+- **Build Up To Here** on a step folds only the history before it, so you can
+  watch the scene assemble — and anything you do while rolled back is
+  *inserted at that step*. The Scene title bar offers *Show The Whole Scene*
+  while it is active.
+- **Variables view** — named numbers the scene is written in terms of. Each
+  row is a value box and, once it has bounds, a slider; dragging one moves
+  everything defined against it. Values may be expressions over the other
+  variables (`360 / n`), with the allowed operators, functions and constants
+  listed in the panel and checked as you type. **Sweep a Variable…** plots
+  the field against one in the Field view.
+- **Undo view** — the session's checkpoints, newest first: click any to jump
+  the scene there, backwards or forwards. This is *not* the construction
+  history above; it is document snapshots, and it is gone on reload.
 - **Add Object…** — the `+` icon on the Scene view (or right-click a
   collection to create inside it, or the empty-view welcome): pick a type
   (cuboid, cylinder, segment, sphere, tetrahedron, current loop/polyline,
@@ -37,8 +53,12 @@ newline-delimited JSON-RPC over stdio.
   (dimmed in the tree, like toggling a plotly trace) — hidden sources still
   count in field calculations.
 - **Right-click → Transform** — Set Position…, Move By…, Rotate… (spin or
-  orbit the origin), Clear Path. Move/Rotate accept `× N` at the end of the
-  value to spread the operation over an N-step animation path, e.g. `360 × 36`.
+  orbit the origin), Clear Path, Pixel Grid…, and **Pattern…**: one step
+  standing for N copies, *around an axis* (a ring, a rotor, a Halbach array),
+  *along a direction* (do it twice for a grid), or *mirrored* — where the
+  polarization reflects as an axial vector should, which is the part that is
+  easy to get wrong by hand. Counts and steps may be variables, so the whole
+  arrangement stays one number to edit.
 - **Field maps** — the Field panel's *Plane map* mode: a heatmap of |B| (or a
   signed component) on the xy/xz/yz plane at any offset, with a log option
   because field spans orders of magnitude. Colour follows the data's job —
@@ -47,11 +67,16 @@ newline-delimited JSON-RPC over stdio.
   Right-click a Sensor → **Transform → Pixel Grid…** builds magpylib's own
   pixel grid instead: the measurement plane is then a real object, visible in
   the 3D view, tilting with the sensor and exported in the script.
-- **Transforms** — the Inspector's `transform` section: absolute position and
-  rotation-vector fields, relative *rotate* (with "orbit origin" for
-  Halbach-style arrangements) and *move*, each with a step count that turns
-  the operation into an animation **path**, plus *Clear path*. Same
-  operations in chat: `#magpyMove`, `#magpyRotate`, `#magpyPose`.
+- **Pose** — the Inspector's `pose` section: the object's absolute position
+  and rotation vector, showing the expression a value was written as beside
+  what it currently comes to. Relative moves and rotations are not here; they
+  record a *step*, so they live on the tree's Transform menu. Same operations
+  in chat: `#magpyMove`, `#magpyRotate`, `#magpyPose`.
+- **The script tab is editable both ways** — *Edit Python Script* renders the
+  scene as runnable magpylib, and saving it rebuilds the scene from what you
+  wrote, as one undo step. Variables and patterns survive the round trip
+  intact; a script the studio cannot parse is executed instead, and what that
+  flattens is reported.
 - **Properties** — the Inspector's `properties` section: the object's physics
   parameters (polarization, dimension, diameter, current, moment, vertices,
   pixels) as numeric widgets, with units in the tooltips; matrices like
@@ -72,7 +97,12 @@ edit, whatever its origin — inspector widget, chat tool, or tree context menu.
   `#magpyAdd` / `#magpyRemove` (add/remove scene objects), `#magpyParam`
   (constructor params: move, resize, repolarize), `#magpyClear` (empty the
   scene in one call), `#magpyBatch` (many operations in one call — the tool
-  descriptions steer the model to it for multi-object work). Edits
+  descriptions steer the model to it for multi-object work), `#magpyVars` /
+  `#magpyVar` / `#magpyBounds` (the scene's variables), `#magpyDuplicate` /
+  `#magpyRow` / `#magpyMirror` (patterns, which the descriptions steer the
+  model to instead of adding ring magnets one at a time), `#magpySweep` (the
+  field against a variable) and `#magpyEvents` / `#magpyEditEvent` /
+  `#magpyMoveEvent` / `#magpyRemoveEvent` (the construction history). Edits
   auto-refresh all surfaces, debounced so bursts redraw once.
 
 Both the webview and the LM tools share one engine process
@@ -124,11 +154,18 @@ code --install-extension magpylib-studio-vscode-0.0.1.vsix
 `.venv` with the engine in it. If nothing usable is found you get an error with
 an *Open Settings* button, not a silent failure.
 
-**4. Open it.** Click the magpylib icon in the activity bar and press
-**Load Example Scene** — two Halbach rings and a sensor path. From there: click
-objects in the tree to inspect and edit them, open the Field view for the map,
-and (with GitHub Copilot installed) ask chat things like
-`make the cube green #magpyEdit` or `what is B at the bore centre? #magpyField`.
+**4. Open it.** Click the magpylib icon in the activity bar, press **Load
+Example Scene…** and take the Halbach stack. Then, in rough order of what the
+tool is for:
+
+- open **Variables** and drag `n` — twenty magnets rebuild from one number;
+- expand a ring in the tree to see the steps that built it, and *Edit Step…*
+  on the orbit to change it after the fact;
+- **Sweep a Variable…** on `gap` to plot the field against it;
+- *Edit Python Script* to see the whole thing as parametric magpylib, edit a
+  line, and save it back;
+- with GitHub Copilot installed, ask chat `make the magnets green #magpyEdit`
+  or `a ring of 8 dipoles at radius 5 #magpyDuplicate`.
 
 [branch]: https://github.com/magpylib/magpylib/tree/feat/improve-style
 

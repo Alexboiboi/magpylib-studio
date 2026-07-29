@@ -5,8 +5,10 @@ a GUI *and* LLM studio for magnetic scenes. The engine owns a magpylib scene and
 exposes everything a frontend needs over a tiny JSON-RPC protocol on stdio; the
 presentation layer (VS Code webview, Solara, a CLI…) is a thin client.
 
-The VS Code side is in [`vscode-extension/`](vscode-extension/) — scene tree,
-schema-driven inspector, 3D view, field maps, history, and Copilot chat tools.
+The VS Code side is in [`vscode-extension/`](vscode-extension/) — scene tree
+with the construction history in it, schema-driven inspector, variables with
+sliders, 3D view, field maps and sweeps, an editable script tab, and Copilot
+chat tools.
 
 ## Try it out
 
@@ -61,26 +63,38 @@ VIRTUAL_ENV=$PWD/.venv uv pip install -e ".[dev]"
 
 ## Design decisions
 
-- **The scene document is the source of truth.** Every edit updates the live
-  magpylib object *and* the document, so `to_dict()` / `to_script()` always
-  reflect the current state and can be versioned in git — that is the durable
-  history. An in-session undo/redo stack (`undo`, `redo`, `goto_history`)
-  complements it for quick reverts; it does not replace it.
-- **Transforms are recorded magpylib calls, not derived poses.** Each object
-  spec carries an ordered log (`move`, `rotate_from_angax`, …) replayed after
-  the object — and, for a Collection, its children — is built. magpylib owns
-  every semantic: paths, anchors, `start`, and group transforms carrying a
-  subtree.
+- **The document is a log, and the object tree is a projection of it.**
+  `doc["events"]` holds everything that built the scene — `create`, `remove`,
+  `reparent`, the transforms and the patterns — and every build folds it from
+  the start, so `doc["objects"]` is regenerated rather than stored. Strip it
+  from a document and the log reconstructs the same scene, ids and field
+  included. Editing an early event therefore re-applies everything after it
+  for free; what it breaks is reported rather than blocking the edit.
+- **What a thing *is* is edited; what happened *to* it is appended.** An
+  object's type, parameters and style live on its `create` event and are
+  changed in place — dragging a slider must not write history — while moves,
+  rotations, removals and reparents go on the end. That one distinction is
+  what keeps the log finite *and* meaningful.
+- **Transforms are recorded magpylib calls, not derived poses.** The log holds
+  `move`, `rotate_from_angax`, … as they were made, so magpylib owns every
+  semantic: paths, anchors, `start`, and group transforms carrying a subtree.
+- **Scenes are parametric.** Any numeric value may be an expression over the
+  document's variables (`"=360/n"`), evaluated from its AST against an
+  allow-list — never `eval`, because a document is something you open from
+  someone else. `sweep()` re-folds the scene once per value of a variable,
+  which is affordable because a rebuild is milliseconds.
 - **One schema contract.** The same JSON Schema drives the inspector widgets
   *and* the LLM tool inputs.
 - **Validation is shared.** Every edit goes through magpylib, and a bad edit is
   *reported* (`{"ok": false, "error": …}`), not raised — so a GUI shows an error
   and an LLM self-corrects. There is no second validation layer.
-- **Document canonical, script generated.** `to_script()` emits runnable
-  magpylib code. The reverse exists as a pragmatic bridge: `load_script()`
-  *executes* a script with `show()` intercepted and introspects the live
-  objects, so each `show()` call becomes an importable scene. Parametric
-  structure flattens; true AST parsing is deliberately out of scope.
+- **Document canonical, script generated — and read back two ways.**
+  `to_script()` emits runnable magpylib code, patterns included (as the loops
+  they mean). `apply_script()` **parses** it when it is still in that shape,
+  so variables, event order and arrangements survive and the whole document
+  round-trips byte-identically; anything else — a loop of your own, a helper,
+  numpy — is *executed* with `show()` intercepted, as `load_script()` always
+  did, and what that flattens is reported.
 
 ## JSON-RPC protocol (stdio)
 
@@ -99,10 +113,13 @@ line — no ports, no framework.
 | structure | `add_object` · `remove_object` · `copy_object` · `move_object` (reparent) · `set_visible` |
 | edit | `apply_edit` (style) · `set_param` · `reset_style` |
 | transform | `move` · `rotate` · `set_transform` · `clear_path` · `set_pixel_grid` |
-| view | `get_figure` (3D) · `get_field_figure` (along a sensor path) · `get_field_map` (plane heatmap) |
-| field | `get_field` — summed B/H at points or along a sensor |
-| history | `undo` · `redo` · `goto_history` |
-| I/O | `load_scene` · `load_script` · `load_captured` · `load_example` · `clear_scene` · `to_dict` · `to_script` |
+| patterns | `duplicate_around` (circular) · `duplicate_along` (linear; twice = a grid) · `mirror` |
+| variables | `get_variables` · `set_variable` · `set_variable_bounds` · `remove_variable` · `unknown_variables` · `expression_help` · `check_expression` |
+| history | `get_events` · `edit_event` · `move_event` · `remove_event` · `set_rollback` |
+| view | `get_figure` (3D) · `get_field_figure` (along a sensor path) · `get_field_map` (plane heatmap) · `get_sweep_figure` |
+| field | `get_field` — summed B/H at points or along a sensor · `sweep` — the field against a variable |
+| undo | `undo` · `redo` · `goto_history` |
+| I/O | `load_scene` · `load_script` · `apply_script` · `load_captured` · `list_examples` · `load_example` · `clear_scene` · `to_dict` · `to_script` |
 | bulk | `batch` — many mutating ops in one call, one undo step |
 
 Mutating methods return `{"ok": bool, "error"?: str}`. Everything is
