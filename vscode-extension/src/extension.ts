@@ -1054,10 +1054,18 @@ export function activate(context: vscode.ExtensionContext): void {
       const result = (await getEngine(context).request(method, params)) as {
         ok: boolean;
         error?: string;
+        inserted_at?: number;
       };
       ok = result.ok;
       if (!result.ok) {
         vscode.window.showErrorMessage(`Magpylib Studio: ${result.error}`);
+      } else if (result.inserted_at !== undefined) {
+        // it went into the middle of the history, not the end — worth saying,
+        // because the scene on screen is a preview and looks like the whole
+        vscode.window.setStatusBarMessage(
+          `Magpylib Studio: inserted at step ${result.inserted_at + 1} of the history`,
+          3000,
+        );
       }
     } catch (err) {
       vscode.window.showErrorMessage(

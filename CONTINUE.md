@@ -269,9 +269,18 @@ and drives it.
     active (context key `magpylib-studio.rolledBack`, read back from the
     engine rather than tracked in the UI). It is a **view**: `to_dict`,
     `to_script` and Save Scene As still see the whole document — only what is
-    built is partial (`_objects_view`) — and any edit returns to the end of
-    the history first. Inserting *at* the rollback point is the piece not
-    done; it would have to decide what "after here" then means.
+    built is partial (`_objects_view`).
+  - **Editing while rolled back inserts at that step**, the other half of the
+    gesture: `_reposition_for_rollback` moves whatever a mutation appended
+    into the rollback position and advances it, so several edits stack up in
+    the order they were made, and the result carries `inserted_at` (the UI
+    says so in the status bar — the scene on screen is a preview and looks
+    like the whole). This is well defined *because* a rolled-back scene holds
+    only the objects that existed then: whatever you can act on is already
+    there, so nothing inserted can refer to something created later. Anything
+    that did not simply append — loading a document, editing the log itself —
+    returns to the end instead, and `_folded_events` clamps the step when undo
+    restores a shorter log.
   - The remaining panel called **Undo** is the session's snapshot stack, and
     is not history in the document sense: document copies, capped at 100,
     gone on reload.

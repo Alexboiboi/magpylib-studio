@@ -1231,11 +1231,47 @@ def test_rollback_shows_the_scene_as_it_stood():
     assert s.set_rollback()["ok"] is True  # the whole scene again
     assert np.allclose(np.array(s.get_field("sensor")["values"]), field)
 
-    # an edit is made to the scene, not to the preview, so it returns first
+    # editing a variable while previewing updates the preview, and stays there
     s.set_rollback(2)
     assert s.set_variable("radius", 2.5) == {"ok": True}
+    assert s.get_events()["rollback"] == 2
+    assert [o["id"] for o in s.list_objects()] == ["halbach", "ring1"]
+
+
+def test_edits_while_rolled_back_are_inserted_at_that_step():
+    """The other half of the CAD gesture: go back to a step and work from
+    there. It is well defined because a rolled-back scene holds only what
+    existed then, so nothing inserted can refer to something made later."""
+    import numpy as np
+
+    s = MagpylibStudioSession()
+    s.add_object("a", "magnet.Sphere", {"polarization": [0, 0, 1], "diameter": 1})
+    s.move("a", [10, 0, 0])
+    assert [e["label"] for e in s.get_events()["events"]] == [
+        "created", "moved by (10, 0, 0) m"
+    ]
+
+    # step back to just after the sphere was made, and orbit it there
+    assert s.set_rollback(1)["ok"] is True
+    result = s.rotate("a", 90, "z", anchor=[0, 0, 0])
+    assert result == {"ok": True, "inserted_at": 1}
+    assert [e["label"] for e in s.get_events()["events"]] == [
+        "created", "orbit 90° about z", "moved by (10, 0, 0) m"
+    ]
+    # the step advances past what was inserted, so the next edit follows it
+    assert s.get_events()["rollback"] == 2
+    assert s.move("a", [0, 0, 5])["inserted_at"] == 2
+
+    # and the events after the point still apply once the preview is released
+    assert s.set_rollback()["ok"] is True
+    assert np.allclose(s._objs["a"].position, [10, 0, 5])
+    assert [e["label"] for e in s.get_events()["events"]][-1] == "moved by (10, 0, 0) m"
+
+    # loading a document is not an insertion: it replaces everything
+    s.set_rollback(1)
+    assert s.load_scene(make_scene())["ok"] is True
     assert s.get_events()["rollback"] is None
-    assert len(s.list_objects()) == 24
+    assert len(s.list_objects()) == 2
 
 
 def test_a_create_event_is_where_an_object_is_changed_after_the_fact():

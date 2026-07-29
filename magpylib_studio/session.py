@@ -597,7 +597,11 @@ class MagpylibStudioSession:
         """The events this build takes in, which is all of them unless the
         history is rolled back to an earlier step."""
         events = self.doc.get("events") or []
-        return events if self._rollback is None else events[: self._rollback]
+        if self._rollback is None:
+            return events
+        # undo can restore a shorter log than the step we were looking at
+        self._rollback = min(self._rollback, len(events))
+        return events[: self._rollback]
 
     def set_rollback(self, index=None):
         """Show the scene as it stood after the first `index` events, or the
@@ -810,13 +814,11 @@ class MagpylibStudioSession:
         """
         snapshot = json.loads(json.dumps(self.doc))
         broken_before = {b["id"] for b in self._broken}
-        # An edit is made to the scene, not to the preview of an earlier step,
-        # so it returns to the end of the history first. (Inserting *at* the
-        # rollback point is the other half of the CAD gesture, and a bigger
-        # question: it would have to decide what "after here" then means.)
-        self._rollback = None
+        rollback_before = self._rollback
+        before = list(self.doc.get("events") or [])
         try:
             mutate(self.doc)
+            inserted = self._reposition_for_rollback(before)
             _canonical(self.doc)
             self._build()
             new_breakage = [b for b in self._broken if b["id"] not in broken_before]
@@ -824,13 +826,44 @@ class MagpylibStudioSession:
                 raise ValueError(new_breakage[0]["error"])
         except Exception as e:  # noqa: BLE001 - report every failure to the caller
             self.doc = snapshot
+            self._rollback = rollback_before
             self._build()
             return {"ok": False, "error": str(e)}
         self._record_state(label, snapshot)
         result = {"ok": True}
         if new_breakage:
             result["broken"] = new_breakage
+        if inserted:
+            result["inserted_at"] = inserted
         return result
+
+    def _reposition_for_rollback(self, before):
+        """While the history is rolled back, new events go in *at* that step
+        rather than at the end — the other half of the CAD rollback gesture.
+
+        This is well defined precisely because a rolled-back scene only holds
+        the objects that existed then: whatever you can act on is already
+        there, so an inserted event cannot refer to something created later.
+        The step advances past what was inserted, so several edits in a row
+        stack up in the order they were made.
+
+        Anything that did not simply append — loading a document, editing the
+        log itself — returns to the end instead.
+        """
+        if self._rollback is None:
+            return None
+        events = self.doc.get("events") or []
+        appended = len(events) > len(before) and events[: len(before)] == before
+        if not appended:
+            if events != before:
+                self._rollback = None  # not an append: the preview is stale
+            return None
+        added = events[len(before):]
+        del events[len(before):]
+        events[self._rollback : self._rollback] = added
+        at = self._rollback
+        self._rollback += len(added)
+        return at
 
     def _iter_specs(self, specs=None, parent=None):
         """Depth-first (spec, parent_spec) pairs over the whole document."""
