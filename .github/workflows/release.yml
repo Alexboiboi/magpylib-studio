@@ -63,7 +63,7 @@ jobs:
             has to be installed separately into an interpreter it can find:
 
             ```sh
-            pip install "magpylib-studio @ git+https://github.com/Alexboiboi/magpylib-studio.git"
+            pip install "magpylib-studio @ git+https://github.com/magpylib/magpylib-studio.git"
             ```
 
             Then set `magpylib-studio.pythonPath` to that interpreter.

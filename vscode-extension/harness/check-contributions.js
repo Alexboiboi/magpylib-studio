@@ -72,6 +72,37 @@ for (const tool of tools) {
   }
 }
 
+// An array parameter with no `items` is rejected at *registration*, by the
+// chat client rather than by us — "tool parameters array type must have
+// items". Nothing here catches it: it type-checks, it packages, and the tool
+// simply is not there when the model reaches for it. Five of them shipped
+// that way. Union types (`["number", "array"]`) count, because they can hold
+// an array too and the next validator to tighten will say so.
+const arraysWithoutItems = (node, path) => {
+  if (Array.isArray(node)) {
+    return node.flatMap((child, i) => arraysWithoutItems(child, `${path}[${i}]`));
+  }
+  if (!node || typeof node !== 'object') {
+    return [];
+  }
+  // `node.type` is not always a schema keyword: inside a `properties` block a
+  // property may itself be *named* "type" (add_object takes one), so the
+  // value can be an object. Only a string or a list of them is a type.
+  const t = node.type;
+  const declared = typeof t === 'string' ? [t] : Array.isArray(t) ? t : [];
+  const here = declared.includes('array') && node.items === undefined ? [path || '(root)'] : [];
+  return here.concat(
+    Object.entries(node).flatMap(([key, child]) =>
+      arraysWithoutItems(child, path ? `${path}.${key}` : key),
+    ),
+  );
+};
+for (const tool of tools) {
+  for (const where of arraysWithoutItems(tool.inputSchema, '')) {
+    problems.push(`${tool.name}: ${where} is an array with no "items" — the chat client will refuse to register this tool`);
+  }
+}
+
 // Menu visibility keys off contextValue, which only the tree sets. A value is
 // often built from pieces ('magpyObject' + 'Visible'), so take every string
 // literal in the assignment and every concatenation of two of them: over-

@@ -137,7 +137,7 @@ owns the request-id space).
 ```sh
 python3 -m venv ~/magpylib-studio-venv
 ~/magpylib-studio-venv/bin/pip install \
-  "magpylib-studio @ git+https://github.com/Alexboiboi/magpylib-studio.git"
+  "magpylib-studio @ git+https://github.com/magpylib/magpylib-studio.git"
 ```
 
 That pulls released magpylib and works fully. The [property-tree branch][branch]
@@ -182,7 +182,7 @@ code --install-extension magpylib-studio-vscode-0.0.1.vsix
 Not on the Marketplace yet: the engine is not on PyPI, so installing from
 there would leave you with a UI and nothing behind it.
 
-[releases]: https://github.com/Alexboiboi/magpylib-studio/releases
+[releases]: https://github.com/magpylib/magpylib-studio/releases
 
 **3. Point it at the interpreter.** Settings → `magpylib-studio.pythonPath` →
 `~/magpylib-studio-venv/bin/python`. Skip this only if your workspace has a

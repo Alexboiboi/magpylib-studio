@@ -648,11 +648,19 @@ test skips via `supports_property_paths()`).
   With it published, the "no interpreter found" error can grow an **Install
   the engine** button that runs `pip install magpylib-studio` into the chosen
   interpreter — the failure becomes a one-click fix. Everything else is done:
-  LICENSE (BSD-3-Clause, matching magpylib), `license`/`icon`/`preview` in
-  package.json, a 128×128 icon, CI on both magpylib versions, and a tag-driven
-  release workflow that attaches the `.vsix`. The one remaining bit of
-  paperwork is the **publisher id**: `publisher` is `magpylib`, the upstream
-  project's name — either get their blessing or publish under your own.
+  LICENSE (BSD-3-Clause, like the other magpylib satellites — the core itself
+  is 2-clause), `license`/`icon`/`preview` in package.json, a 128×128 icon, CI
+  on both magpylib versions, and a tag-driven release workflow that attaches
+  the `.vsix`. The repo now lives at **magpylib/magpylib-studio**, which makes
+  `publisher: "magpylib"` right — but a **Marketplace publisher is registered
+  through Azure DevOps**, not GitHub, and https://marketplace.visualstudio.com
+  /publishers/magpylib was still a 404 when this was written. It has to be
+  created, and a PAT put in repo secrets, before any `vsce publish`.
+
+  The LICENSE copyright line says "Alexandre Boisselet". That matches
+  magpylib-force (which says "Michael Ortner"); the core library says
+  "Silicon Austria Labs, Magpylib Developers". Worth confirming the house
+  style with the other maintainers now that this is an org repo.
 
 - **Custom editor / multi-document — the remaining stage of the persistence
   work.** Scenes are now files (`.magpy.json`, save/open/revert, a dirty mark

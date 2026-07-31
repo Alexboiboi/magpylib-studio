@@ -16,10 +16,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/Alexboiboi/magpylib-studio.git"
+    "url": "https://github.com/magpylib/magpylib-studio.git"
   },
   "bugs": {
-    "url": "https://github.com/Alexboiboi/magpylib-studio/issues"
+    "url": "https://github.com/magpylib/magpylib-studio/issues"
   },
   "engines": {
     "vscode": "^1.95.0"
@@ -946,7 +946,28 @@
             },
             "displacement": {
               "type": "array",
-              "description": "[dx,dy,dz], or [[dx,dy,dz], ...] for a path."
+              "description": "[dx,dy,dz], or [[dx,dy,dz], ...] for a path.",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "description": "An expression over the scene's variables, e.g. \"=gap\"."
+                  },
+                  {
+                    "type": "array",
+                    "description": "One step of a path.",
+                    "items": {
+                      "type": [
+                        "number",
+                        "string"
+                      ]
+                    }
+                  }
+                ]
+              }
             },
             "start": {
               "description": "Path index to apply from; -1 appends to the current path."
@@ -971,10 +992,54 @@
               "type": "string"
             },
             "position": {
-              "type": "array"
+              "type": "array",
+              "description": "[x,y,z] in metres, or [[x,y,z], ...] for a path.",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "description": "An expression over the scene's variables, e.g. \"=gap\"."
+                  },
+                  {
+                    "type": "array",
+                    "description": "One step of a path.",
+                    "items": {
+                      "type": [
+                        "number",
+                        "string"
+                      ]
+                    }
+                  }
+                ]
+              }
             },
             "orientation": {
-              "type": "array"
+              "type": "array",
+              "description": "Rotation vector [rx,ry,rz] in degrees, or a path of them.",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "description": "An expression over the scene's variables, e.g. \"=tilt\"."
+                  },
+                  {
+                    "type": "array",
+                    "description": "One step of a path.",
+                    "items": {
+                      "type": [
+                        "number",
+                        "string"
+                      ]
+                    }
+                  }
+                ]
+              }
             }
           },
           "required": [
@@ -1131,14 +1196,26 @@
                 "string",
                 "array"
               ],
-              "description": "Axis to arrange about: 'x', 'y', 'z', or a vector [x,y,z]. Default 'z'."
+              "description": "Axis to arrange about: 'x', 'y', 'z', or a vector [x,y,z]. Default 'z'.",
+              "items": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              }
             },
             "anchor": {
               "type": [
                 "number",
                 "array"
               ],
-              "description": "Point the copies orbit: 0 for the origin, or [x,y,z]. Default 0."
+              "description": "Point the copies orbit: 0 for the origin, or [x,y,z]. Default 0.",
+              "items": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              }
             },
             "spin": {
               "type": [
@@ -1180,7 +1257,14 @@
             },
             "points": {
               "type": "array",
-              "description": "Explicit observation points [[x,y,z], ...] in metres. Optional."
+              "description": "Explicit observation points [[x,y,z], ...] in metres. Optional.",
+              "items": {
+                "type": "array",
+                "description": "One point [x,y,z].",
+                "items": {
+                  "type": "number"
+                }
+              }
             },
             "field": {
               "type": "string",
@@ -1332,7 +1416,13 @@
             },
             "step": {
               "type": "array",
-              "description": "Displacement between neighbouring copies as [dx, dy, dz] in metres; components may be expressions."
+              "description": "Displacement between neighbouring copies as [dx, dy, dz] in metres; components may be expressions.",
+              "items": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              }
             }
           },
           "required": [
@@ -1366,14 +1456,26 @@
             },
             "normal": {
               "type": "array",
-              "description": "Explicit plane normal [x,y,z], instead of a named plane."
+              "description": "Explicit plane normal [x,y,z], instead of a named plane.",
+              "items": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              }
             },
             "anchor": {
               "type": [
                 "number",
                 "array"
               ],
-              "description": "A point the plane passes through; 0 for the origin."
+              "description": "A point the plane passes through; 0 for the origin.",
+              "items": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              }
             }
           },
           "required": [

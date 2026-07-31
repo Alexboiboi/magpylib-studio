@@ -16,10 +16,10 @@ chat tools.
 # 1. the engine (Python >= 3.11)
 python3 -m venv ~/magpylib-studio-venv
 ~/magpylib-studio-venv/bin/pip install \
-  "magpylib-studio @ git+https://github.com/Alexboiboi/magpylib-studio.git"
+  "magpylib-studio @ git+https://github.com/magpylib/magpylib-studio.git"
 
 # 2. the extension
-git clone https://github.com/Alexboiboi/magpylib-studio.git
+git clone https://github.com/magpylib/magpylib-studio.git
 cd magpylib-studio/vscode-extension && npm install && cd ..
 ```
 
@@ -36,7 +36,7 @@ Full walkthrough, including building an installable `.vsix`, in the
 ## Install the engine on its own
 
 ```sh
-pip install "magpylib-studio @ git+https://github.com/Alexboiboi/magpylib-studio.git"
+pip install "magpylib-studio @ git+https://github.com/magpylib/magpylib-studio.git"
 ```
 
 That is enough: the engine works with **released magpylib** (≥ 5.2). The
@@ -186,9 +186,10 @@ not on PyPI, so installing the extension there would be followed by "now go
 and pip install this git URL" — a failure at first contact, before anyone sees
 a feature. Publishing the engine is what unblocks that, and lets the extension
 offer to install it into the interpreter you point at instead of telling you
-to. Until then, a release asset is the honest channel. (A publisher id is also
-needed: `publisher` is currently `magpylib`, which is the upstream project's
-name, not this repo's.)
+to. Until then, a release asset is the honest channel. (`publisher` is
+`magpylib`, which this repo's org now makes right — but a Marketplace
+publisher is registered through Azure DevOps and is a separate thing from the
+GitHub org, so it still has to be created before a first `vsce publish`.)
 
 See [CONTINUE.md](CONTINUE.md) for the current state and what is next.
 
