@@ -1,0 +1,63 @@
+# Publishes the magpylib_studio engine to PyPI. Mirrors magpylib and
+# magpylib-material-response's cd.yml, so it needs the same two things set up
+# on the account side before the publish job can succeed: a PyPI Trusted
+# Publisher for "magpylib-studio" linked to this repo/workflow/environment,
+# and a GitHub environment named "pypi" here.
+#
+# release.yml creates the GitHub Release (with the .vsix attached) on a
+# `v*` tag push; that release being published is what triggers the publish
+# job below — the two workflows are deliberately separate, one per artifact.
+name: CD
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+  release:
+    types:
+      - published
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_COLOR: 3
+
+jobs:
+  dist:
+    name: Distribution build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: hynek/build-and-inspect-python-package@v2
+
+  publish:
+    needs: [dist]
+    name: Publish to PyPI
+    environment: pypi
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' && github.event.action == 'published'
+
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: Packages
+          path: dist
+
+      - name: Generate artifact attestation for sdist and wheel
+        uses: actions/attest-build-provenance@v4.1.0
+        with:
+          subject-path: "dist/*"
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

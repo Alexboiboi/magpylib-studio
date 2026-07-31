@@ -1,10 +1,28 @@
 [project]
 name = "magpylib-studio"
-version = "0.1.0"
+authors = [
+  { name = "Alexandre Boisselet", email = "alexabois+magpylib@gmail.com" },
+]
+description = "Headless magpylib editing engine for GUI/LLM frontends (e.g. a VS Code extension backend)."
+readme = "README.md"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
-description = "Headless magpylib editing engine for GUI/LLM frontends (e.g. a VS Code extension backend)."
 requires-python = ">=3.11"
+classifiers = [
+  "Development Status :: 1 - Planning",
+  "Intended Audience :: Science/Research",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Scientific/Engineering",
+]
+dynamic = ["version"]
 # Works with released magpylib; `magpylib_studio/style_compat.py` fills in the
 # style APIs (schema/set/set_values) that only the property-tree branch has.
 # That branch additionally enables path-valued properties (current=[...]):
@@ -14,9 +32,17 @@ dependencies = ["magpylib>=5.2", "plotly>=5"]
 [project.optional-dependencies]
 dev = ["pytest>=8", "jsonschema>=4"]
 
+[project.urls]
+Homepage = "https://github.com/magpylib/magpylib-studio"
+"Bug Tracker" = "https://github.com/magpylib/magpylib-studio/issues"
+
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.26", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+[tool.hatch]
+version.source = "vcs"
+build.hooks.vcs.version-file = "magpylib_studio/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["magpylib_studio"]

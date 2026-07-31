@@ -8,3 +8,4 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 *.pyc
+magpylib_studio/_version.py
