@@ -68,6 +68,9 @@ let backupTimer: ReturnType<typeof setTimeout> | undefined;
 /** Remembered per workspace: the file to reopen, and whether what was in the
  *  editor differed from it. */
 const SCENE_STATE_KEY = 'magpylib-studio.scene';
+/** Remembered globally (not per workspace): whether the getting-started
+ *  walkthrough has already been shown, so it opens once per install. */
+const TOUR_SHOWN_KEY = 'magpylib-studio.tourShown';
 /** The extension VS Code associates with the studio, and what Save proposes.
  *  Doubled rather than a bare `.magpy`: the file stays JSON to git, to schema
  *  validation and to every editor, while still being a name we can claim. */
@@ -2354,6 +2357,18 @@ export function activate(context: vscode.ExtensionContext): void {
   registerLmTools(context);
   void adoptRestoredScriptTab();
   void restoreScene();
+
+  // First activation on this machine, any workspace: open the walkthrough
+  // once. Global rather than per-workspace state — a returning user opening
+  // a second project should not see it again.
+  if (!context.globalState.get(TOUR_SHOWN_KEY)) {
+    void context.globalState.update(TOUR_SHOWN_KEY, true);
+    void vscode.commands.executeCommand(
+      'workbench.action.openWalkthrough',
+      `${context.extension.id}#gettingStarted`,
+      false,
+    );
+  }
 }
 
 export async function deactivate(): Promise<void> {

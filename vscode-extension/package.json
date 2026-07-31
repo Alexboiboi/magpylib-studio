@@ -355,6 +355,79 @@
         "contents": "The scene is empty.\n[Add Object...](command:magpylib-studio.addObject)\nA magnet, current, sensor or collection.\n[Load Example Scene...](command:magpylib-studio.loadExample)\nA Halbach stack, a solenoid, a mirrored pair or a magnet array \u2014 each built from a couple of parametric steps.\n[Open Scene...](command:magpylib-studio.loadScene)\nA .magpy.json scene saved earlier.\n[Import Python Script...](command:magpylib-studio.importScript)\nRun an existing magpylib script and edit its scene here.\nOr ask Copilot chat to add objects with #magpyAdd."
       }
     ],
+    "walkthroughs": [
+      {
+        "id": "gettingStarted",
+        "title": "Get Started with Magpylib Studio",
+        "description": "Build a magnet scene and see its field, in a few clicks.",
+        "icon": "media/icon.png",
+        "steps": [
+          {
+            "id": "openStudio",
+            "title": "Open the Studio view",
+            "description": "The Studio panel renders the scene with magpylib's own 3D plot, and stays open as you edit.\n[Open Scene View](command:magpylib-studio.openStudio)",
+            "media": {
+              "markdown": "walkthroughs/open-studio.md"
+            },
+            "completionEvents": [
+              "onCommand:magpylib-studio.openStudio"
+            ]
+          },
+          {
+            "id": "loadExample",
+            "title": "Load an example",
+            "description": "Four ready-made scenes \u2014 a Halbach ring, a solenoid, a mirrored pair, a magnet array \u2014 each built from a handful of parametric steps.\n[Load Example Scene\u2026](command:magpylib-studio.loadExample)",
+            "media": {
+              "markdown": "walkthroughs/load-example.md"
+            },
+            "completionEvents": [
+              "onCommand:magpylib-studio.loadExample"
+            ]
+          },
+          {
+            "id": "addObject",
+            "title": "Add your own object",
+            "description": "Add a magnet, current source, sensor or collection, then click it in the Scene tree to edit it in the Inspector.\n[Add Object\u2026](command:magpylib-studio.addObject)",
+            "media": {
+              "markdown": "walkthroughs/add-object.md"
+            },
+            "completionEvents": [
+              "onCommand:magpylib-studio.addObject"
+            ]
+          },
+          {
+            "id": "askCopilot",
+            "title": "Edit it from chat",
+            "description": "Copilot Chat can add, move, resize and style objects, and compute the field, directly on the live scene.\nTry: `add a green sphere at [0,2,0] #magpyAdd`",
+            "media": {
+              "markdown": "walkthroughs/ask-copilot.md"
+            }
+          },
+          {
+            "id": "fieldView",
+            "title": "See the field",
+            "description": "Plot B, H, J or M along a sensor's path \u2014 magpylib's own field rendering, in its own panel.\n[Open Field View](command:magpylib-studio.openFieldView)",
+            "media": {
+              "markdown": "walkthroughs/field-view.md"
+            },
+            "completionEvents": [
+              "onCommand:magpylib-studio.openFieldView"
+            ]
+          },
+          {
+            "id": "saveScene",
+            "title": "Save your work",
+            "description": "Scenes save as `.magpy.json`, reopenable later, or export a runnable Python script.\n[Save Scene As\u2026](command:magpylib-studio.saveSceneAs)",
+            "media": {
+              "markdown": "walkthroughs/save-scene.md"
+            },
+            "completionEvents": [
+              "onCommand:magpylib-studio.saveSceneAs"
+            ]
+          }
+        ]
+      }
+    ],
     "submenus": [
       {
         "id": "magpylib-studio.transformSubmenu",
