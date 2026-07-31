@@ -43,6 +43,21 @@ jobs:
         working-directory: vscode-extension
         run: xvfb-run -a npm test
 
+      # package.json's version is what vsce embeds in the .vsix, and it does
+      # not follow the tag on its own — so a v0.1.0 tag would otherwise still
+      # ship a .vsix internally labelled 0.0.1. Marketplace versions can't
+      # carry a pre-release suffix, so a v0.1.0rc1-style tag is left alone
+      # and the .vsix keeps whatever the last real release set.
+      - name: Sync extension version to the release tag
+        working-directory: vscode-extension
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            npm version "$version" --no-git-tag-version --allow-same-version
+          else
+            echo "::notice::${GITHUB_REF_NAME} is a pre-release tag; leaving package.json version as the last synced release"
+          fi
+
       # vsce runs vscode:prepublish, which copies the LICENSE in and compiles.
       - name: Package
         working-directory: vscode-extension
