@@ -1,13 +1,14 @@
-# Tag a version, get an installable .vsix on the release page.
+# Tag a version, get an installable .vsix on the release page — and, once a
+# VSCE_PAT repo secret exists (an Azure DevOps PAT scoped to Marketplace >
+# Manage, for the registered "magpylib" publisher), a Marketplace publish too.
+# Until that secret is added the publish step is skipped, not failed, so this
+# workflow works the same either way:
 #
-#     git tag v0.0.1 && git push origin v0.0.1
+#     git tag v0.1.0 && git push origin v0.1.0
 #
-# This is deliberately *not* Marketplace publishing. That needs a publisher id
-# on the Marketplace and a PAT in secrets, and — more to the point — the engine
-# on PyPI, so that installing the extension is not followed by "now go and pip
-# install this git URL". Until then a release asset is the honest channel:
+# Without VSCE_PAT, a release asset is still the honest channel:
 #
-#     code --install-extension magpylib-studio-vscode-0.0.1.vsix
+#     code --install-extension magpylib-studio-vscode-0.1.0.vsix
 name: Release
 
 on:
@@ -21,6 +22,11 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # Job-level, not step-level: a step's `if` can see the job's `env`, but
+    # not the `secrets` context directly, so this is what the Marketplace
+    # publish step below checks to decide whether to skip itself.
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -62,6 +68,21 @@ jobs:
       - name: Package
         working-directory: vscode-extension
         run: npx @vscode/vsce package --out "${{ github.workspace }}/magpylib-studio-${{ github.ref_name }}.vsix"
+
+      # Skipped (not failed) until VSCE_PAT exists. Gated on a clean tag for
+      # the same reason the version sync above is: the Marketplace has no
+      # pre-release concept for a normal publish, and re-running this on an
+      # rc tag would just try to republish a version already live and fail.
+      - name: Publish to the VS Code Marketplace
+        if: env.VSCE_PAT != ''
+        working-directory: vscode-extension
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            npx @vscode/vsce publish --packagePath "${{ github.workspace }}/magpylib-studio-${{ github.ref_name }}.vsix"
+          else
+            echo "::notice::${GITHUB_REF_NAME} is a pre-release tag; not publishing it to the Marketplace"
+          fi
 
       - uses: softprops/action-gh-release@v2
         with:
