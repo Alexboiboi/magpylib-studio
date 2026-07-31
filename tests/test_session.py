@@ -1277,6 +1277,33 @@ def test_a_document_keeps_what_this_engine_does_not_understand():
     assert json.dumps(again.to_dict()) == json.dumps(out)
 
 
+def test_listing_objects_shows_how_the_scene_is_written():
+    """The first thing anything asks about a scene is what is in it, and the
+    answer has to carry the scene's *scale* and its parameters — not just ids
+    and labels.
+
+    From a real failure: asked to add a third ring to the halbach example, a
+    chat model listed the objects, learned only that there were two rings,
+    and invented a 15 mm magnet at r = 55 mm for a scene whose magnets are 1
+    and whose radius is an expression. The numbers it needed were one call
+    away and it had no reason to know that. Now they are in the answer it
+    already asked for.
+    """
+    s = MagpylibStudioSession()
+    s.load_example("halbach")
+    listed = {o["id"]: o for o in s.list_objects()}
+
+    magnet = listed["r1"]
+    assert "dimension=(1, 1, 1)" in magnet["source"]      # the scale
+    assert "position=(radius, 0, 0.0)" in magnet["source"]  # and the parameter
+    assert "magnet.Cuboid" in magnet["source"]
+
+    # a pattern's copies are generated, so there is no line that wrote them
+    copies = [o for o in listed.values() if o.get("derived")]
+    assert copies, "the halbach example should carry generated copies"
+    assert all("source" not in c for c in copies)
+
+
 def _scene_schema():
     """The schema the extension registers for `*.magpy.json`, from the one
     place it lives. Kept here rather than duplicated so it cannot describe a

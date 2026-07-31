@@ -1478,6 +1478,8 @@ class MagpylibStudioSession:
     # --- introspection -----------------------------------------------------
     def list_objects(self):
         objects = []
+        creates = {e["target"]: e for e in self.doc.get("events") or []
+                   if e.get("op") == "create"}
         # what is built, which is the whole document unless it is rolled back
         for spec, parent in self._iter_specs(self._objects_view):
             objects.append({
@@ -1486,6 +1488,15 @@ class MagpylibStudioSession:
                 "label": self._objs[spec["id"]].style.label or spec["type"],
                 "parent": parent["id"] if parent else None,
                 "visible": spec.get("visible", True),
+                # How the object is *written*, expressions and all — not the
+                # resolved numbers. A caller that only gets ids and labels
+                # cannot see the scene's scale or that it is parametric at
+                # all, and fills that gap with whatever it assumes: an LLM
+                # asked to extend this Halbach stack added a 15 mm magnet at
+                # r = 55 mm to a scene whose magnets are 1 and whose radius
+                # is "=radius". One line per object is what stops that.
+                **({"source": _event_source(creates[spec["id"]])}
+                   if spec["id"] in creates else {}),
                 # a sensor carrying a measuring grid is a field source a UI
                 # can offer to read off, so say so where it is listed
                 **self._pixel_shape(self._objs[spec["id"]]),
