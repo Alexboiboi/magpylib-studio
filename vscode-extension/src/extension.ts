@@ -2,6 +2,7 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { PythonExtension } from '@vscode/python-extension';
 import { EngineClient } from './engineClient';
 import { HistoryEntry, HistoryTreeProvider } from './historyView';
 import { mediaUri, nonce as webviewNonce } from './webview';
@@ -435,6 +436,224 @@ function findPython(context: vscode.ExtensionContext): string | undefined {
   return undefined;
 }
 
+/** Last resort only, when neither ms-python.python nor uv found anything
+ *  usable: a python3 command able to actually bootstrap a venv, resolved
+ *  the way a real terminal would rather than however GUI-launched VS
+ *  Code's own PATH happens to look. On macOS/Linux a GUI launch does not
+ *  source ~/.zprofile or
+ *  ~/.zshrc, so a plain PATH lookup finds macOS's bundled /usr/bin/python3
+ *  (3.9, an SSL stack too old to fetch anything from PyPI) instead of
+ *  whatever the user actually has via Homebrew/pyenv/etc. — a login shell
+ *  resolves it the way Terminal.app would. Windows does not have that
+ *  failure mode (its PATH is a persistent env var GUI processes inherit
+ *  correctly) but frequently has no `python3` at all, only `python` or the
+ *  `py` launcher, so this branches instead of shelling out to a login
+ *  shell that would not help. Returns a command *prefix* (`py` needs `-3`
+ *  before anything else) rather than a single path. */
+function resolvePythonCommand(): string[] {
+  if (process.platform === 'win32') {
+    for (const candidate of [['python'], ['py', '-3']]) {
+      const probe = spawnSync(candidate[0], [...candidate.slice(1), '--version'], {
+        timeout: 10000,
+      });
+      if (probe.status === 0) {
+        return candidate;
+      }
+    }
+    return ['python'];
+  }
+  const shell = process.env.SHELL || '/bin/zsh';
+  const result = spawnSync(shell, ['-lc', 'command -v python3'], {
+    timeout: 10000,
+  });
+  const resolved = result.status === 0 ? result.stdout.toString().trim() : '';
+  return [resolved || 'python3'];
+}
+
+/** Kept in sync with pyproject.toml's `requires-python`. A found interpreter
+ *  that does not meet this is not a maybe — pip will refuse it with a
+ *  message ("no matching distribution") that reads like a network failure,
+ *  not a version one, so this is checked explicitly instead of trusting
+ *  pip's error text to explain itself. */
+const PYTHON_FLOOR = '3.11';
+
+function pythonInstallTip(): string {
+  switch (process.platform) {
+    case 'darwin':
+      return '"brew install python3", or python.org';
+    case 'win32':
+      return 'python.org, or the Microsoft Store';
+    default:
+      return 'your package manager (e.g. "apt install python3.11"), or python.org';
+  }
+}
+
+function checkPythonVersion(pythonExe: string): { ok: boolean; version?: string } {
+  const probe = spawnSync(
+    pythonExe,
+    ['-c', 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")'],
+    { timeout: 10000 },
+  );
+  if (probe.status !== 0) {
+    return { ok: false };
+  }
+  const version = probe.stdout.toString().trim();
+  const [major, minor] = version.split('.').map(Number);
+  const [floorMajor, floorMinor] = PYTHON_FLOOR.split('.').map(Number);
+  const ok = major > floorMajor || (major === floorMajor && minor >= floorMinor);
+  return { ok, version };
+}
+
+/** The "no interpreter found" error's one-click fix, tried in order:
+ *
+ *  1. Whatever ms-python.python already has resolved for this workspace
+ *     (the same interpreter its status bar shows) — that extension already
+ *     solved cross-platform interpreter discovery; reinventing it with our
+ *     own PATH probing is exactly how this feature's first version shipped
+ *     with a bug (bare `python3` resolving to whatever a GUI-launched VS
+ *     Code's minimal PATH happens to contain).
+ *  2. `uv`, if installed — it fetches a matching Python itself on demand,
+ *     so unlike PATH probing it does not depend on anything already being
+ *     installed, and it is what this very repo's own setup already uses.
+ *  3. A login-shell-resolved `python3` (or `python`/`py` on Windows) as a
+ *     last resort, version-checked before use rather than trusted blindly —
+ *     a fresh machine can genuinely have nothing newer than an OS-bundled
+ *     Python outside of tool-managed venvs, which is a real state to
+ *     report clearly rather than let pip's own error text stand in for.
+ *
+ *  getEngine() has ~40 call sites, many of which can fire near-simultaneously
+ *  on activation, so more than one "no interpreter" dialog can be on screen
+ *  at once — this guards against two clicks racing two installs into the
+ *  same venv by sharing one in-flight run instead of starting a second. */
+let installEnginePromise: Promise<void> | undefined;
+async function installEngine(): Promise<void> {
+  if (installEnginePromise) {
+    return installEnginePromise;
+  }
+  installEnginePromise = installEngineNow().finally(() => {
+    installEnginePromise = undefined;
+  });
+  return installEnginePromise;
+}
+
+async function installEngineNow(): Promise<void> {
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  if (!folder) {
+    vscode.window.showErrorMessage(
+      'Magpylib Studio: open a folder first, so the engine has somewhere ' +
+        'to install to.',
+    );
+    return;
+  }
+
+  let pythonExe: string | undefined;
+  try {
+    const pythonApi = await PythonExtension.api();
+    const active = pythonApi.environments.getActiveEnvironmentPath(folder.uri);
+    const resolved = await pythonApi.environments.resolveEnvironment(active);
+    const candidate = resolved?.executable.uri?.fsPath;
+    if (candidate && checkPythonVersion(candidate).ok) {
+      pythonExe = candidate;
+    }
+  } catch {
+    // ms-python.python not installed, or nothing suitable resolved — fall through
+  }
+  const usingExisting = Boolean(pythonExe);
+
+  const venvDir = path.join(folder.uri.fsPath, '.venv');
+  const venvPython =
+    process.platform === 'win32'
+      ? path.join(venvDir, 'Scripts', 'python.exe')
+      : path.join(venvDir, 'bin', 'python');
+  pythonExe ??= venvPython;
+
+  try {
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: 'Magpylib Studio: installing the engine',
+        cancellable: false,
+      },
+      async (progress) => {
+        const hasUv =
+          !usingExisting &&
+          spawnSync('uv', ['--version'], { timeout: 10000 }).status === 0;
+        if (hasUv) {
+          progress.report({ message: `fetching Python ${PYTHON_FLOOR} via uv…` });
+          const venvResult = spawnSync(
+            'uv',
+            // --seed: uv venv omits pip by default (it expects `uv pip`
+            // instead), which would otherwise make the shared `python -m
+            // pip install` step below fail with "No module named pip".
+            ['venv', '--python', PYTHON_FLOOR, '--seed', venvDir],
+            { timeout: 120000 },
+          );
+          if (venvResult.status !== 0) {
+            throw new Error(
+              venvResult.stderr?.toString().trim() || 'uv venv failed',
+            );
+          }
+        } else if (!usingExisting) {
+          progress.report({ message: 'creating .venv…' });
+          const [pythonCmd, ...pythonPrefixArgs] = resolvePythonCommand();
+          const venvResult = spawnSync(
+            pythonCmd,
+            [...pythonPrefixArgs, '-m', 'venv', venvDir],
+            { timeout: 60000 },
+          );
+          if (venvResult.status !== 0) {
+            throw new Error(
+              venvResult.stderr?.toString().trim() ||
+                venvResult.error?.message ||
+                'could not create a virtual environment',
+            );
+          }
+          const check = checkPythonVersion(venvPython);
+          if (!check.ok) {
+            throw new Error(
+              `found Python ${check.version ?? '(unknown)'}, but magpylib-studio ` +
+                `needs ${PYTHON_FLOOR} or newer. Install a newer Python ` +
+                `(${pythonInstallTip()}) and try again — or install uv ` +
+                '(astral.sh/uv), which this button will use automatically.',
+            );
+          }
+        }
+        progress.report({ message: 'pip install magpylib-studio…' });
+        const pipResult = spawnSync(
+          pythonExe!,
+          ['-m', 'pip', 'install', 'magpylib-studio'],
+          { timeout: 180000 },
+        );
+        if (pipResult.status !== 0) {
+          throw new Error(
+            pipResult.stderr?.toString().trim() || 'pip install failed',
+          );
+        }
+      },
+    );
+  } catch (err) {
+    vscode.window.showErrorMessage(
+      `Magpylib Studio: could not install the engine — ` +
+        `${err instanceof Error ? err.message : err}`,
+    );
+    return;
+  }
+
+  await vscode.workspace
+    .getConfiguration('magpylib-studio')
+    .update('pythonPath', pythonExe, vscode.ConfigurationTarget.Workspace);
+  cachedPython = undefined; // re-probe: the freshly configured path wins next
+  refreshSurfaces();
+
+  vscode.window
+    .showInformationMessage('Magpylib Studio: engine installed.', 'Open Scene View')
+    .then((choice) => {
+      if (choice) {
+        void vscode.commands.executeCommand('magpylib-studio.openStudio');
+      }
+    });
+}
+
 function getEngine(context: vscode.ExtensionContext): EngineClient {
   if (engine?.isRunning) {
     return engine;
@@ -446,11 +665,14 @@ function getEngine(context: vscode.ExtensionContext): EngineClient {
       .showErrorMessage(
         'Magpylib Studio: no Python interpreter with the magpylib-studio ' +
           'engine found. Set "magpylib-studio.pythonPath" to an interpreter ' +
-          'where the engine package is installed.',
+          'where the engine package is installed, or install it now.',
+        'Install the Engine',
         'Open Settings',
       )
       .then((choice) => {
-        if (choice) {
+        if (choice === 'Install the Engine') {
+          void installEngine();
+        } else if (choice === 'Open Settings') {
           vscode.commands.executeCommand(
             'workbench.action.openSettings',
             'magpylib-studio.pythonPath',

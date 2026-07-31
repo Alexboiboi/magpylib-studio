@@ -1570,6 +1570,7 @@
     "watch": "tsc -watch -p ./"
   },
   "dependencies": {
+    "@vscode/python-extension": "^1.0.6",
     "plotly.js-dist-min": "^3.0.0"
   },
   "devDependencies": {
