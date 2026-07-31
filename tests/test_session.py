@@ -176,6 +176,70 @@ def test_inspector_offers_only_planes_the_engine_knows():
     assert sorted(re.findall(r"'(\w+)'", listed)) == sorted(_MIRROR_NORMALS)
 
 
+def test_the_script_builds_the_scene_whatever_order_it_was_built_in():
+    """`to_script` folds the log; it does not hoist every definition above
+    every step.
+
+    Where an object is created *relative to the steps around it* is part of
+    the scene. Add a magnet to a group that has already been patterned and it
+    belongs to that group alone — but a script that defines it first builds it
+    into every generated copy as well. That was 13 sources in the scene and 15
+    in its own script, with a field to match, and no surface said so.
+
+    Each of these interleaves creation with patterning differently; all of
+    them have to survive the round trip through the script.
+    """
+    import numpy as np
+
+    def sphere(session, name, parent):
+        return session.add_object(
+            name, "magnet.Sphere", parent=parent,
+            params={"diameter": 0.4, "polarization": [0, 0, 1],
+                    "position": [0, 0, 1]})
+
+    def after_patterning(s):
+        s.load_example("array")
+        sphere(s, "extra", "row")          # into a group already duplicated
+
+    def between_two_patterns(s):
+        s.add_object("box", "Collection")
+        s.add_object("a", "magnet.Cuboid", parent="box",
+                     params={"dimension": [1, 1, 1], "polarization": [1, 0, 0]})
+        s.duplicate_along("a", count=3, step=[2, 0, 0])
+        sphere(s, "b", "box")              # after the first pattern
+        s.duplicate_along("b", count=2, step=[0, 2, 0])
+
+    def removed_after_patterning(s):
+        s.load_example("array")
+        sphere(s, "extra", "row")
+        s.remove_object("tile")
+
+    for build in (after_patterning, between_two_patterns, removed_after_patterning):
+        s = MagpylibStudioSession()
+        build(s)
+        here = len(list(s.scene.sources_all))
+        assert here, build.__name__
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "scene.py")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(s.to_script())
+            rebuilt = MagpylibStudioSession()
+            result = rebuilt.apply_script(path)
+
+        assert result["ok"], f"{build.__name__}: {result.get('error')}"
+        # parsed, not executed: the ordering has to survive as *source*
+        assert result["mode"] == "parsed", build.__name__
+        there = len(list(rebuilt.scene.sources_all))
+        assert here == there, (
+            f"{build.__name__}: {here} sources in the scene, {there} in its script"
+        )
+        assert np.allclose(
+            s.get_field(points=[[0.7, 0.4, 1.3]])["values"],
+            rebuilt.get_field(points=[[0.7, 0.4, 1.3]])["values"],
+        ), f"{build.__name__}: same count, different field"
+
+
 def test_removing_a_patterned_object_leaves_nothing_standing_in_the_field():
     """The strong form: after a removal, the scene the engine holds and the
     scene its script rebuilds have to be the same scene.

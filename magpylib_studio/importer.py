@@ -354,6 +354,7 @@ def parse_script(source):
 
     variables, objects, events = {}, {}, []
     nested = set()  # object names that became a Collection's children
+    creates = {}  # object name -> its create event, so `.add()` can parent it
 
     def value(node):
         return _parsed_value(node, set(variables))
@@ -376,6 +377,29 @@ def parse_script(source):
                             continue
                         if owner not in objects:
                             raise _Unparseable(owner)
+                        # `group.add(obj)` — how a Collection takes a child
+                        # now that to_script emits in log order and cannot
+                        # pass them as constructor arguments. It is told apart
+                        # from the `.add()` a mirror uses by what is inside:
+                        # a bare name that is already an object, rather than a
+                        # call. A pattern's `.add(_copy)` is inside a loop and
+                        # never reaches here at all.
+                        if (call.func.attr == "add"
+                                and len(call.args) == 1
+                                and not call.keywords
+                                and isinstance(call.args[0], ast.Name)
+                                and call.args[0].id in objects):
+                            child = call.args[0].id
+                            if child in nested:
+                                raise _Unparseable(
+                                    f"{child} is added to two groups"
+                                )
+                            objects[owner].setdefault("children", []).append(
+                                objects[child]
+                            )
+                            creates[child]["parent"] = owner
+                            nested.add(child)
+                            continue
                         mirrored = _mirror_from_call(call, objects, set(variables))
                         events.append(
                             mirrored
@@ -430,6 +454,23 @@ def parse_script(source):
                 # keep documents minimal, so a parsed scene is byte-identical
                 # to the one that rendered the script
                 objects[name] = {k: v for k, v in spec.items() if v != {}}
+                # And a create event, here, where the definition appears —
+                # not left for the document to synthesise afterwards. Where
+                # an object is created relative to the steps around it is
+                # part of the scene: define one inside a group that has
+                # already been patterned and the copies do not contain it,
+                # which is exactly what the hoisted version got wrong.
+                # Key order follows what the engine writes, so the round trip
+                # stays byte-identical.
+                create = {"op": "create", "target": name, "type": dotted}
+                if spec.get("params"):
+                    create["params"] = spec["params"]
+                if spec.get("style"):
+                    create["style"] = spec["style"]
+                creates[name] = create
+                events.append(create)
+                for child in spec.get("children") or []:
+                    creates[child["id"]]["parent"] = name
             else:
                 variables[name] = value(stmt.value)
     except (_Unparseable, ValueError, AttributeError, IndexError) as e:
@@ -440,6 +481,9 @@ def parse_script(source):
     # the same scene different ids depending on where it came from.
     log = []
     for event in events:
+        if event.get("op") == "create":
+            log.append(dict(event))
+            continue
         event = dict(event)
         target = event.pop("target")
         log.append({"target": target, **event})

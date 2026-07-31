@@ -2960,19 +2960,44 @@ class MagpylibStudioSession:
         return body
 
     def to_script(self):
-        # Definitions come from the object tree, so the structural events are
-        # already expressed by it; what is left to write out is what happened
-        # to the objects afterwards.
+        """The document as runnable magpylib, folded in log order.
+
+        Order is the whole point. Definitions used to be hoisted above every
+        step, which reads more like handwritten code and is wrong the moment a
+        pattern is involved: an object added to a group that was already
+        patterned would be defined *before* the loop that copies the group,
+        so the script built it into every copy too. Twelve magnets in the
+        scene, fifteen in its own script, and a different field. Emitting each
+        event where it happened is the only shape that cannot say that.
+
+        The cost is that a Collection can no longer take its children as
+        constructor arguments — it is written before they exist — so they join
+        with `.add()`, which parse_script reads back.
+        """
         # Only what happened to objects the log still holds. An object that
         # was removed leaves no definition behind, so a step naming it would
         # be a NameError in the exported file — the removal is expressed by
         # its absence, and so is everything that was done to it.
         alive = {spec["id"] for spec in _walk_specs(self.doc.get("objects") or [])}
-        events = [
+        # The tree as it ends up, which is what the definitions have to build:
+        # a reparent is not written out, so an object belongs where it finally
+        # is, not where it was created.
+        spec_of, parent_of = {}, {}
+
+        def index(specs, parent):
+            for spec in specs:
+                spec_of[spec["id"]] = spec
+                parent_of[spec["id"]] = parent
+                index(spec.get("children") or [], spec["id"])
+
+        index(self.doc.get("objects") or [], None)
+
+        log = [
             e for e in self.doc.get("events") or []
-            if e.get("op") not in ("create", "remove", "reparent")
+            if e.get("op") not in ("remove", "reparent")
             and e.get("target") in alive
         ]
+        events = [e for e in log if e.get("op") != "create"]
         mirrors = [e for e in events if e.get("op") == "mirror"]
         needs_scipy = mirrors or any(e.get("op") == "orientation" for e in events)
         lines = ["import magpylib as magpy"]
@@ -2993,39 +3018,41 @@ class MagpylibStudioSession:
             lines += [f"{name} = {_lit(value)}" for name, value in variables.items()]
             lines.append("")
 
-        def emit(spec):
-            """Emit child definitions first, then this object; return its name."""
-            name = spec["id"]
-            parts = [emit(c) for c in spec.get("children") or []]
-            parts += [
-                f"{k}={_lit(v)}" for k, v in spec.get("params", {}).items()
-            ]
+        def define(target):
+            """One object, plus the line that puts it in its group."""
+            spec = spec_of[target]
+            parts = [f"{k}={_lit(v)}" for k, v in spec.get("params", {}).items()]
             if spec.get("style"):
                 parts.append(f"style={_nest(spec['style'])!r}")
             ctor = "Collection" if spec["type"] == "Collection" else spec["type"]
-            lines.append(f"{name} = magpy.{ctor}({', '.join(parts)})")
-            return name
+            lines.append(f"{target} = magpy.{ctor}({', '.join(parts)})")
+            if parent_of.get(target) is not None:
+                lines.append(f"{parent_of[target]}.add({target})")
 
-        names = [emit(s) for s in self.doc["objects"]]
-        # Definitions, then the event log in order — the script is the log's
-        # own notation, which is why editing a line of it edits an event.
-        if events:
-            lines.append("")
-            for event in events:
-                if event.get("op") == "mirror":
-                    normal = event.get("normal") or _MIRROR_NORMALS[
-                        event.get("plane", "xy")
-                    ]
-                    lines.append(
-                        f"{self._parent_at(event.get('id'), event['target'])}"
-                        f".add(_mirror("
-                        f"{event['target']}, {_lit(normal)}, "
-                        f"{_lit(event.get('anchor', 0))}))"
-                    )
-                elif event.get("op") in ("duplicate_around", "duplicate_along"):
-                    lines += self._duplicate_source(event)
-                else:
-                    lines.append(f"{event['target']}.{_op_source(event)}")
+        # The log, in order, in its own notation — which is why editing a line
+        # of the script edits an event. Every object has a create event to be
+        # emitted from: _migrate_events synthesises one for any spec that
+        # arrived without it, so there is no such thing as an object the log
+        # does not describe.
+        for event in log:
+            op = event.get("op")
+            if op == "create":
+                define(event["target"])
+            elif op == "mirror":
+                normal = event.get("normal") or _MIRROR_NORMALS[
+                    event.get("plane", "xy")
+                ]
+                lines.append(
+                    f"{self._parent_at(event.get('id'), event['target'])}"
+                    f".add(_mirror("
+                    f"{event['target']}, {_lit(normal)}, "
+                    f"{_lit(event.get('anchor', 0))}))"
+                )
+            elif op in ("duplicate_around", "duplicate_along"):
+                lines += self._duplicate_source(event)
+            else:
+                lines.append(f"{event['target']}.{_op_source(event)}")
+        names = [spec["id"] for spec in self.doc.get("objects") or []]
         # Shown as loose objects, not wrapped in a Collection: the script must
         # bind exactly the objects this document holds, so importing it back
         # reproduces the same scene. A wrapper would come back as one nested

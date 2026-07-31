@@ -720,33 +720,24 @@ test skips via `supports_property_paths()`).
 
 ## Gotchas
 
-- `to_script` writes **every definition before every step**, so a scene that
-  creates an object *after* transforming another comes back from the script
-  with the creates hoisted above the transforms. The document is unaffected;
-  it is the script round trip that reorders. Emitting in log order would mean
-  children joining their Collection with `.add()` instead of constructor
-  args, which `parse_script` would then have to tell apart from the `.add()`
-  a mirror uses.
+- `to_script` **folds the log in order** — create → definition, transform →
+  call, pattern → loop — rather than hoisting every definition above every
+  step. It used to hoist, and that is wrong the moment a pattern is involved:
+  an object added to an already-patterned group was defined above the loop
+  that copies the group, so the script built it into every copy too (13
+  sources in the scene, 15 in its own script, different field). The price of
+  the fix is that a Collection is written before its children exist, so they
+  join with `.add(child)` instead of constructor arguments — `parse_script`
+  tells that apart from the `.add()` a mirror uses by the argument being a
+  bare name rather than a call, and from a pattern's `.add(_copy)` by that
+  one living inside a `for`. Guarded by
+  `test_the_script_builds_the_scene_whatever_order_it_was_built_in`.
 
-  **This is not cosmetic when a pattern is involved, and it is measurable.**
-  Add an object to a group that has already been patterned — load `array`,
-  add a magnet to `row` — and the scene holds 13 sources while its own script
-  builds 15: hoisting the create above the loop puts the new magnet inside
-  every generated row too. The field differs, so the script is not a view of
-  the scene but a different scene. Reproduce with:
-
-  ```python
-  s = MagpylibStudioSession(); s.load_example("array")
-  s.add_object("extra", "magnet.Sphere", parent="row",
-               params={"diameter": 0.5, "polarization": [0, 0, 1]})
-  # len(s.scene.sources_all) == 13, but applying s.to_script() gives 15
-  ```
-
-  Fixing it means folding the log to emit the script — create → definition,
-  transform → call, pattern → loop, in order — and teaching `parse_script` to
-  read that back without losing the byte-identical round trip that
-  `test_the_log_alone_reconstructs_the_scene` and friends rely on. That is
-  the next real piece of work on the script side.
+  `parse_script` therefore emits **create events itself, in position**,
+  instead of leaving them for `_migrate_events` to synthesise at the front —
+  otherwise the round trip re-hoists what the script got right. Their key
+  order matches what the engine writes (`op, target, type, params, style,
+  parent`) so `to_dict()` stays byte-identical across the trip.
 
 - The `get_figure` result is `json.loads(fig.to_json())` — plotly's encoder
   handles numpy/bdata; don't use `to_plotly_json()` (leaves numpy in, not

@@ -111,11 +111,14 @@ Then open the repo root in VS Code and press `F5`.
   else — measured, not assumed.
 - **Document canonical, script generated — and read back two ways.**
   `to_script()` emits runnable magpylib code, patterns included (as the loops
-  they mean). `apply_script()` **parses** it when it is still in that shape,
-  so variables, event order and arrangements survive and the whole document
-  round-trips byte-identically; anything else — a loop of your own, a helper,
-  numpy — is *executed* with `show()` intercepted, as `load_script()` always
-  did, and what that flattens is reported.
+  they mean), **folding the log in order** rather than declaring everything up
+  front: where an object is created relative to the steps around it is part of
+  the scene, and an object added to an already-patterned group must not end up
+  inside every copy. `apply_script()` **parses** it when it is still in that
+  shape, so variables, event order and arrangements survive and the whole
+  document round-trips byte-identically; anything else — a loop of your own, a
+  helper, numpy — is *executed* with `show()` intercepted, as `load_script()`
+  always did, and what that flattens is reported.
 
 ## JSON-RPC protocol (stdio)
 
@@ -159,7 +162,7 @@ printf '%s\n' \
 
 ## Status
 
-The engine is covered by 96 tests against both magpylib versions
+The engine is covered by 99 tests against both magpylib versions
 (`.venv/bin/python -m pytest -q`).
 
 The extension is checked at three levels, all wired into `npm run compile` so
