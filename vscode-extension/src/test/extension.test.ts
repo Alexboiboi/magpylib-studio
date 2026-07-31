@@ -35,10 +35,92 @@ async function scene(): Promise<{
   return JSON.parse(doc.getText());
 }
 
-/** Wait out the refresh debounce. `scene.json` is a virtual document, so VS
- *  Code serves it from cache until the extension fires onDidChange — reading
- *  it the instant a command resolves gets the scene as it was before. */
-const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
+/**
+ * Read `scene.json` once it says what the test is waiting for.
+ *
+ * It is a virtual document, so VS Code serves it from cache until the
+ * extension fires onDidChange — which it does on a 150 ms debounce, after the
+ * command has already resolved. Waiting a fixed slice of time for that is
+ * what this used to do, and it passed on a laptop and failed on CI, which is
+ * the usual bargain. Polling for the state instead is both faster and not a
+ * bet on how quick the machine is.
+ */
+async function sceneWhere(
+  predicate: (doc: Awaited<ReturnType<typeof scene>>) => boolean,
+  what: string,
+  timeoutMs = 20000,
+): Promise<Awaited<ReturnType<typeof scene>>> {
+  const deadline = Date.now() + timeoutMs;
+  let last = await scene();
+  while (!predicate(last)) {
+    if (Date.now() > deadline) {
+      throw new Error(
+        `timed out after ${timeoutMs} ms waiting for ${what}; ` +
+          `scene has ${last.objects.length} top-level objects`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    last = await scene();
+  }
+  return last;
+}
+
+/** Every id in the tree, nesting included. */
+function ids(specs: { id: string; children?: unknown[] }[]): Set<string> {
+  const found = new Set<string>();
+  const walk = (list: { id: string; children?: unknown[] }[]) => {
+    for (const spec of list) {
+      found.add(spec.id);
+      walk((spec.children ?? []) as { id: string; children?: unknown[] }[]);
+    }
+  };
+  walk(specs);
+  return found;
+}
+
+// A predicate has to tell the state it is waiting for apart from the one
+// already there, or it returns instantly with the *previous* test's scene —
+// which is not a hypothetical: "any object at all" did exactly that, and the
+// test that captured a scene to compare against captured the wrong one.
+const holding = (id: string) => (doc: { objects: { id: string }[] }) =>
+  ids(doc.objects as { id: string }[]).has(id);
+const without = (id: string) => (doc: { objects: { id: string }[] }) =>
+  !ids(doc.objects as { id: string }[]).has(id);
+const nothing = (doc: { objects: unknown[] }) => doc.objects.length === 0;
+
+/** Same, for a file the extension writes on its own schedule. */
+async function fileWhere(
+  uri: vscode.Uri,
+  predicate: (doc: Record<string, unknown>) => boolean,
+  what: string,
+  timeoutMs = 20000,
+): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      const doc = await readJson(uri);
+      if (predicate(doc)) {
+        return doc;
+      }
+    } catch {
+      // not written yet, or written half-way: try again
+    }
+    if (Date.now() > deadline) {
+      let seen = '(unreadable)';
+      try {
+        seen = JSON.stringify(await readJson(uri)).slice(0, 400);
+      } catch {
+        // leave it as unreadable
+      }
+      throw new Error(`timed out after ${timeoutMs} ms waiting for ${what}; file holds ${seen}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+/** A real wait, for the cases that assert something does NOT happen — there
+ *  is no event to poll for, so the only honest option is to give it time. */
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** A scratch file that goes away with the test run. */
 function tempScene(name: string): vscode.Uri {
@@ -109,18 +191,11 @@ suite('magpylib-studio', () => {
       parent: 'ring1',
       visible: true,
     });
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    const after = await sceneWhere(without('r1'), 'the removal to land');
 
-    const ids = new Set<string>();
-    const walk = (specs: { id: string; children?: unknown[] }[]) => {
-      for (const spec of specs) {
-        ids.add(spec.id);
-        walk((spec.children ?? []) as { id: string; children?: unknown[] }[]);
-      }
-    };
-    walk((await scene()).objects as { id: string; children?: unknown[] }[]);
-    assert.ok(!ids.has('r1'), 'the magnet is still in the document');
-    assert.ok(ids.has('r2'), 'the other ring should be untouched');
+    const present = ids(after.objects as { id: string }[]);
+    assert.ok(!present.has('r1'), 'the magnet is still in the document');
+    assert.ok(present.has('r2'), 'the other ring should be untouched');
   });
 
   test('the script tab renders the scene and applies on save', async function () {
@@ -142,21 +217,23 @@ suite('magpylib-studio', () => {
       builder.replace(new vscode.Range(0, 0, tab.lineCount, 0), edited);
     });
     await tab.save();
-    await new Promise((resolve) => setTimeout(resolve, 1500)); // apply + rebuild
 
-    const doc = await scene();
+    // The save is applied and the scene rebuilt asynchronously, so wait for
+    // the value to arrive rather than for a length of time.
+    const doc = await sceneWhere(
+      (d) => (d as unknown as { variables: Record<string, number> }).variables?.radius === 3.25,
+      'the saved script to reach the document',
+    );
     assert.strictEqual(
       (doc as unknown as { variables: Record<string, number> }).variables.radius,
       3.25,
-      'the saved script did not reach the document',
     );
   });
 
   test('a scene saved to a file opens again as the same scene', async function () {
     this.timeout(60000);
     await vscode.commands.executeCommand('magpylib-studio.loadExample', 'halbach', DISCARD);
-    await settle();
-    const before = await scene();
+    const before = await sceneWhere(holding('halbach'), 'the halbach example to load');
 
     // The save dialog cannot be driven from a test, so the file is written the
     // way Save writes it and opened through the real command — which is the
@@ -165,12 +242,10 @@ suite('magpylib-studio', () => {
     await writeJson(file, before);
 
     await vscode.commands.executeCommand('magpylib-studio.newScene', DISCARD);
-    await settle();
-    assert.strictEqual((await scene()).objects.length, 0, 'the scene did not clear');
+    await sceneWhere(nothing, 'the scene to clear');
 
     await vscode.commands.executeCommand('magpylib-studio.loadScene', file, DISCARD);
-    await settle();
-    const after = await scene();
+    const after = await sceneWhere(holding('halbach'), 'the file to open');
     assert.deepStrictEqual(after.events, before.events, 'the log came back different');
     assert.deepStrictEqual(after.objects, before.objects);
   });
@@ -178,10 +253,10 @@ suite('magpylib-studio', () => {
   test('saving a scene that has a file writes to it without asking', async function () {
     this.timeout(60000);
     await vscode.commands.executeCommand('magpylib-studio.loadExample', 'halbach', DISCARD);
-    await settle();
     const file = tempScene('save.magpy.json');
-    await writeJson(file, await scene());
+    await writeJson(file, await sceneWhere(holding('halbach'), 'the halbach example to load'));
     await vscode.commands.executeCommand('magpylib-studio.loadScene', file, DISCARD);
+    await sceneWhere(holding('halbach'), 'the file to open');
 
     await vscode.commands.executeCommand('magpylib-studio.removeObject', {
       id: 'r2',
@@ -190,7 +265,7 @@ suite('magpylib-studio', () => {
       parent: 'ring1',
       visible: true,
     });
-    await settle();
+    await sceneWhere(without('r2'), 'the removal to land');
 
     // No showSaveDialog here: the scene knows its file. If that ever regresses
     // this test hangs on a modal rather than failing, which is its own signal.
@@ -205,9 +280,8 @@ suite('magpylib-studio', () => {
   test('a saved file says what format and what wrote it', async function () {
     this.timeout(60000);
     await vscode.commands.executeCommand('magpylib-studio.loadExample', 'halbach', DISCARD);
-    await settle();
     const file = tempScene('stamp.magpy.json');
-    await writeJson(file, await scene());
+    await writeJson(file, await sceneWhere(holding('halbach'), 'the halbach example to load'));
     await vscode.commands.executeCommand('magpylib-studio.loadScene', file, DISCARD);
     await vscode.commands.executeCommand('magpylib-studio.saveScene');
 
@@ -221,7 +295,7 @@ suite('magpylib-studio', () => {
   test('the scene knows its file, and says so when it drifts from it', async function () {
     this.timeout(60000);
     await vscode.commands.executeCommand('magpylib-studio.loadExample', 'halbach', DISCARD);
-    await settle();
+    await sceneWhere(holding('halbach'), 'the halbach example to load');
     // an example is a starting point, not a document: no file, and unsaved
     assert.strictEqual(sceneFileState().file, undefined);
     assert.strictEqual(sceneFileState().dirty, true);
@@ -229,7 +303,7 @@ suite('magpylib-studio', () => {
     const file = tempScene('state.magpy.json');
     await writeJson(file, await scene());
     await vscode.commands.executeCommand('magpylib-studio.loadScene', file, DISCARD);
-    await settle();
+    await sceneWhere(holding('halbach'), 'the file to open');
     assert.strictEqual(sceneFileState().file, file.toString(), 'the file was not adopted');
     assert.strictEqual(sceneFileState().dirty, false, 'a freshly opened scene is not dirty');
 
@@ -240,7 +314,7 @@ suite('magpylib-studio', () => {
       parent: 'ring1',
       visible: true,
     });
-    await settle();
+    await sceneWhere(without('r2'), 'the removal to land');
     assert.strictEqual(sceneFileState().dirty, true, 'an edit went unnoticed');
 
     await vscode.commands.executeCommand('magpylib-studio.saveScene');
@@ -251,7 +325,7 @@ suite('magpylib-studio', () => {
     // view is stale" and "your file is out of date" — and the second one
     // nags, and blocks opening anything else.
     await vscode.commands.executeCommand('magpylib-studio.refreshScene');
-    await settle();
+    await pause(500); // asserting that nothing happens; there is no event to await
     assert.strictEqual(sceneFileState().dirty, false, 'a refresh claimed an edit');
   });
 
@@ -264,36 +338,44 @@ suite('magpylib-studio', () => {
     const backup = sceneFileState().backup;
     assert.ok(backup, 'no backup location');
 
-    await new Promise((resolve) => setTimeout(resolve, 1600)); // the backup debounce
-    const saved = await readJson(vscode.Uri.parse(backup));
+    await sceneWhere(holding('coil'), 'the coil example to load');
+    // Wait for the backup to be *written* with this scene; whether it is
+    // faithful is the assertion below, not the thing being waited for — a
+    // wait that is also the check can only ever time out when it fails.
+    const saved = await fileWhere(
+      vscode.Uri.parse(backup),
+      (doc) => ids(doc.objects as { id: string }[]).has('coil'),
+      'the backup to be written',
+    );
     assert.deepStrictEqual(saved, await scene(), 'the backup is not the scene');
 
     // And it restores. This is what activation does with it after a reload,
     // minus the reload — so what stays unverified here is only whether
     // activation reaches for it, not whether reaching for it works.
     await vscode.commands.executeCommand('magpylib-studio.newScene', DISCARD);
-    await settle();
-    assert.strictEqual((await scene()).objects.length, 0);
+    await sceneWhere(nothing, 'the scene to clear');
 
     await vscode.commands.executeCommand(
       'magpylib-studio.loadScene',
       vscode.Uri.parse(backup),
       DISCARD,
     );
-    await settle();
-    assert.deepStrictEqual(await scene(), saved, 'the backup did not come back');
+    assert.deepStrictEqual(
+      await sceneWhere(holding('coil'), 'the backup to open'),
+      saved,
+      'the backup did not come back',
+    );
   });
 
   test('a scene from a newer version is refused, leaving the open one alone', async function () {
     this.timeout(60000);
     await vscode.commands.executeCommand('magpylib-studio.loadExample', 'halbach', DISCARD);
-    await settle();
-    const intact = await scene();
+    const intact = await sceneWhere(holding('halbach'), 'the halbach example to load');
 
     const file = tempScene('from-the-future.magpy.json');
     await writeJson(file, { version: 99, events: [], objects: [] });
     await vscode.commands.executeCommand('magpylib-studio.loadScene', file, DISCARD);
-    await settle();
+    await pause(500); // asserting that nothing happens; there is no event to await
 
     assert.deepStrictEqual(
       (await scene()).events,
