@@ -947,6 +947,15 @@ class MagpylibStudioSession:
         self._objs: dict[str, object] = {}
         self._vars: dict[str, float] = {}  # resolved at each build
         self._derived: dict[str, list[str]] = {}  # source id -> generated copies
+        # Copying a Collection copies everything under it, and those copied
+        # descendants are magpylib objects with no id of their own — nothing
+        # in the document names them. This is how they are found again:
+        # source id -> the live copies of that object sitting inside some
+        # generated group. Without it, removing an object patterned through
+        # its parent leaves its copies standing, invisible and still in the
+        # field, which is the same failure _remove already guards against one
+        # level up.
+        self._inherited: dict[str, list] = {}
         self._broken: list[dict] = []  # events the last fold could not apply
         self._rollback: int | None = None  # view only: fold up to here
         self._objects_view: list = []  # the tree that is actually built
@@ -996,6 +1005,7 @@ class MagpylibStudioSession:
                                  f"has to be a whole number")
         self._objs = {}
         self._derived = {}
+        self._inherited = {}
         self._specs = {}  # id -> the spec its create event describes
         self._parents = {}  # id -> parent id or None
         self._broken = []  # events the fold could not apply, in order
@@ -1114,12 +1124,22 @@ class MagpylibStudioSession:
         from here on. Events recorded before it still happened."""
         if object_id not in self._objs:
             raise ValueError(f"cannot remove unknown object {object_id!r}")
-        gone = [object_id, *self._descendants(object_id)]
         parent = self._parents.get(object_id)
         (self._objs[parent] if parent else self.scene).remove(
             self._objs[object_id], recursive=False
         )
-        for dead in gone:
+        # Everything that only existed because this object did — which is not
+        # a list but a closure, because a copy can have copies of its own. In
+        # a grid (pattern the magnet, then pattern the row) the magnet's three
+        # copies are each copied again into every other row, so following one
+        # step finds six of the twelve and stops.
+        pending = [object_id, *self._descendants(object_id)]
+        seen = set()
+        while pending:
+            dead = pending.pop()
+            if dead in seen:
+                continue
+            seen.add(dead)
             # A pattern's copies are part of the object they came from, so
             # they go with it. Left behind they would be invisible — nothing
             # lists them once their source is gone — while still standing in
@@ -1129,6 +1149,14 @@ class MagpylibStudioSession:
                 if copy is not None:
                     # wherever it ended up: the copies of a group are groups
                     self.scene.remove(copy, recursive=True, errors="ignore")
+                pending.append(copy_id)  # and whatever was copied from it
+            # The same argument one level up. Patterning a *group* copies
+            # everything inside it, so an object can have copies it never made
+            # itself, sitting in groups it was never added to. Those are the
+            # worst kind to leave behind: no id, no entry in the tree, no line
+            # in the exported script, and still summed into every field.
+            for copy in self._inherited.pop(dead, []):
+                self.scene.remove(copy, recursive=True, errors="ignore")
             self._objs.pop(dead, None)
             self._specs.pop(dead, None)
             self._parents.pop(dead, None)
@@ -1187,6 +1215,23 @@ class MagpylibStudioSession:
         # _parents holds exactly the objects still alive, in creation order
         return [spec_of(oid) for oid, parent in self._parents.items() if parent is None]
 
+    def _track_inherited(self, source, copy):
+        """Remember which document object each copied descendant came from.
+
+        Copying a Collection copies its whole subtree in one go, so the
+        objects inside the copy are not created by any event and carry no id.
+        magpylib copies children in order, so walking the two trees together
+        pairs each new object with the one it was copied from — which is the
+        only handle anything has on them afterwards.
+        """
+        if not isinstance(source, magpy.Collection):
+            return
+        by_object = {id(obj): oid for oid, obj in self._objs.items()}
+        for original, made in zip(source.children_all, copy.children_all):
+            source_id = by_object.get(id(original))
+            if source_id is not None:
+                self._inherited.setdefault(source_id, []).append(made)
+
     def _duplicate_around(self, object_id, event):
         """Replay a duplicate event: `count` copies evenly spaced about an
         axis, optionally spun in place as they go (which is all a Halbach ring
@@ -1206,6 +1251,7 @@ class MagpylibStudioSession:
             if spin:
                 copy.rotate_from_angax(i * spin, axis, anchor=None)
             self._name_copy(copy, source, i)
+            self._track_inherited(source, copy)
             copy_id = f"{object_id}#{i}"
             self._objs[copy_id] = copy
             container.add(copy)
@@ -1229,6 +1275,7 @@ class MagpylibStudioSession:
             copy = source.copy()
             copy.move([i * float(component) for component in step])
             self._name_copy(copy, source, i)
+            self._track_inherited(source, copy)
             copy_id = f"{object_id}#{i}"
             self._objs[copy_id] = copy
             container.add(copy)
@@ -1292,6 +1339,7 @@ class MagpylibStudioSession:
             if polarization is not None:
                 leaf.polarization = -(np.array(polarization, dtype=float) @ flip.T)
         self._name_copy(copy, source, 1)
+        self._track_inherited(source, copy)
         copy_id = f"{object_id}#1"
         self._objs[copy_id] = copy
         container.add(copy)

@@ -728,6 +728,26 @@ test skips via `supports_property_paths()`).
   args, which `parse_script` would then have to tell apart from the `.add()`
   a mirror uses.
 
+  **This is not cosmetic when a pattern is involved, and it is measurable.**
+  Add an object to a group that has already been patterned — load `array`,
+  add a magnet to `row` — and the scene holds 13 sources while its own script
+  builds 15: hoisting the create above the loop puts the new magnet inside
+  every generated row too. The field differs, so the script is not a view of
+  the scene but a different scene. Reproduce with:
+
+  ```python
+  s = MagpylibStudioSession(); s.load_example("array")
+  s.add_object("extra", "magnet.Sphere", parent="row",
+               params={"diameter": 0.5, "polarization": [0, 0, 1]})
+  # len(s.scene.sources_all) == 13, but applying s.to_script() gives 15
+  ```
+
+  Fixing it means folding the log to emit the script — create → definition,
+  transform → call, pattern → loop, in order — and teaching `parse_script` to
+  read that back without losing the byte-identical round trip that
+  `test_the_log_alone_reconstructs_the_scene` and friends rely on. That is
+  the next real piece of work on the script side.
+
 - The `get_figure` result is `json.loads(fig.to_json())` — plotly's encoder
   handles numpy/bdata; don't use `to_plotly_json()` (leaves numpy in, not
   JSON-safe).

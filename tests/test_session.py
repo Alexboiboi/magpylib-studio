@@ -2,6 +2,8 @@
 
 import io
 import json
+import os
+import tempfile
 
 import pytest
 
@@ -172,6 +174,45 @@ def test_inspector_offers_only_planes_the_engine_knows():
         pytest.skip("extension source not present")
     listed = re.search(r"plane: \[([^\]]*)\]", source.read_text()).group(1)
     assert sorted(re.findall(r"'(\w+)'", listed)) == sorted(_MIRROR_NORMALS)
+
+
+def test_removing_a_patterned_object_leaves_nothing_standing_in_the_field():
+    """The strong form: after a removal, the scene the engine holds and the
+    scene its script rebuilds have to be the same scene.
+
+    Counting ids cannot see this. Patterning a *group* copies everything
+    inside it, and those copied descendants are magpylib objects with no id —
+    so deleting one magnet from a 4x3 array left eight copies of it standing:
+    absent from the tree, absent from the script, and summed into every field.
+    The only check that notices is one that weighs the live scene against what
+    the exported script actually builds.
+    """
+    import numpy as np
+
+    for name in ("array", "halbach", "coil", "pair"):
+        s = MagpylibStudioSession()
+        s.load_example(name)
+        victim = next(o["id"] for o in s.list_objects()
+                      if not o.get("derived") and o["type"] != "Collection"
+                      and "Sensor" not in o["type"])
+        s.remove_object(victim)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "scene.py")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(s.to_script())
+            rebuilt = MagpylibStudioSession()
+            assert rebuilt.apply_script(path)["ok"], name
+
+        live = len(list(s.scene.sources_all))
+        assert live == len(list(rebuilt.scene.sources_all)), (
+            f"{name}: {live} sources in the scene, "
+            f"{len(list(rebuilt.scene.sources_all))} in its script"
+        )
+        if live:  # and they are the same sources, not merely as many
+            here = s.get_field(points=[[0.7, 0.3, 0.9]])["values"]
+            there = rebuilt.get_field(points=[[0.7, 0.3, 0.9]])["values"]
+            assert np.allclose(here, there), f"{name}: the field differs"
 
 
 def test_removing_an_object_takes_its_generated_copies_with_it():
