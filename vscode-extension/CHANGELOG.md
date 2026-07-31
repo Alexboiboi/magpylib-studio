@@ -6,6 +6,29 @@ All notable changes to the Magpylib Studio extension.
 
 ### Added
 
+- **A getting-started walkthrough** opens once on first activation ever
+  (per install, not per workspace): Open Studio, Load an Example, Add an
+  Object, edit from Copilot Chat, see the Field view, save — each step
+  linking the real command.
+- **"No Python interpreter found" is now a one-click fix.** The error
+  offers **Install the Engine**, which tries, in order: the interpreter
+  already selected via the Python extension (if it meets the `>=3.11`
+  floor), `uv` if installed (fetches a matching Python on demand,
+  regardless of what's already on PATH), or a login-shell-resolved
+  `python3`/`python`/`py` as a last resort — with a clear, OS-aware message
+  when nothing suitable is found, instead of forwarding pip's cryptic
+  "no matching distribution" text.
+
+### Engine / publishing
+
+- The engine (`magpylib-studio`) is on PyPI: `pip install magpylib-studio`.
+- Tag-driven CI now actually publishes both artifacts — a `.vsix` GitHub
+  Release and a PyPI release — from the same `v*` tag.
+
+## [0.1.0]
+
+### Added
+
 - **Scenes are files.** Save and open `.magpy.json` scenes: `Cmd/Ctrl+S` with
   the Scene view focused, the file name and a `•` for unsaved changes in the
   view title, *Open Scene* on a `.magpy.json` in the explorer, and a prompt
