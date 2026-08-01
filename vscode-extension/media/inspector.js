@@ -324,7 +324,16 @@ async function loadStep() {
       sel.addEventListener("change", () => commit(name, sel.value));
       wrap.appendChild(sel);
     } else if (typeof value === "number" || typeof value === "string") {
-      wrap.appendChild(numberInput(value, value, (v) => commit(name, v)));
+      // A create step's fields are the object's own parameters, so the engine
+      // reports what they currently come to; every other kind of step has no
+      // resolved value to show, and numberInput says so rather than inventing
+      // one.
+      const described_ = described[name];
+      const resolved =
+        described_ && typeof described_.value === "number"
+          ? described_.value
+          : value;
+      wrap.appendChild(numberInput(value, resolved, (v) => commit(name, v)));
     } else {
       const fixed = document.createElement("span");
       fixed.className = "hint";
@@ -451,8 +460,14 @@ async function loadParams() {
 // input cannot hold "gap*2" at all. What the user types goes back as
 // typed; only a value that parses as a number is sent as one.
 
+// The dot is escaped on purpose. Unescaped it matches *any* character, so
+// `/.?0+$/` ate the last significant digit along with the trailing zeros:
+// 2.5 showed as "2.", 3.25 as "3.2" and 0.005 as "0.00" — and those strings
+// are what a neighbouring edit committed back through asValue().
 function short(value) {
-  return Number(value).toFixed(4).replace(/.?0+$/, "");
+  return Number(value)
+    .toFixed(4)
+    .replace(/\.?0+$/, "");
 }
 
 /** Document value -> what to show in the field. */
@@ -489,10 +504,16 @@ function numberInput(value, resolved, onCommit) {
     return input;
   }
   input.value = asWritten(value, resolved);
-  const isExpression = input.value !== short(resolved);
-  if (isExpression) {
+  // What makes it an expression is the leading '=', not a mismatch with the
+  // resolved value: a step's own fields have no resolved value to compare
+  // against, and comparing against one anyway is what produced "currently
+  // NaN" on every expression in a pattern step.
+  if (typeof value === "string" && value.startsWith("=")) {
     input.classList.add("expr");
-    input.title = "expression — currently " + short(resolved);
+    const current = Number(resolved);
+    input.title = Number.isFinite(current)
+      ? "expression — currently " + short(current)
+      : "expression";
   }
   input.addEventListener("change", () => onCommit(asValue(input.value)));
   return input;
@@ -503,12 +524,27 @@ function vecRow(labels, values, onCommit, readonly, written) {
   const row = document.createElement("div");
   row.className = "vec" + (readonly ? " readonly" : "");
   const inputs = [];
+  // A component is sent as its document value unless the user typed in it.
+  // Editing x has to send y and z too — the engine takes the whole vector —
+  // and reading those back off the screen rounds them to what the field can
+  // show: a position of 795774.715564545 came back as 795774.7156, and every
+  // fifth decimal in the scene went that way one sibling edit at a time.
+  const originals = [];
+  const shown = [];
+  const commitAll = () =>
+    onCommit(
+      inputs.map((el, i) =>
+        el.value === shown[i] ? originals[i] : asValue(el.value),
+      ),
+    );
   labels.forEach((name, i) => {
     const tag = document.createElement("span");
     tag.textContent = name;
-    const input = numberInput(written ? written[i] : values[i], values[i], () =>
-      onCommit(inputs.map((el) => asValue(el.value))),
-    );
+    const original =
+      written && written[i] !== undefined ? written[i] : values[i];
+    const input = numberInput(original, values[i], commitAll);
+    originals.push(original);
+    shown.push(input.value);
     if (readonly) {
       input.readOnly = true;
       input.tabIndex = -1;

@@ -4,6 +4,19 @@ All notable changes to the Magpylib Studio extension.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Inspector showed numbers that were not the numbers.** Its rounding
+  helper matched an unescaped `.`, so it ate the last significant digit along
+  with the trailing zeros: 2.5 read as "2.", 3.25 as "3.2", a 5 mm dimension as
+  "0.00". Editing one component of a position committed the other two as
+  displayed, which turned that into real geometry loss — a vector now sends each
+  component's document value unless you typed in that box, so untouched ones
+  round-trip exactly, full precision included.
+- **A pattern step's expressions no longer claim to be "currently NaN".** The
+  step form has no resolved value for `=360 / n` and was reading the expression
+  itself as a number; it now says so, and shows the real value where the engine
+  reports one.
 ## [0.1.2]
 
 ### Added
