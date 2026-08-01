@@ -20,6 +20,10 @@ function rpc(method, params) {
 
 function short(value) {
   if (value === null || value === undefined) return '?';
+  // A variable is not always a number: one constrained to options holds a
+  // name ('z'), and rounding that used to throw on .toPrecision and take the
+  // whole panel down with it.
+  if (typeof value !== 'number') return String(value);
   return Number.isInteger(value) ? String(value) : String(Number(value.toPrecision(6)));
 }
 
@@ -90,7 +94,12 @@ async function load() {
     const name = document.createElement('span');
     name.className = 'name';
     name.textContent = v.name;
-    const isExpression = typeof v.expression === 'string';
+    // The '=' is what makes it an expression, not merely being a string: a
+    // variable constrained to options holds a *name* ("z"), and treating that
+    // as an expression chopped its first character off and showed an empty
+    // box where the value should be.
+    const isExpression =
+      typeof v.expression === 'string' && v.expression.startsWith('=');
     name.title = isExpression
       ? v.name + ' = ' + v.expression.slice(1) + ', currently ' + short(v.value)
       : v.name;
@@ -99,6 +108,7 @@ async function load() {
     // variable defined by an expression is not draggable - its value
     // belongs to the expression, not to the slider.
     const b = v.bounds || {};
+    const choices = Array.isArray(b.options) && b.options.length ? b.options : null;
     const low = b.soft_min !== undefined ? b.soft_min : b.min;
     const high = b.soft_max !== undefined ? b.soft_max : b.max;
     const slidable = !isExpression && low !== undefined && high !== undefined
@@ -109,11 +119,37 @@ async function load() {
     text.spellcheck = false;
     text.value = isExpression ? v.expression.slice(1) : short(v.value);
     if (b.integer) name.title += ' — whole numbers only';
+    if (choices) { name.title += ' — one of ' + choices.join(', '); }
     if (isExpression) { text.classList.add('expr'); text.title = 'currently ' + short(v.value); }
+    if (choices && !isExpression) {
+      // The dropdown is the editor. Typing here would send 'z' through
+      // asValue and store the expression "=z" instead of the name.
+      text.readOnly = true;
+      text.title = 'one of ' + choices.join(', ');
+    }
     text.addEventListener('change', () => commit(v.name, asValue(text.value)));
 
     const slot = document.createElement('div');
-    if (slidable) {
+    // A variable with options is a choice, not a quantity: an axis is 'z',
+    // which is a name and not a small number. A dropdown is to options what
+    // the slider is to a range, and the text box beside it would only let
+    // you type something the engine is going to refuse.
+    if (choices && !isExpression) {
+      const pick = document.createElement('select');
+      choices.forEach((option, index) => {
+        const item = document.createElement('option');
+        // the index, so the option's own type survives the round trip through
+        // the DOM: 'z' has to stay the string 'z', and 8 the number 8
+        item.value = String(index);
+        item.textContent = String(option);
+        item.selected = String(option) === String(v.value);
+        pick.appendChild(item);
+      });
+      pick.title = 'one of ' + choices.join(', ');
+      pick.addEventListener('change', () =>
+        commit(v.name, choices[Number(pick.value)]));
+      slot.appendChild(pick);
+    } else if (slidable) {
       const slider = document.createElement('input');
       slider.type = 'range';
       slider.min = low;

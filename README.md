@@ -92,7 +92,9 @@ Then open the repo root in VS Code and press `F5`.
 - **Scenes are parametric.** Any numeric value may be an expression over the
   document's variables (`"=360/n"`), evaluated from its AST against an
   allow-list — never `eval`, because a document is something you open from
-  someone else. `sweep()` re-folds the scene once per value of a variable,
+  someone else. A variable is not always a quantity: one bounded by `options`
+  holds a name (`"z"` for an axis), which gets a dropdown for the same reason
+  min/max gets a slider, and is enforced the same way. `sweep()` re-folds the scene once per value of a variable,
   which is affordable because a rebuild is milliseconds.
 - **One schema contract.** The same JSON Schema drives the inspector widgets
   *and* the LLM tool inputs.
@@ -162,7 +164,7 @@ printf '%s\n' \
 
 ## Status
 
-The engine is covered by 99 tests against both magpylib versions
+The engine is covered by 102 tests against both magpylib versions
 (`.venv/bin/python -m pytest -q`).
 
 The extension is checked at three levels, all wired into `npm run compile` so

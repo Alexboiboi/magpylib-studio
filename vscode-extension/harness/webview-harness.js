@@ -335,7 +335,9 @@ async function main() {
     for (const id of panel.elementIds) {
       const body = dump(roots.get(id));
       console.log(`--- #${id} (${body.length} nodes)`);
-      console.log(body.slice(0, 40).join('\n'));
+      // Generous: a dump that stops before the row you are looking at sends
+      // you hunting for a bug that is only off the bottom of the screen.
+      console.log(body.slice(0, 200).join('\n'));
     }
   };
 

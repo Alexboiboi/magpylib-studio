@@ -115,12 +115,18 @@ def example_scene():
     return {
         "variables": {
             "n": 10, "radius": 2.3, "gap": 1.5, "stagger": "=360 / (2 * n)",
+            "tilt": 0.0, "tilt_axis": "z",
         },
         "variable_bounds": {
             "n": {"min": 2, "max": 60, "soft_min": 4, "soft_max": 20,
                   "integer": True},
             "radius": {"min": 0.5, "max": 8, "soft_min": 1.6, "soft_max": 4},
             "gap": {"min": 0, "max": 6, "soft_min": 1, "soft_max": 3},
+            "tilt": {"min": -180, "max": 180, "soft_min": -90, "soft_max": 90},
+            # Not every variable is a quantity. An axis is a name, so a range
+            # says nothing about it and a slider cannot offer one — options
+            # are to a dropdown what bounds are to a slider.
+            "tilt_axis": {"options": ["x", "y", "z"]},
         },
         "events": [
             ring_pattern(1),
@@ -128,6 +134,12 @@ def example_scene():
             # after ring 2's copies exist, so the group carries them
             {"target": "ring2", "op": "rotate_from_angax",
              "angle": "=stagger", "axis": "z", "anchor": 0},
+            # Last, so it carries the whole assembled stack: tilting the
+            # collection turns everything in it, copies included. Zero by
+            # default — the scene looks the same until you drag `tilt`, and
+            # then `tilt_axis` decides which way it tips.
+            {"target": "halbach", "op": "rotate_from_angax",
+             "angle": "=tilt", "axis": "=tilt_axis", "anchor": 0},
         ],
         "objects": [
             {
@@ -991,6 +1003,22 @@ class MagpylibStudioSession:
         for name, limits in (self.doc.get("variable_bounds") or {}).items():
             value = self._vars.get(name)
             if value is None:
+                continue
+            choices = limits.get("options")
+            if choices is not None and value not in choices:
+                raise ValueError(
+                    f"{name} = {value!r} is not one of its options "
+                    f"({', '.join(str(c) for c in choices)})"
+                )
+            if isinstance(value, str):
+                # A named value — an axis, a plane. The limits below are all
+                # numeric, and comparing a name against one used to surface as
+                # a raw TypeError from deep inside the build.
+                if choices is None:
+                    raise ValueError(
+                        f"{name} = {value!r} is a name, but {name} is limited "
+                        f"as a number; give it options rather than a range"
+                    )
                 continue
             if limits.get("min") is not None and value < limits["min"]:
                 raise ValueError(
@@ -2495,6 +2523,23 @@ class MagpylibStudioSession:
         }
         if carried:
             doc["variable_bounds"] = {**carried, **(doc.get("variable_bounds") or {})}
+        # And so is a hidden object. `visible` says "do not draw this, but keep
+        # summing it into the field" — a studio idea with no magpylib spelling,
+        # so a script cannot carry it either. It used to be the one piece of
+        # editor state that a script edit silently discarded: hide a magnet,
+        # change one line of the script, save, and it was visible again.
+        hidden = {
+            spec["id"]
+            for spec in _walk_specs(before.get("objects") or [])
+            if spec.get("visible") is False
+        }
+        if hidden:
+            for event in doc.get("events") or []:
+                if event.get("op") == "create" and event["target"] in hidden:
+                    event["visible"] = False
+            for spec in _walk_specs(doc.get("objects") or []):
+                if spec["id"] in hidden:
+                    spec["visible"] = False
 
         result = self.load_scene(doc)
         if not result["ok"]:
@@ -2653,7 +2698,8 @@ class MagpylibStudioSession:
         }
 
     def set_variable_bounds(self, name, min=None, max=None,  # noqa: A002
-                            soft_min=None, soft_max=None, integer=None):
+                            soft_min=None, soft_max=None, integer=None,
+                            options=None):
         """Limit a variable, so a UI can offer a slider and a typo cannot put
         the scene somewhere meaningless.
 
@@ -2667,7 +2713,15 @@ class MagpylibStudioSession:
         domain, not a hint for the slider: a count of 7.3 is not a coarse
         7.3, it is meaningless, and the patterns that consume one would
         quietly truncate it. Enforced like the hard bounds, wherever the
-        value came from. Passing nothing clears the limits.
+        value came from.
+
+        `options` is the same idea for a value that is not on a scale at all:
+        a list the variable has to be one of. A rotation axis is the reason it
+        exists — `"z"` is a name, not a small number, so a range says nothing
+        useful about it and a slider cannot offer it. Options give a UI a
+        dropdown for the same reason bounds give it a slider.
+
+        Passing nothing clears the limits.
         """
         if name not in (self.doc.get("variables") or {}):
             return {"ok": False, "error": f"unknown variable {name!r}"}
@@ -2681,6 +2735,16 @@ class MagpylibStudioSession:
         limits = {k: v for k, v in limits.items() if v is not None}
         if integer:
             limits["integer"] = True
+        if options is not None:
+            if not isinstance(options, list) or not options:
+                return {"ok": False,
+                        "error": "options must be a non-empty list of choices"}
+            if any(not isinstance(o, str | int | float) or isinstance(o, bool)
+                   for o in options):
+                return {"ok": False, "error": "an option is a name or a number"}
+            if len(set(map(str, options))) != len(options):
+                return {"ok": False, "error": "options must be distinct"}
+            limits["options"] = options
         for lo, hi in (("min", "max"), ("soft_min", "soft_max")):
             if lo in limits and hi in limits and limits[lo] > limits[hi]:
                 return {"ok": False, "error": f"{lo} must not exceed {hi}"}

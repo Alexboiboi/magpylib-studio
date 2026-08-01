@@ -14,6 +14,10 @@ export interface VariableBounds {
   soft_max?: number;
   /** This variable counts things, so only whole values are legal. */
   integer?: boolean;
+  /** The values it may take, for a variable that is a choice rather than a
+   *  quantity — a rotation axis, a mirror plane. Mutually exclusive with a
+   *  range in practice: a name has no min. */
+  options?: (string | number)[];
 }
 
 export interface Variable {

@@ -176,6 +176,104 @@ def test_inspector_offers_only_planes_the_engine_knows():
     assert sorted(re.findall(r"'(\w+)'", listed)) == sorted(_MIRROR_NORMALS)
 
 
+def test_a_variable_can_be_a_choice_rather_than_a_quantity():
+    """Not everything a scene is written in terms of sits on a scale.
+
+    A rotation axis is `"z"` — a name, not a small number — so min/max says
+    nothing about it and a slider cannot offer it. `options` is the bound that
+    fits: enforced like the numeric ones, wherever the value came from, and
+    what tells a UI to draw a dropdown instead.
+    """
+    import numpy as np
+
+    s = MagpylibStudioSession()
+    s.load_example("halbach")
+    assert s.to_dict()["variable_bounds"]["tilt_axis"] == {"options": ["x", "y", "z"]}
+
+    def where():
+        return np.round(s._objs["r1"].position, 3)
+
+    s.set_variable("tilt", 90)
+    assert list(where()) == [0, 2.3, 0]          # about z, the default
+    assert s.set_variable("tilt_axis", "y")["ok"]
+    assert list(where()) == [0, 0, -2.3]         # the same tilt, a different axis
+
+    refused = s.set_variable("tilt_axis", "w")
+    assert not refused["ok"] and "not one of its options" in refused["error"]
+    assert list(where()) == [0, 0, -2.3], "a refused value changed the scene"
+
+    # and the axis survives being written out and read back as source
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "scene.py")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(s.to_script())
+        assert "tilt_axis = 'y'" in open(path, encoding="utf-8").read()
+        before = json.dumps(s.to_dict())
+        assert s.apply_script(path)["mode"] == "parsed"
+        assert json.dumps(s.to_dict()) == before
+
+
+def test_the_variables_panel_uses_every_bound_the_engine_can_write():
+    """A limit the engine records and the panel ignores is invisible: the
+    value is refused and nothing on screen ever said it would be.
+
+    `options` was exactly that shape of gap before it had a dropdown, so this
+    reads the engine's own signature rather than a list someone has to
+    remember to extend. (Same trick as the inspector's plane list.)
+    """
+    import inspect
+    import pathlib
+
+    panel = (pathlib.Path(__file__).parent.parent
+             / "vscode-extension" / "media" / "variables.js")
+    if not panel.exists():  # engine installed on its own, no extension beside it
+        pytest.skip("extension sources not present")
+    source = panel.read_text()
+
+    limits = [
+        name for name in
+        inspect.signature(MagpylibStudioSession.set_variable_bounds).parameters
+        if name not in ("self", "name")
+    ]
+    assert limits, "no bounds to check"
+    unused = [limit for limit in limits if f"b.{limit}" not in source]
+    assert not unused, f"the variables panel ignores {unused}"
+    s = MagpylibStudioSession()
+    s.set_variable("plane", "xy")
+    assert not s.set_variable_bounds("plane", options=[])["ok"]
+    assert not s.set_variable_bounds("plane", options=["xy", "xy"])["ok"]
+    assert not s.set_variable_bounds("plane", options=[["xy"]])["ok"]
+    assert s.set_variable_bounds("plane", options=["xy", "xz", "yz"])["ok"]
+
+    # A name where a number is expected used to surface as a raw TypeError
+    # from the comparison deep inside the build.
+    s.set_variable("n", 4)
+    s.set_variable_bounds("n", 1, 10)
+    failed = s.set_variable("n", "z")
+    assert not failed["ok"]
+    assert "limited as a number" in failed["error"], failed["error"]
+
+
+def test_hiding_an_object_survives_editing_the_script():
+    """`visible` is editor state with no magpylib spelling, exactly like the
+    slider bounds beside it — and it used to be the one piece of it that a
+    script edit silently threw away."""
+    s = MagpylibStudioSession()
+    s.load_example("halbach")
+    s.set_visible("r2", False)
+    assert any(o.get("visible") is False for o in s.list_objects())
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "scene.py")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(s.to_script().replace("radius = 2.3", "radius = 2.6"))
+        assert s.apply_script(path)["ok"]
+
+    assert s.to_dict()["variables"]["radius"] == 2.6, "the edit did not apply"
+    hidden = {o["id"] for o in s.list_objects() if o.get("visible") is False}
+    assert "r2" in hidden, "the hidden magnet came back visible"
+
+
 def test_the_script_builds_the_scene_whatever_order_it_was_built_in():
     """`to_script` folds the log; it does not hoist every definition above
     every step.

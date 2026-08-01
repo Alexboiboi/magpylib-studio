@@ -29,9 +29,14 @@ newline-delimited JSON-RPC over stdio.
   watch the scene assemble — and anything you do while rolled back is
   *inserted at that step*. The Scene title bar offers *Show The Whole Scene*
   while it is active.
-- **Variables view** — named numbers the scene is written in terms of. Each
+- **Variables view** — named values the scene is written in terms of. Each
   row is a value box and, once it has bounds, a slider; dragging one moves
-  everything defined against it. Values may be expressions over the other
+  everything defined against it. A variable that is a *choice* rather than a
+  quantity gets a dropdown instead — a rotation axis is `z`, which is a name,
+  so no range describes it and no slider can offer it. The halbach example
+  ships with one: `tilt_axis` picks which way `tilt` tips the whole stack.
+  Whole-number variables are refused fractional values outright, because a
+  count of 7.3 is meaningless rather than merely imprecise. Values may be expressions over the other
   variables (`360 / n`), with the allowed operators, functions and constants
   listed in the panel and checked as you type. **Sweep a Variable…** plots
   the field against one in the Field view.

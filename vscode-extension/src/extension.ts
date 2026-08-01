@@ -82,6 +82,20 @@ const SCENE_EXTENSION = '.magpy.json';
  *  a caller that is not a person says so. */
 type Discard = { discardChanges?: boolean };
 
+/** What sort of value a variable holds, which decides whether it gets a
+ *  slider, a whole-number slider, or a dropdown. */
+type VariableKind = 'number' | 'whole' | 'choice';
+
+/** "x, y, z" -> ["x","y","z"], keeping numbers as numbers so a choice between
+ *  4, 8 and 16 stays a choice between numbers. */
+function parseChoices(text: string): (string | number)[] {
+  return text
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => (Number.isFinite(Number(part)) ? Number(part) : part));
+}
+
 /** Object types offered by "Add Object…", with ready-to-build defaults. */
 const OBJECT_TEMPLATES: {
   label: string;
@@ -1188,7 +1202,7 @@ export function activate(context: vscode.ExtensionContext): void {
    * for: the slider falls back to it, and Set Bounds… covers the soft range
    * for when the two differ.
    */
-  const askAllowedRange = async (name: string) => {
+  const askAllowedRange = async (name: string, whole = false) => {
     const text = await vscode.window.showInputBox({
       prompt: `Allowed range for ${name} — optional, and gives it a slider`,
       placeHolder: 'min, max — e.g. 0, 10. Enter to skip',
@@ -1196,8 +1210,16 @@ export function activate(context: vscode.ExtensionContext): void {
         v.trim() === '' || parseBoundPair(v) ? undefined : 'min, max',
     });
     const pair = text && parseBoundPair(text);
-    if (pair) {
-      await mutateFromTree('set_variable_bounds', { name, min: pair[0], max: pair[1] });
+    // `whole` is a fact about the variable, so it is recorded even when the
+    // range is skipped — otherwise a count only becomes a count if you also
+    // felt like bounding it.
+    if (pair || whole) {
+      await mutateFromTree('set_variable_bounds', {
+        name,
+        min: pair ? pair[0] : undefined,
+        max: pair ? pair[1] : undefined,
+        integer: whole,
+      });
     }
   };
 
@@ -1237,8 +1259,10 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   const editVariable = async (variable: Variable, prompt?: string): Promise<boolean> => {
+    // Same rule as the panel: only a leading '=' means an expression. A
+    // name-valued variable is a string that is simply its own value.
     const current =
-      typeof variable.expression === 'string'
+      typeof variable.expression === 'string' && variable.expression.startsWith('=')
         ? variable.expression.slice(1)
         : String(variable.expression);
     const text = await vscode.window.showInputBox({
@@ -1257,12 +1281,76 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   /**
+   * What sort of thing a variable is. Not a formatting preference: a count of
+   * 7.3 is meaningless rather than imprecise, and an axis is a name that no
+   * range describes and no slider can offer.
+   */
+  const askVariableKind = async (
+    name: string,
+    bounds: Variable['bounds'] = {},
+  ): Promise<VariableKind | undefined> => {
+    const current: VariableKind = bounds?.options
+      ? 'choice'
+      : bounds?.integer
+        ? 'whole'
+        : 'number';
+    // `kind` is spoken for on a QuickPickItem — VS Code uses it for
+    // separators — so the payload travels as `is`.
+    const items: { label: string; detail: string; is: VariableKind }[] = [
+      { label: 'Number', detail: 'a length, an angle, a field — gets a slider', is: 'number' },
+      {
+        label: 'Whole number',
+        detail: 'it counts things — magnets, turns, copies',
+        is: 'whole',
+      },
+      {
+        label: 'One of a few choices',
+        detail: 'an axis (x, y, z) or a plane (xy, xz, yz) — gets a dropdown',
+        is: 'choice',
+      },
+    ];
+    // the one it already is, first, so re-opening this does not look like a
+    // fresh decision
+    items.sort((a, b) => Number(b.is === current) - Number(a.is === current));
+    const picked = await vscode.window.showQuickPick(items, {
+      placeHolder: `${name} — what kind of value is it?`,
+    });
+    return picked?.is;
+  };
+
+  /**
    * Limits for a variable. Hard bounds are refused if broken; soft bounds are
    * only the range a slider spans, which is why they are asked for separately
    * — "never below zero" and "the interesting part is 1 to 5" are different
    * statements about the same variable.
    */
-  const setVariableBounds = async (variable: Variable) => {
+  const setVariableBounds = async (variable: Variable, kind?: VariableKind) => {
+    const bounds = variable.bounds ?? {};
+    // What the variable *is* comes first, because it decides what the rest of
+    // the questions even are: a range is meaningless for an axis, and a list
+    // of choices is meaningless for a gap.
+    const chosen = kind ?? (await askVariableKind(variable.name, bounds));
+    if (!chosen) {
+      return;
+    }
+    if (chosen === 'choice') {
+      const text = await vscode.window.showInputBox({
+        prompt: `${variable.name} — the values it may take`,
+        value: (bounds.options ?? []).join(', '),
+        placeHolder: 'comma-separated — e.g. x, y, z',
+        validateInput: (v) =>
+          parseChoices(v).length ? undefined : 'at least one value, comma-separated',
+      });
+      if (text === undefined) {
+        return;
+      }
+      await mutateFromTree('set_variable_bounds', {
+        name: variable.name,
+        options: parseChoices(text),
+      });
+      return;
+    }
+
     const ask = async (prompt: string, current?: [number?, number?]) => {
       const value =
         current && (current[0] !== undefined || current[1] !== undefined)
@@ -1277,7 +1365,6 @@ export function activate(context: vscode.ExtensionContext): void {
       });
       return text === undefined ? undefined : (parseBoundPair(text) ?? [null, null]);
     };
-    const bounds = variable.bounds ?? {};
     const hard = await ask(
       `${variable.name} — allowed range (a value outside is refused)`,
       [bounds.min, bounds.max],
@@ -1292,29 +1379,13 @@ export function activate(context: vscode.ExtensionContext): void {
     if (soft === undefined) {
       return;
     }
-    // Whole-or-not is a fact about the variable, not a slider setting: a
-    // count of 7.3 is meaningless rather than merely precise.
-    const kind = await vscode.window.showQuickPick(
-      [
-        { label: 'Any value', detail: 'a length, an angle, a field', whole: false },
-        {
-          label: 'Whole numbers only',
-          detail: 'it counts things — magnets, turns, copies',
-          whole: true,
-        },
-      ],
-      { placeHolder: `${variable.name} — what kind of number?` },
-    );
-    if (!kind) {
-      return;
-    }
     await mutateFromTree('set_variable_bounds', {
       name: variable.name,
       min: hard[0],
       max: hard[1],
       soft_min: soft[0],
       soft_max: soft[1],
-      integer: kind.whole,
+      integer: chosen === 'whole',
     });
   };
 
@@ -1885,10 +1956,36 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!name) {
         return;
       }
+      // Asked here rather than left for "Set bounds…" afterwards: what a
+      // variable *is* is part of creating it, and a choice variable cannot
+      // even be given a sensible first value without knowing its options.
+      const kind = await askVariableKind(name);
+      if (!kind) {
+        return;
+      }
+      if (kind === 'choice') {
+        const text = await vscode.window.showInputBox({
+          prompt: `${name} — the values it may take`,
+          placeHolder: 'comma-separated — e.g. x, y, z',
+          validateInput: (v) =>
+            parseChoices(v).length ? undefined : 'at least one value, comma-separated',
+        });
+        if (text === undefined) {
+          return;
+        }
+        const options = parseChoices(text);
+        // The first option is the value: a choice variable with no value is
+        // not a useful intermediate state, and the engine would refuse one
+        // outside its own options anyway.
+        if (await mutateFromTree('set_variable', { name, value: options[0] })) {
+          await mutateFromTree('set_variable_bounds', { name, options });
+        }
+        return;
+      }
       if (!(await editVariable({ name, expression: 0, value: 0 }, 'Value or expression'))) {
         return;
       }
-      await askAllowedRange(name);
+      await askAllowedRange(name, kind === 'whole');
     }),
     vscode.commands.registerCommand(
       'magpylib-studio.editVariable',

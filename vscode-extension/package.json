@@ -1359,7 +1359,7 @@
         "displayName": "Bound a magpylib scene variable",
         "toolReferenceName": "magpyBounds",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "Limit a variable. Hard bounds ('min'/'max') are enforced: any value outside them is refused, including one the variable reaches through an expression - use them for what is physically or geometrically impossible, such as a negative gap or fewer than one magnet. Soft bounds ('soft_min'/'soft_max') only say which range is worth exploring; values outside stay legal, and this is what a slider or a sweep should span. Soft bounds must lie inside hard ones. Call with no bounds to clear them. Values are unitless SI.",
+        "modelDescription": "Limit a variable. Hard bounds ('min'/'max') are enforced: any value outside them is refused, including one the variable reaches through an expression - use them for what is physically or geometrically impossible, such as a negative gap or fewer than one magnet. Soft bounds ('soft_min'/'soft_max') only say which range is worth exploring; values outside stay legal, and this is what a slider or a sweep should span. Soft bounds must lie inside hard ones. Set 'integer' for a variable that counts things (magnets, turns, copies) - a fractional count is meaningless, not merely imprecise, and the patterns that consume one would truncate it silently. Set 'options' instead of a range for a variable that is a choice rather than a quantity, such as a rotation axis (\"x\"/\"y\"/\"z\") or a mirror plane (\"xy\"/\"xz\"/\"yz\"): a range cannot describe those and a slider cannot offer them, and the value is then refused unless it is one of the listed choices. Call with no bounds to clear them. Values are unitless SI.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1382,6 +1382,21 @@
             "soft_max": {
               "type": "number",
               "description": "High end of the interesting range. Optional."
+            },
+            "integer": {
+              "type": "boolean",
+              "description": "True if the variable counts things, so a fractional value is refused. Optional."
+            },
+            "options": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": [
+                  "string",
+                  "number"
+                ]
+              },
+              "description": "The values this variable may take, for one that is a choice rather than a quantity — e.g. [\"x\",\"y\",\"z\"] for a rotation axis. Use instead of min/max, not alongside. Optional."
             }
           },
           "required": [

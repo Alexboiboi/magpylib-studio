@@ -26,7 +26,7 @@
     },
     "variable_bounds": {
       "type": "object",
-      "description": "Slider range and step for a variable. Hard min/max are limits; soft_min/soft_max are where the slider sits by default.",
+      "description": "What a variable is allowed to be. Hard min/max are limits; soft_min/soft_max are where the slider sits by default; `options` is for a variable that is a choice rather than a quantity.",
       "additionalProperties": {
         "type": "object",
         "properties": {
@@ -34,7 +34,14 @@
           "max": { "type": "number" },
           "soft_min": { "type": "number" },
           "soft_max": { "type": "number" },
-          "integer": { "type": "boolean" }
+          "integer": { "type": "boolean", "description": "It counts things, so a fractional value is meaningless rather than merely precise." },
+          "options": {
+            "type": "array",
+            "minItems": 1,
+            "description": "The values this variable may take, when it is not on a scale at all — a rotation axis is the reason this exists. A UI offers these as a dropdown the way it offers min/max as a slider.",
+            "items": { "type": ["string", "number"] },
+            "examples": [["x", "y", "z"], ["xy", "xz", "yz"]]
+          }
         },
         "additionalProperties": true
       }
@@ -53,11 +60,20 @@
   "additionalProperties": true,
   "definitions": {
     "value": {
-      "description": "A number, or an expression over the document's variables written with a leading '=' (\"=360/n\"). Expressions are evaluated from their syntax tree against an allow-list, never exec'd.",
+      "description": "A number; an expression over the document's variables written with a leading '=' (\"=360/n\"); or a bare name, for a value that is a choice rather than a quantity (an axis is \"z\"). Expressions are evaluated from their syntax tree against an allow-list, never exec'd. A string that is neither — \"360/n\" without the '=' — is the mistake this shape exists to catch.",
       "anyOf": [
         { "type": "number" },
         { "type": "string", "pattern": "^=" },
+        { "type": "string", "pattern": "^[A-Za-z_]\\w*$" },
         { "type": "array", "items": { "$ref": "#/definitions/value" } }
+      ]
+    },
+    "axis": {
+      "description": "An axis name, a vector, or an expression naming a variable that holds one. A name is a name — \"z\" is not a number.",
+      "anyOf": [
+        { "type": "string", "enum": ["x", "y", "z"] },
+        { "type": "string", "pattern": "^=" },
+        { "$ref": "#/definitions/vector" }
       ]
     },
     "vector": {
@@ -162,13 +178,7 @@
             "required": ["angle"],
             "properties": {
               "angle": { "$ref": "#/definitions/value" },
-              "axis": {
-                "description": "An axis name or a vector. A name is a name — \"z\" is not a number.",
-                "anyOf": [
-                  { "type": "string", "enum": ["x", "y", "z"] },
-                  { "$ref": "#/definitions/vector" }
-                ]
-              },
+              "axis": { "$ref": "#/definitions/axis" },
               "anchor": { "description": "Point rotated about; absent or null spins in place, 0 means the origin." }
             }
           }
@@ -191,12 +201,7 @@
             "required": ["count"],
             "properties": {
               "count": { "$ref": "#/definitions/value", "description": "Copies including the original, so 8 means 8 objects." },
-              "axis": {
-                "anyOf": [
-                  { "type": "string", "enum": ["x", "y", "z"] },
-                  { "$ref": "#/definitions/vector" }
-                ]
-              },
+              "axis": { "$ref": "#/definitions/axis" },
               "anchor": { "description": "Centre of the ring." },
               "spin": { "$ref": "#/definitions/value", "description": "Extra rotation each copy makes in place — what turns a ring into a Halbach array." }
             }
@@ -216,7 +221,12 @@
           "if": { "properties": { "op": { "const": "mirror" } }, "required": ["op"] },
           "then": {
             "properties": {
-              "plane": { "type": "string", "enum": ["xy", "xz", "yz"] },
+              "plane": {
+                "anyOf": [
+                  { "type": "string", "enum": ["xy", "xz", "yz"] },
+                  { "type": "string", "pattern": "^=" }
+                ]
+              },
               "normal": { "$ref": "#/definitions/vector", "description": "Used instead of `plane` for an arbitrary mirror." },
               "anchor": { "description": "A point on the mirror plane." }
             }
