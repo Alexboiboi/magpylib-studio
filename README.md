@@ -13,30 +13,28 @@ chat tools.
 ## Try it out
 
 ```sh
-# 1. the engine (Python >= 3.11)
-python3 -m venv ~/magpylib-studio-venv
-~/magpylib-studio-venv/bin/pip install \
-  "magpylib-studio @ git+https://github.com/magpylib/magpylib-studio.git"
-
-# 2. the extension
-git clone https://github.com/magpylib/magpylib-studio.git
-cd magpylib-studio/vscode-extension && npm install && cd ..
+code --install-extension magpylib.magpylib-studio-vscode
 ```
 
-Open **the repo root** in VS Code and press `F5` — not the `vscode-extension/`
-folder: the launch config is at the root so the engine stays in the workspace
-you can edit, and F5 compiles before it launches. A second window opens (the
-Extension Development Host, on `sandbox/`). In it, set
-`magpylib-studio.pythonPath` to `~/magpylib-studio-venv/bin/python`, click the
-magpylib icon in the activity bar and press **Load Example Scene**.
+That is the whole install — the Python side is not a second step you do first.
+Open a folder, click the magpylib icon in the activity bar and press **Load
+Example Scene**; the first time the extension needs the engine it offers
+**Install the Engine**, which takes the interpreter the Python extension already
+selected, or makes a `.venv` in the workspace, installs `magpylib-studio` into
+it and points `magpylib-studio.pythonPath` at it for you. With [uv][uv] present
+it fetches a matching Python too, so even the ≥ 3.11 floor is not something to
+arrange in advance.
 
-Full walkthrough, including building an installable `.vsix`, in the
-[extension README](vscode-extension/README.md#try-it-out).
+Full walkthrough in the
+[extension README](vscode-extension/README.md#try-it-out). To work on the
+extension rather than use it, see [Development](#development).
+
+[uv]: https://docs.astral.sh/uv/
 
 ## Install the engine on its own
 
 ```sh
-pip install "magpylib-studio @ git+https://github.com/magpylib/magpylib-studio.git"
+pip install magpylib-studio
 ```
 
 That is enough: the engine works with **released magpylib** (≥ 5.2). The
@@ -59,6 +57,9 @@ pickers) either way. The test suite runs against both.
 ### Development
 
 ```sh
+git clone https://github.com/magpylib/magpylib-studio.git
+cd magpylib-studio
+
 # the engine
 uv venv --python 3.13 .venv
 VIRTUAL_ENV=$PWD/.venv uv pip install -e ".[dev]"
@@ -66,9 +67,14 @@ VIRTUAL_ENV=$PWD/.venv uv pip install -e ".[dev]"
 
 # the extension (from vscode-extension/)
 npm install
-npm run compile     # tsc + eslint + webview and contribution checks
+npm run compile     # tsc + eslint + webview, contribution and version checks
 npm test            # twelve tests in a real Extension Development Host
 ```
+
+Then open **the repo root** in VS Code and press `F5` — not the
+`vscode-extension/` folder: the launch config is at the root so the engine stays
+in the workspace you can edit, and F5 compiles before it launches. A second
+window opens, the Extension Development Host, with `sandbox/` as its workspace.
 
 Hooks run on every push via pre-commit.ci (`.pre-commit-config.yaml`), and
 locally with `pre-commit run --all-files`: ruff and prettier for formatting,
@@ -77,8 +83,6 @@ defaults move), plus workflow and `pyproject` validation. The one commit that
 only reformats is listed in `.git-blame-ignore-revs`;
 `git config blame.ignoreRevsFile .git-blame-ignore-revs` makes local blame skip
 it, as GitHub already does.
-
-Then open the repo root in VS Code and press `F5`.
 
 ## Design decisions
 

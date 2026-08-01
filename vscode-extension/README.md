@@ -137,65 +137,47 @@ the request-id space).
 
 ## Try it out
 
-**1. Install the engine.** The extension is only the UI; it spawns
-`python -m magpylib_studio`, so any interpreter with the engine installed works
-(Python ≥ 3.11):
+**1. Install the extension** — search **Magpylib Studio** in the Extensions
+view, or:
 
 ```sh
-python3 -m venv ~/magpylib-studio-venv
-~/magpylib-studio-venv/bin/pip install \
-  "magpylib-studio @ git+https://github.com/magpylib/magpylib-studio.git"
+code --install-extension magpylib.magpylib-studio-vscode
 ```
 
-That pulls released magpylib and works fully. The [property-tree branch][branch]
-is optional and adds path-valued physics properties (`current=[100, 200, 300]`):
+Or install the `.vsix` attached to the [latest release][releases], which is the
+same build — the asset is named for the tag, not for the package:
 
 ```sh
-~/magpylib-studio-venv/bin/pip install \
-  "magpylib @ git+https://github.com/magpylib/magpylib@feat/improve-style"
+code --install-extension magpylib-studio-<tag>.vsix
 ```
-
-**2. Run the extension**, either way:
-
-_From source_ — clone the repo, install the node dependencies, then open the
-**repo root** in VS Code and press `F5`:
-
-```sh
-cd vscode-extension && npm install && cd ..
-code .          # the repo root, not vscode-extension/
-```
-
-`F5` compiles (tsc, eslint and two contribution checks) and opens one further
-window — the Extension Development Host, with the extension loaded and
-`sandbox/` as its workspace. Two windows total, which is as few as extension
-debugging goes. The launch config lives at the repo root deliberately: opening
-`vscode-extension/` as its own workspace works too, but then the Python engine
-is outside the window you are editing in.
-
-Other configs on the F5 menu: **Run Extension (no build)** for when
-`npm run watch` is already running, and **Extension Tests**. From a terminal the
-equivalents are `npm run compile`, `npm run watch` and `npm test` — the last
-downloads a VS Code build the first time and runs the suite in a real host.
-
-_From a package_ — take the `.vsix` from the [latest release][releases], or
-build one, and install it into your normal VS Code:
-
-```sh
-npx @vscode/vsce package        # or download it from Releases
-code --install-extension magpylib-studio-vscode-0.0.1.vsix
-```
-
-Not on the Marketplace yet: the engine is not on PyPI, so installing from there
-would leave you with a UI and nothing behind it.
 
 [releases]: https://github.com/magpylib/magpylib-studio/releases
 
-**3. Point it at the interpreter.** Settings → `magpylib-studio.pythonPath` →
-`~/magpylib-studio-venv/bin/python`. Skip this only if your workspace has a
-`.venv` with the engine in it. If nothing usable is found you get an error with
-an _Open Settings_ button, not a silent failure.
+**2. Let it install the engine.** The extension is only the UI — it spawns
+`python -m magpylib_studio` — but that is not a step you do first. Open a folder
+and use the extension; when it cannot find an interpreter with the engine, it
+offers **Install the Engine**, which
 
-**4. Open it.** Click the magpylib icon in the activity bar, press **Load
+- uses the interpreter the Python extension already has selected, if it meets
+  the ≥ 3.11 floor; otherwise
+- creates a `.venv` in the workspace, fetching a matching Python via [uv][uv]
+  when uv is installed and falling back to `python -m venv`; then
+- `pip install magpylib-studio` into it, and sets `magpylib-studio.pythonPath`
+  to it in workspace settings.
+
+To do it yourself instead, any interpreter ≥ 3.11 with the engine on it works —
+`pip install magpylib-studio`, then point `magpylib-studio.pythonPath` at it.
+Either way you get released magpylib, which is fully supported. The
+[property-tree branch][branch] is optional and adds path-valued physics
+properties (`current=[100, 200, 300]`):
+
+```sh
+pip install "magpylib @ git+https://github.com/magpylib/magpylib@feat/improve-style"
+```
+
+[uv]: https://docs.astral.sh/uv/
+
+**3. Open it.** Click the magpylib icon in the activity bar, press **Load
 Example Scene…** and take the Halbach stack. Then, in rough order of what the
 tool is for:
 
@@ -211,6 +193,42 @@ tool is for:
   `a ring of 8 dipoles at radius 5 #magpyDuplicate`.
 
 [branch]: https://github.com/magpylib/magpylib/tree/feat/improve-style
+
+## Working on it
+
+Nothing above needs a clone; this does. Take the repo, install the node
+dependencies, then open the **repo root** in VS Code and press `F5`:
+
+```sh
+git clone https://github.com/magpylib/magpylib-studio.git
+cd magpylib-studio/vscode-extension && npm install && cd ..
+code .          # the repo root, not vscode-extension/
+```
+
+`F5` compiles (tsc, eslint and three checks over the webviews, the contributions
+and the version) and opens one further window — the Extension Development Host,
+with the extension loaded and `sandbox/` as its workspace. Two windows total,
+which is as few as extension debugging goes. The launch config lives at the repo
+root deliberately: opening `vscode-extension/` as its own workspace works too,
+but then the Python engine is outside the window you are editing in.
+
+Other configs on the F5 menu: **Run Extension (no build)** for when
+`npm run watch` is already running, and **Extension Tests**. From a terminal the
+equivalents are `npm run compile`, `npm run watch` and `npm test` — the last
+downloads a VS Code build the first time and runs the suite in a real host.
+
+To install your build into your normal VS Code, package it — note that vsce
+names the file after the package and version, where a release asset is named
+after the tag:
+
+```sh
+npx @vscode/vsce package        # -> magpylib-studio-vscode-<version>.vsix
+```
+
+Releases are tag-driven: bump `package.json` and rename the changelog's
+`[Unreleased]` heading in one commit, then push a `v*` tag.
+`npm run check:version` keeps those two honest on every build, and the release
+workflow checks the tag against both before it publishes anything.
 
 ## Python interpreter resolution
 
