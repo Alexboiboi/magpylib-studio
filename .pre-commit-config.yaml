@@ -31,11 +31,22 @@ repos:
       - id: mixed-line-ending
       - id: trailing-whitespace
 
+  - repo: https://github.com/rbubley/mirrors-prettier
+    rev: "v3.8.3"
+    hooks:
+      - id: prettier
+        types_or: [yaml, markdown, html, css, javascript, json]
+        args: [--prose-wrap=always]
+        # VS Code's own config files are JSONC, which prettier parses as
+        # strict JSON and chokes on.
+        exclude: ^\.vscode/|/jsconfig\.json$
+
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: "v0.15.15"
     hooks:
       - id: ruff-check
         args: ["--fix"]
+      - id: ruff-format
 
   - repo: https://github.com/codespell-project/codespell
     rev: "v2.4.2"
@@ -54,14 +65,3 @@ repos:
     rev: "0.37.2"
     hooks:
       - id: check-github-workflows
-
-# Not enabled, and not an oversight:
-#
-#   ruff-format  — would rewrite 1773 lines of the engine on first run, and
-#                  pre-commit.ci pushes its fixes automatically. Adopting it
-#                  is a decision for the repo's maintainers, not a side
-#                  effect of getting CI green; it should land as its own
-#                  commit that reviewers can skip with .git-blame-ignore-revs.
-#   prettier     — same, for the Markdown and the webview JavaScript. The
-#                  prose here is hand-wrapped and --prose-wrap=always would
-#                  redo all of it.
