@@ -3,12 +3,13 @@
  *
  *   node harness/webview-harness.js inspector [example]
  *
- * The webview JavaScript lives inside a TypeScript template literal, so tsc
- * never looks at it: a typo there is invisible until the panel is blank in a
- * window nobody can debug from here. This loads the compiled provider, takes
- * the HTML it would hand VS Code, and executes the script under a DOM shim
- * with its rpc bridged to a real `python -m magpylib_studio`. It then prints
- * the DOM as text, which is as close as this repo gets to seeing the panel.
+ * tsc and ESLint read the webview scripts now that they are files in media/,
+ * and check-webview-scripts.js keeps them there — but neither of those runs
+ * one. A panel that parses can still render nothing, in a window nobody can
+ * debug from here. This loads the compiled provider, takes the HTML it would
+ * hand VS Code, and executes the script under a DOM shim with its rpc bridged
+ * to a real `python -m magpylib_studio`. It then prints the DOM as text,
+ * which is as close as this repo gets to seeing the panel.
  *
  * The shim implements what the panels actually use and nothing more, so a
  * missing member is a finding, not a gap to paper over.

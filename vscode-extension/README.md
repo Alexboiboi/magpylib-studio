@@ -4,6 +4,17 @@ VS Code shell for the headless `magpylib-studio` engine (the Python package in
 the repo root). It spawns `python -m magpylib_studio` and talks
 newline-delimited JSON-RPC over stdio.
 
+<!-- Absolute, not relative. vsce rewrites relative image paths against the
+     *repository* root it reads from package.json, and this extension lives in
+     a subfolder of that repo — so `../docs/halbach.png` becomes a 404 on the
+     Marketplace listing while looking right on GitHub. -->
+
+![The Halbach example open in VS Code: the scene tree listing each ring's construction steps and the copies a pattern made, the variables panel with sliders for n, radius, gap, stagger and tilt, the 3D view, and the script tab showing the same scene as parametric magpylib.](https://raw.githubusercontent.com/magpylib/magpylib-studio/main/docs/halbach.png)
+
+_The `halbach` example: twenty magnets from two `create` steps and two circular
+patterns. Dragging `n` rebuilds both rings; the script tab on the right is the
+same scene, and saving an edit to it rebuilds the scene from what you wrote._
+
 ## What it provides
 
 - **Command** `Magpylib Studio: Open Scene View` — the "Magpylib Scene" tab: the
@@ -13,9 +24,10 @@ newline-delimited JSON-RPC over stdio.
   tree of the scene's objects, nested as they are grouped, one icon per type
   (magnets red, currents blue, sensors green). Clicking an object opens the plot
   and loads it in the Inspector. The scene starts **empty**: the view offers
-  **Load Example Scene…**, which picks between five — a Halbach stack, a
-  solenoid, a mirrored pair, a magnet array and a parametric measuring plane,
-  each built from a couple of steps rather than a heap of objects.
+  **Load Example Scene…**, which picks between six — a Halbach stack, a
+  solenoid, a mirrored pair, a magnet array, a parametric measuring plane and a
+  turning magnet with field arrows, each built from a couple of steps rather
+  than a heap of objects.
 - **The construction history is in that tree**, under the object it happened to:
   expand a magnet and you get _created_, _orbit 36° about z_, and so on, before
   whatever it contains. Steps are named for what they did; the call that did it
@@ -158,8 +170,10 @@ code --install-extension magpylib-studio-<tag>.vsix
 and use the extension; when it cannot find an interpreter with the engine, it
 offers **Install the Engine**, which
 
-- uses the interpreter the Python extension already has selected, if it meets
-  the ≥ 3.11 floor; otherwise
+- offers the interpreter the Python extension already has selected, if it meets
+  the ≥ 3.11 floor — named in the prompt, and declinable, because that one may
+  be a system Python and "install the engine" is not consent to change it;
+  otherwise, or if you decline,
 - creates a `.venv` in the workspace, fetching a matching Python via [uv][uv]
   when uv is installed and falling back to `python -m venv`; then
 - `pip install magpylib-studio` into it, and sets `magpylib-studio.pythonPath`

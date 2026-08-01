@@ -10,6 +10,12 @@ with the construction history in it, schema-driven inspector, variables with
 sliders, 3D view, field maps and sweeps, an editable script tab, and Copilot
 chat tools.
 
+![The Halbach example open in VS Code: the scene tree listing each ring's construction steps and the copies a pattern made, the variables panel with sliders for n, radius, gap, stagger and tilt, the 3D view, and the script tab showing the same scene as parametric magpylib.](docs/halbach.png)
+
+_The `halbach` example: twenty magnets from two `create` steps and two circular
+patterns. Dragging `n` rebuilds both rings; the script tab on the right is the
+same scene, and saving an edit to it rebuilds the scene from what you wrote._
+
 ## Try it out
 
 ```sh
@@ -19,11 +25,13 @@ code --install-extension magpylib.magpylib-studio-vscode
 That is the whole install — the Python side is not a second step you do first.
 Open a folder, click the magpylib icon in the activity bar and press **Load
 Example Scene**; the first time the extension needs the engine it offers
-**Install the Engine**, which takes the interpreter the Python extension already
-selected, or makes a `.venv` in the workspace, installs `magpylib-studio` into
-it and points `magpylib-studio.pythonPath` at it for you. With [uv][uv] present
-it fetches a matching Python too, so even the ≥ 3.11 floor is not something to
-arrange in advance.
+**Install the Engine**, which either offers you the interpreter the Python
+extension already selected — named, because installing into someone else's
+interpreter is not the same act as making one — or makes a `.venv` in the
+workspace, installs `magpylib-studio` into it and points
+`magpylib-studio.pythonPath` at it for you. With [uv][uv] present it fetches a
+matching Python too, so even the ≥ 3.11 floor is not something to arrange in
+advance.
 
 Full walkthrough in the
 [extension README](vscode-extension/README.md#try-it-out). To work on the
@@ -68,7 +76,7 @@ VIRTUAL_ENV=$PWD/.venv uv pip install -e ".[dev]"
 # the extension (from vscode-extension/)
 npm install
 npm run compile     # tsc + eslint + webview, contribution and version checks
-npm test            # twelve tests in a real Extension Development Host
+npm test            # thirteen tests in a real Extension Development Host
 ```
 
 Then open **the repo root** in VS Code and press `F5` — not the
@@ -186,10 +194,11 @@ both the host code and the webview scripts; two contribution checks (every
 declared command registered, every menu clause matching a context value the tree
 can set, every palette entry safe to invoke with no argument); and a DOM harness
 that runs a panel's real script against a real engine
-(`npm run inspect -- halbach`). On top of that, `npm test` runs eleven
+(`npm run inspect -- halbach`). On top of that, `npm test` runs thirteen
 integration tests **inside a real Extension Development Host** — activation, the
 engine subprocess answering through the virtual `scene.json`, a removal taking a
-pattern's copies with it, the script tab applying an edit on save, and the whole
+pattern's copies with it, the script tab applying an edit on save, the engine
+being killed mid-session and coming back holding the same scene, and the whole
 save/open path: a file that opens back as the same scene, a save that goes to
 the file it came from without asking, a document from a newer version being
 refused without disturbing the open one, and the crash backup being written and
@@ -199,15 +208,13 @@ Both suites and the packaging run in CI on every push, the engine against **both
 magpylib versions** — the claim above used to be checked by hand. Pushing a `v*`
 tag builds the `.vsix` and attaches it to a GitHub release.
 
-It is **not on the Marketplace**, and the reason is not polish: the engine is
-not on PyPI, so installing the extension there would be followed by "now go and
-pip install this git URL" — a failure at first contact, before anyone sees a
-feature. Publishing the engine is what unblocks that, and lets the extension
-offer to install it into the interpreter you point at instead of telling you to.
-Until then, a release asset is the honest channel. (`publisher` is `magpylib`,
-which this repo's org now makes right — but a Marketplace publisher is
-registered through Azure DevOps and is a separate thing from the GitHub org, so
-it still has to be created before a first `vsce publish`.)
+Both halves are published: the engine on PyPI (`pip install magpylib-studio`)
+and the extension on the Marketplace under the `magpylib` publisher. That order
+mattered — an extension whose first act is "now go and pip install this git URL"
+fails at first contact, before anyone sees a feature — and it is what lets
+**Install the Engine** set the engine up for you rather than tell you to. The
+`.vsix` attached to each release is the same build, for anyone who would rather
+install it by hand.
 
 See [CONTINUE.md](CONTINUE.md) for the current state and what is next.
 

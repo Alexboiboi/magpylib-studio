@@ -642,25 +642,19 @@ test skips via `supports_property_paths()`).
 
 ## Next steps (pick one)
 
-- **Publish the engine to PyPI — the real blocker for the Marketplace.**
-  `magpylib-studio` is a 404 on PyPI (checked), so a Marketplace install would
-  be followed by "now pip install this git URL", which fails at first contact.
-  With it published, the "no interpreter found" error can grow an **Install the
-  engine** button that runs `pip install magpylib-studio` into the chosen
-  interpreter — the failure becomes a one-click fix. Everything else is done:
-  LICENSE (BSD-3-Clause, like the other magpylib satellites — the core itself is
-  2-clause), `license`/`icon`/`preview` in package.json, a 128×128 icon, CI on
-  both magpylib versions, and a tag-driven release workflow that attaches the
-  `.vsix`. The repo now lives at **magpylib/magpylib-studio**, which makes
-  `publisher: "magpylib"` right — but a **Marketplace publisher is registered
-  through Azure DevOps**, not GitHub, and https://marketplace.visualstudio.com
-  /publishers/magpylib was still a 404 when this was written. It has to be
-  created, and a PAT put in repo secrets, before any `vsce publish`.
+- ~~**Publish the engine to PyPI — the real blocker for the Marketplace.**~~
+  Both are done: `magpylib-studio` is on PyPI, the `magpylib` Marketplace
+  publisher exists (registered through Azure DevOps, which is a separate thing
+  from the GitHub org), and the release workflow publishes to both from one `v*`
+  tag. That order was the point — with the engine installable by name, the "no
+  interpreter found" error could become the **Install the Engine** button it now
+  is, instead of "go and pip install this git URL".
 
-  The LICENSE copyright line says "Alexandre Boisselet". That matches
-  magpylib-force (which says "Michael Ortner"); the core library says "Silicon
-  Austria Labs, Magpylib Developers". Worth confirming the house style with the
-  other maintainers now that this is an org repo.
+  Still open from that entry: the LICENSE copyright line says "Alexandre
+  Boisselet". That matches magpylib-force (which says "Michael Ortner"); the
+  core library says "Silicon Austria Labs, Magpylib Developers". Worth
+  confirming the house style with the other maintainers now that this is an org
+  repo.
 
 - **Custom editor / multi-document — the remaining stage of the persistence
   work.** Scenes are now files (`.magpy.json`, save/open/revert, a dirty mark in
