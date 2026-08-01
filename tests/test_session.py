@@ -176,6 +176,79 @@ def test_inspector_offers_only_planes_the_engine_knows():
     assert sorted(re.findall(r"'(\w+)'", listed)) == sorted(_MIRROR_NORMALS)
 
 
+def test_a_pattern_adds_its_copies_to_their_group_in_one_call():
+    """`Collection.add` rebuilds the collection's source and sensor lists on
+    every call, so adding n children one at a time is quadratic — measured at
+    400 ms against 1 ms for 2000 of them. The engine does it once per rebuild
+    and the exported script once per run, and a pattern's count is a slider.
+
+    Asserted on the shape rather than the clock, because a timing test on a
+    shared runner is a coin toss.
+    """
+    s = MagpylibStudioSession()
+    s.load_example("halbach")
+    script = s.to_script()
+
+    for line in script.splitlines():
+        assert not line.startswith("    ") or ".add(" not in line, (
+            f"a pattern still adds one copy at a time: {line.strip()}"
+        )
+    assert script.count("_copies = []") == 2       # one per ring
+    assert script.count(".add(*_copies)") == 2
+
+    # and the engine does the same: one add call for the whole batch
+    import magpylib as magpy
+
+    calls = []
+    original = magpy.Collection.add
+
+    def counting_add(self, *children, **kwargs):
+        calls.append(len(children))
+        return original(self, *children, **kwargs)
+
+    magpy.Collection.add = counting_add
+    try:
+        rebuilt = MagpylibStudioSession()
+        rebuilt.load_example("halbach")
+    finally:
+        magpy.Collection.add = original
+    assert max(calls) > 1, "the engine added the copies one at a time"
+
+
+def test_a_script_that_adds_each_copy_separately_still_reads():
+    """The shape to_script emitted before the copies were batched. Scripts
+    outlive the version that wrote them, and this one is still perfectly
+    good magpylib."""
+    source = """import magpylib as magpy
+
+n = 4
+
+ring = magpy.Collection(style={'label': 'Ring'})
+m = magpy.magnet.Cuboid(dimension=(1, 1, 1), polarization=(1, 0, 0), position=(2, 0, 0))
+ring.add(m)
+
+for i in range(1, n):
+    _copy = m.copy()
+    _copy.rotate_from_angax(i * 360 / (n), 'z', anchor=(0, 0, 0))
+    ring.add(_copy)
+
+magpy.show(ring, backend='plotly')
+"""
+    s = MagpylibStudioSession()
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "old.py")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(source)
+        result = s.apply_script(path)
+
+    assert result["ok"] and result["mode"] == "parsed"
+    # read as a pattern, not flattened into four declared magnets
+    assert [e["op"] for e in s.to_dict()["events"] if e["op"].startswith("dup")] == [
+        "duplicate_around"
+    ]
+    assert len(list(s.scene.sources_all)) == 4
+
+
 def test_a_variable_can_be_a_choice_rather_than_a_quantity():
     """Not everything a scene is written in terms of sits on a scale.
 

@@ -165,7 +165,7 @@ printf '%s\n' \
 
 ## Status
 
-The engine is covered by 102 tests against both magpylib versions
+The engine is covered by 104 tests against both magpylib versions
 (`.venv/bin/python -m pytest -q`).
 
 The extension is checked at three levels, all wired into `npm run compile` so

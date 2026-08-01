@@ -628,6 +628,18 @@ test skips via `supports_property_paths()`).
    were one function, and Refresh and Build-Up-To-Here (a *view*) both put an
    unsaved-changes mark on a saved scene. Keep them apart.
 
+7. **A pattern adds its copies in one call.** `Collection.add` rebuilds the
+   collection's source and sensor lists on every invocation, so adding n
+   children one at a time is quadratic — 400 ms against 1 ms for 2000 of
+   them, measured. Both the engine (`_duplicate_around` / `_duplicate_along`)
+   and the emitted script collect the copies and add them once; the script
+   says `_copies = []` / `_copies.append(_copy)` / `group.add(*_copies)`, and
+   `parse_script` still accepts the older per-copy `add` because scripts
+   outlive the version that wrote them. A 6000-magnet halbach script went
+   from 2.5 s to 0.6 s. What is left is `copy()` (a deepcopy) and magpylib's
+   own rotation, both linear and both profiled — do not go looking for more
+   without measuring first.
+
 ## Reference material (in ../magpylib, branch feat/improve-style)
 
 - `__temp_solara_app.py` — a WORKING Solara POC of the same GUI+LLM idea:

@@ -306,8 +306,15 @@ def _duplicate_from_loop(node, objects, variables):
             rotations.append(inner)
         elif method == "move":
             shift = inner
-        elif method == "add":
+        elif method == "append":
+            # `_copies.append(_copy)`: the copies are gathered and added to
+            # their group in one call after the loop, which is the shape
+            # to_script emits. The group is not recorded here — the build
+            # derives it from where the source lives (_container_for_copies)
+            # — so this only has to confirm the loop collects its copies.
             parent = inner.func.value.id
+        elif method == "add":
+            parent = inner.func.value.id  # the older shape, added per copy
         else:
             raise _Unparseable(method or "loop body")
     if source_name is None or parent is None or not (rotations or shift):
@@ -377,6 +384,12 @@ def parse_script(source):
                             continue
                         if owner not in objects:
                             raise _Unparseable(owner)
+                        # `group.add(*_copies)` — the one call that puts a
+                        # pattern's copies in their group. The loop before it
+                        # already produced the event; this is its tail.
+                        if (call.func.attr == "add" and len(call.args) == 1
+                                and isinstance(call.args[0], ast.Starred)):
+                            continue
                         # `group.add(obj)` — how a Collection takes a child
                         # now that to_script emits in log order and cannot
                         # pass them as constructor arguments. It is told apart
@@ -434,6 +447,11 @@ def parse_script(source):
             if not isinstance(target, ast.Name):
                 raise _Unparseable(ast.unparse(stmt))
             name = target.id
+            # `_copies = []` sets up the list a pattern loop fills. It is
+            # scaffolding, like `_copy`, and must not become a variable of
+            # the scene.
+            if name == "_copies":
+                continue
 
             # name = magpy.Type(...) — an object; otherwise a variable
             if isinstance(stmt.value, ast.Call) and _dotted_from_call(stmt.value):
