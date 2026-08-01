@@ -36,9 +36,10 @@ newline-delimited JSON-RPC over stdio.
   so no range describes it and no slider can offer it. The halbach example
   ships with one: `tilt_axis` picks which way `tilt` tips the whole stack.
   Whole-number variables are refused fractional values outright, because a
-  count of 7.3 is meaningless rather than merely imprecise. Values may be expressions over the other
-  variables (`360 / n`), with the allowed operators, functions and constants
-  listed in the panel and checked as you type. **Sweep a Variable…** plots
+  count of 7.3 is meaningless rather than merely imprecise. Values may be
+  expressions over the other variables (`360 / n`), with the allowed
+  operators, functions and constants listed in the panel and checked as you
+  type. **Sweep a Variable…** plots
   the field against one in the Field view.
 - **Undo view** — the session's checkpoints, newest first: click any to jump
   the scene there, backwards or forwards. This is *not* the construction

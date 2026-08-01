@@ -94,8 +94,9 @@ Then open the repo root in VS Code and press `F5`.
   allow-list — never `eval`, because a document is something you open from
   someone else. A variable is not always a quantity: one bounded by `options`
   holds a name (`"z"` for an axis), which gets a dropdown for the same reason
-  min/max gets a slider, and is enforced the same way. `sweep()` re-folds the scene once per value of a variable,
-  which is affordable because a rebuild is milliseconds.
+  min/max gets a slider, and is enforced the same way. `sweep()` re-folds the
+  scene once per value of a variable, which is affordable because a rebuild is
+  milliseconds.
 - **One schema contract.** The same JSON Schema drives the inspector widgets
   *and* the LLM tool inputs.
 - **Validation is shared.** Every edit goes through magpylib, and a bad edit is
