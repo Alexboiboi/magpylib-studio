@@ -71,8 +71,12 @@ npm test            # twelve tests in a real Extension Development Host
 ```
 
 Hooks run on every push via pre-commit.ci (`.pre-commit-config.yaml`), and
-locally with `pre-commit run --all-files`. Formatting is deliberately not among
-them — see the note at the foot of that file.
+locally with `pre-commit run --all-files`: ruff and prettier for formatting,
+ruff for linting (the ruleset is pinned in `pyproject.toml`, because ruff's
+defaults move), plus workflow and `pyproject` validation. The one commit that
+only reformats is listed in `.git-blame-ignore-revs`;
+`git config blame.ignoreRevsFile .git-blame-ignore-revs` makes local blame skip
+it, as GitHub already does.
 
 Then open the repo root in VS Code and press `F5`.
 
