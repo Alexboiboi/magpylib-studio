@@ -34,6 +34,13 @@ export default [
       parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
     },
   },
+  {
+    // A test reports through stdout — that is what the runner reads, and
+    // there is no output channel to send it to. The rule above is about the
+    // extension, which has one.
+    files: ['src/test/**/*.ts'],
+    rules: { 'no-console': 'off' },
+  },
 
   // --- the webviews ------------------------------------------------------
   {

@@ -154,12 +154,27 @@ async function writeJson(uri: vscode.Uri, value: unknown): Promise<void> {
   await vscode.workspace.fs.writeFile(uri, Buffer.from(JSON.stringify(value), 'utf8'));
 }
 
+/** Every error the extension raised at the user during the run. A test host
+ *  flashes these past too fast to read, so they are recorded and checked. */
+const errorsShown: string[] = [];
+
 suite('magpylib-studio', () => {
   suiteSetup(async function () {
     this.timeout(120000);
     const extension = vscode.extensions.getExtension(EXTENSION_ID);
     assert.ok(extension, `extension ${EXTENSION_ID} is not installed`);
     await extension.activate();
+
+    for (const kind of ['showErrorMessage', 'showWarningMessage'] as const) {
+      const real = vscode.window[kind];
+      (vscode.window as unknown as Record<string, unknown>)[kind] = (
+        message: string,
+        ...rest: unknown[]
+      ) => {
+        errorsShown.push(`${kind === 'showErrorMessage' ? 'error' : 'warning'}: ${message}`);
+        return (real as (...a: unknown[]) => unknown)(message, ...rest);
+      };
+    }
   });
 
   test('every declared command is registered', async () => {
@@ -400,5 +415,23 @@ suite('magpylib-studio', () => {
       intact.events,
       'a document we cannot read replaced the one we could',
     );
+  });
+
+  test('the run raised no errors at the user that it did not mean to', () => {
+    // One is deliberate: opening a document from a newer version has to say
+    // so. Anything else is the extension complaining about something a test
+    // did wrong, which in a host window flashes past unread.
+    // Two-sided on purpose: if the spy were not working, filtering an empty
+    // list would pass and prove nothing. The refusal has to be in there.
+    assert.ok(
+      errorsShown.some((m) => /newer magpylib-studio/.test(m)),
+      `the deliberate refusal was not recorded; saw ${JSON.stringify(errorsShown)}`,
+    );
+    // Logged, not just asserted: a notification in a test host flashes past
+    // unread, and "what did it say at me" is the question you cannot answer
+    // afterwards. One line here answers it for every future run.
+    console.log(`      notifications raised: ${JSON.stringify(errorsShown)}`);
+    const unexpected = errorsShown.filter((m) => !/newer magpylib-studio/.test(m));
+    assert.deepStrictEqual(unexpected, [], 'unexpected notifications');
   });
 });
