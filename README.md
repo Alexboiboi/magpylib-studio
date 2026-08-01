@@ -67,8 +67,12 @@ VIRTUAL_ENV=$PWD/.venv uv pip install -e ".[dev]"
 # the extension (from vscode-extension/)
 npm install
 npm run compile     # tsc + eslint + webview and contribution checks
-npm test            # four tests in a real Extension Development Host
+npm test            # twelve tests in a real Extension Development Host
 ```
+
+Hooks run on every push via pre-commit.ci (`.pre-commit-config.yaml`), and
+locally with `pre-commit run --all-files`. Formatting is deliberately not
+among them — see the note at the foot of that file.
 
 Then open the repo root in VS Code and press `F5`.
 

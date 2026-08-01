@@ -74,9 +74,9 @@ def validate(source):
                         f"expression may call")
             if node.keywords:
                 return "expression calls take no keyword arguments"
-        if isinstance(node, ast.Constant) and not isinstance(
+        if (isinstance(node, ast.Constant) and not isinstance(
             node.value, int | float
-        ) or isinstance(getattr(node, "value", None), bool):
+        )) or isinstance(getattr(node, "value", None), bool):
             return f"{getattr(node, 'value', '')!r} is not a number"
     return None
 

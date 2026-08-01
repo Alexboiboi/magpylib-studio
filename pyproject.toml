@@ -46,3 +46,40 @@ build.hooks.vcs.version-file = "magpylib_studio/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["magpylib_studio"]
+
+[tool.ruff.lint]
+# Pinned explicitly rather than left to ruff's defaults, which move: v0.15
+# reports nothing here and v0.16 reports eleven, so a monthly autoupdate of
+# the pre-commit hook would eventually break CI on a rule nobody chose.
+select = [
+  "E4", "E7", "E9", "F", "W", "I", "UP", "B", "A", "C4", "SIM", "RUF",
+  # The code already carries `# noqa: BLE001` / `# noqa: S102`, so these were
+  # what it was written against; without them those directives are dead and
+  # RUF100 says so.
+  "BLE", "S", "TRY",
+]
+# Typography in prose and error messages: "4×3", "−∞". Deliberate, and the
+# ambiguity RUF001 warns about is between glyphs nobody types by accident.
+allowed-confusables = ["×", "−"]
+
+ignore = [
+  # "Avoid specifying long messages outside the exception class". This engine
+  # reports failures *to a user or a model* — "n = 6.5 counts things, so it
+  # has to be a whole number" is the feature, not a smell. Fifty of them.
+  "TRY003",
+  # "Abstract raise to an inner function" / "move this to an else block".
+  # Both object to raising and returning inside a `try`, which is precisely
+  # how _mutate_doc works: mutate, let anything that fails raise, catch it,
+  # restore the previous document and report the error as a string. Rewriting
+  # the engine's error model to satisfy a lint is the tail wagging the dog.
+  "TRY300",
+  "TRY301",
+  # "Prefer TypeError for invalid type". These are raised on what a *user*
+  # typed into an expression box, where "3 is not a number" is a statement
+  # about the value, and every caller catches them the same way regardless.
+  "TRY004",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# A test asserts; that is the whole job.
+"tests/*" = ["S101"]

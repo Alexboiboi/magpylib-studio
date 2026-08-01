@@ -1255,7 +1255,13 @@ class MagpylibStudioSession:
         if not isinstance(source, magpy.Collection):
             return
         by_object = {id(obj): oid for oid, obj in self._objs.items()}
-        for original, made in zip(source.children_all, copy.children_all):
+        # strict: the copy is a deepcopy of the source, so the two trees are
+        # the same shape by construction. If that ever stops being true, a
+        # silent truncation here would lose exactly the copies this exists to
+        # find.
+        for original, made in zip(
+            source.children_all, copy.children_all, strict=True
+        ):
             source_id = by_object.get(id(original))
             if source_id is not None:
                 self._inherited.setdefault(source_id, []).append(made)
@@ -1863,7 +1869,7 @@ class MagpylibStudioSession:
         sensor = self._objs[sensor_id]
         if not isinstance(sensor, magpy.Sensor):
             # ValueError like the rest of the surface: RPC reports the type name
-            raise ValueError(f"{sensor_id!r} is not a Sensor")  # noqa: TRY004
+            raise ValueError(f"{sensor_id!r} is not a Sensor")
         pixel = np.array(sensor.pixel, dtype=float) if sensor.pixel is not None else None
         if pixel is None or pixel.ndim != 3:
             raise ValueError(
@@ -1978,7 +1984,8 @@ class MagpylibStudioSession:
         return {"ok": True}
 
     # --- scene structure ---------------------------------------------------
-    def add_object(self, object_id, type, params=None, style=None, rotations=None,
+    def add_object(self, object_id, type, params=None, style=None,  # noqa: A002
+                   rotations=None,
                    parent=None):
         if any(s["id"] == object_id for s, _ in self._iter_specs()):
             return {"ok": False, "error": f"object id {object_id!r} already exists"}
@@ -3094,7 +3101,7 @@ class MagpylibStudioSession:
             # A helper rather than a frozen pose per copy: magpylib has no
             # mirror, but a script that computes one stays parametric — the
             # copy still follows whatever the source does.
-            lines += _MIRROR_HELPER + [""]
+            lines += [*_MIRROR_HELPER, ""]
         variables = self.doc.get("variables") or {}
         if variables:
             # Real Python variables: the script stays parametric, and reading

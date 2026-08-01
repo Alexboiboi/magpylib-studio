@@ -236,7 +236,9 @@ def _event_from_call(node, target, variables):
     names = _METHOD_OPS[method]
     if len(node.args) < len(names):
         raise _Unparseable(method)
-    for name, arg in zip(names, node.args):
+    # not strict: a call may carry more positional args than the op names
+    # (the length is checked above), and the extras are read elsewhere
+    for name, arg in zip(names, node.args, strict=False):
         op[name] = _parsed_value(arg, variables)
     for kw in node.keywords:
         if kw.arg == "degrees":  # emitted with rotate_from_rotvec, implied
@@ -377,7 +379,11 @@ def parse_script(source):
                 continue  # the helper the studio emits, re-emitted on the way out
             if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
                 call = stmt.value
-                if isinstance(call.func, ast.Attribute):
+                if isinstance(call.func, ast.Attribute):  # noqa: SIM102
+                    # Kept nested rather than joined with `and`: the outer
+                    # test is "a method call at all" and the inner is "on a
+                    # name we know", and the `raise` below belongs to the
+                    # outer one.
                     if isinstance(call.func.value, ast.Name):
                         owner = call.func.value.id
                         if owner == "magpy":  # the trailing show()
@@ -562,6 +568,6 @@ def run_script(path):
     try:
         exec(compile(source, str(path), "exec"), namespace)  # noqa: S102 - the point
     finally:
-        for (owner, name), original in zip(targets, originals):
+        for (owner, name), original in zip(targets, originals, strict=True):
             setattr(owner, name, original)
     return namespace, captured

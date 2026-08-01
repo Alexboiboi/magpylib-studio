@@ -1,0 +1,67 @@
+# Hooks for pre-commit.ci, which runs org-wide on magpylib repos and fails a
+# repo that has no config at all.
+#
+# Deliberately narrower than magpylib's own: this repo is half TypeScript, and
+# `npm run compile` already runs tsc, ESLint and the two contribution checks
+# over it, so the hooks here cover the Python and the things no other check
+# looks at. Formatting is the notable omission — see the note at the bottom.
+ci:
+  autoupdate_commit_msg: "chore(deps): update pre-commit hooks"
+  autofix_commit_msg: "style: pre-commit fixes"
+  autoupdate_schedule: "monthly"
+
+exclude: ^vscode-extension/(node_modules|out|\.vscode-test)/
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: "v6.0.0"
+    hooks:
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: check-yaml
+      - id: check-json
+        # VS Code's own config files are JSONC — comments and all — which it
+        # reads happily and a strict JSON parser does not. The schema files
+        # and package.json, which have to be real JSON, are still checked.
+        exclude: ^\.vscode/|/jsconfig\.json$
+      - id: debug-statements
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: "v0.15.15"
+    hooks:
+      - id: ruff-check
+        args: ["--fix"]
+
+  - repo: https://github.com/codespell-project/codespell
+    rev: "v2.4.2"
+    hooks:
+      - id: codespell
+        # British spelling is used throughout the prose on purpose.
+        args: ["--ignore-words-list=recognise,recognised,minimise,behaviour"]
+
+  - repo: https://github.com/abravalheri/validate-pyproject
+    rev: "v0.25"
+    hooks:
+      - id: validate-pyproject
+        additional_dependencies: ["validate-pyproject-schema-store[all]"]
+
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: "0.37.2"
+    hooks:
+      - id: check-github-workflows
+
+# Not enabled, and not an oversight:
+#
+#   ruff-format  — would rewrite 1773 lines of the engine on first run, and
+#                  pre-commit.ci pushes its fixes automatically. Adopting it
+#                  is a decision for the repo's maintainers, not a side
+#                  effect of getting CI green; it should land as its own
+#                  commit that reviewers can skip with .git-blame-ignore-revs.
+#   prettier     — same, for the Markdown and the webview JavaScript. The
+#                  prose here is hand-wrapped and --prose-wrap=always would
+#                  redo all of it.

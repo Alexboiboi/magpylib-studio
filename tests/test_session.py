@@ -280,7 +280,8 @@ def test_a_variable_can_be_a_choice_rather_than_a_quantity():
         path = os.path.join(tmp, "scene.py")
         with open(path, "w", encoding="utf-8") as f:
             f.write(s.to_script())
-        assert "tilt_axis = 'y'" in open(path, encoding="utf-8").read()
+        with open(path, encoding="utf-8") as f:
+            assert "tilt_axis = 'y'" in f.read()
         before = json.dumps(s.to_dict())
         assert s.apply_script(path)["mode"] == "parsed"
         assert json.dumps(s.to_dict()) == before
@@ -862,7 +863,10 @@ def test_collection_transforms_carry_children():
 
     assert s.move("ring1", [0, 0, 5]) == {"ok": True}
     assert np.allclose(s._objs["ring1"].position, [0, 0, 5])
-    assert np.allclose(s._objs["r1"].position, child + [0, 0, 5])
+    # `child` is a numpy array, so this is element-wise addition rather than
+    # list concatenation. Unpacking it (RUF005) would build a six-element
+    # list and quietly change what the test asserts.
+    assert np.allclose(s._objs["r1"].position, child + [0, 0, 5])  # noqa: RUF005
 
     assert s.rotate("ring1", 90, "z", anchor=0) == {"ok": True}
     assert np.allclose(s._objs["r1"].position, [0, 2.3, 5])
