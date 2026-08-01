@@ -4,6 +4,39 @@ All notable changes to the Magpylib Studio extension.
 
 ## [Unreleased]
 
+## [0.1.2]
+
+### Added
+
+- **A variable can be a choice, not only a quantity.** Bounds gain `options`, so
+  a variable whose value is a name — a rotation axis, say — offers a dropdown
+  the way a bounded number offers a slider, enforced wherever the value came
+  from. Creating a variable asks what kind it is up front, since that decides
+  the remaining questions, and a whole-number variable stays one even when the
+  range is skipped. The Halbach example carries `tilt` and `tilt_axis` to show
+  it, defaulting to zero so the scene looks the same until you drag it.
+
+### Fixed
+
+- **A pattern's copies join their group in one call.** `Collection.add` rebuilds
+  its source and sensor lists on every call, so adding copies one at a time was
+  quadratic — and a pattern's count is a slider, so that ran on every drag. A
+  Halbach rebuild at n=500 goes from 147 ms to 95 ms, and the quadratic term is
+  gone; a 6000-magnet exported script runs in 0.6 s instead of 2.5 s. Scripts
+  written the old way still parse.
+- **Reopening a scene no longer asks about unsaved changes.** It restores them
+  the way VS Code's own hot exit restores unsaved editors — in the tree, marked
+  unsaved, named in the view title — instead of asking a question that
+  dismissing never answered, so it asked again on every window start. Reopening
+  also no longer forces the 3D panel open.
+- A name-valued variable rendered as an empty box: the variables panel called
+  anything string-typed an expression and sliced off its first character. Only a
+  leading `=` means an expression now. The same variable could take the whole
+  panel down through `short()`, and numeric bounds meeting a name surfaced a raw
+  `TypeError` rather than saying what was wrong.
+
+## [0.1.1]
+
 ### Added
 
 - **A getting-started walkthrough** opens once on first activation ever (per

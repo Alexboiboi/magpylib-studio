@@ -39,6 +39,37 @@ jobs:
           cache-dependency-path: vscode-extension/package-lock.json
       - run: pip install -e ".[dev]"
 
+      # The changelog heading is the one thing a release ships that nothing
+      # derives from the tag, so it is the one that goes stale silently: both
+      # v0.1.0 and v0.1.1 were published with their own notes still sitting
+      # under "Unreleased", which is then what the Marketplace listing showed.
+      # Checked before the test steps so a mislabelled tag fails in seconds
+      # rather than after a full integration run.
+      - name: Check the changelog names this version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::notice::${GITHUB_REF_NAME} is a pre-release tag; not checking the changelog"
+            exit 0
+          fi
+          declared=$(node -p "require('./vscode-extension/package.json').version")
+          if [[ "$declared" != "$version" ]]; then
+            echo "::error::vscode-extension/package.json says ${declared} but the tag says ${version}. Bump it in the release prep commit; the sync step below would otherwise paper over this in the runner only."
+            exit 1
+          fi
+          changelog=vscode-extension/CHANGELOG.md
+          if ! grep -qF "## [${version}]" "$changelog"; then
+            echo "::error::${changelog} has no '## [${version}]' section. Rename the [Unreleased] heading to [${version}], leaving a fresh empty [Unreleased] above it, then move the tag."
+            exit 1
+          fi
+          # A [x.y.z] section that was added *beside* the notes rather than
+          # renamed from them ships just as wrong, minus the notes.
+          leftovers=$(awk '/^## \[Unreleased\]/{f=1;next} /^## /{f=0} f' "$changelog" | grep -c '[^[:space:]]' || true)
+          if [[ "$leftovers" -ne 0 ]]; then
+            echo "::error::${changelog} has a [${version}] section but its [Unreleased] section is not empty, so those ${leftovers} lines would ship unmentioned. Move them into [${version}]."
+            exit 1
+          fi
+
       # Shipping an untested build is the one thing a release must not do.
       - name: Engine tests
         run: python -m pytest -q
@@ -52,8 +83,17 @@ jobs:
       # package.json's version is what vsce embeds in the .vsix, and it does
       # not follow the tag on its own — so a v0.1.0 tag would otherwise still
       # ship a .vsix internally labelled 0.0.1. Marketplace versions can't
-      # carry a pre-release suffix, so a v0.1.0rc1-style tag is left alone
-      # and the .vsix keeps whatever the last real release set.
+      # carry a pre-release suffix, so a v0.1.0rc1-style tag is left alone.
+      #
+      # This runs in the runner's checkout and is never committed back, so it
+      # cannot be the only place the version is written: v0.1.0, v0.1.0rc2 and
+      # v0.1.1 were all tagged with package.json still saying 0.0.1, which is
+      # what every local F5 and hand-rolled `vsce package` then produced (and
+      # what an rc tag ships, since "left alone" means left at whatever is
+      # committed, not at the last release). Bump package.json in the release
+      # prep commit alongside the changelog; --allow-same-version then makes
+      # this step a no-op that confirms the two agree rather than a silent
+      # rewrite that hides them disagreeing.
       - name: Sync extension version to the release tag
         working-directory: vscode-extension
         run: |
@@ -91,17 +131,28 @@ jobs:
           files: magpylib-studio-*.vsix
           generate_release_notes: true
           body: |
-            Install into VS Code:
+            Install from the Marketplace:
+
+            ```sh
+            code --install-extension magpylib.magpylib-studio-vscode
+            ```
+
+            Or from the `.vsix` attached below, which is the same build:
 
             ```sh
             code --install-extension magpylib-studio-${{ github.ref_name }}.vsix
             ```
 
-            The extension is the UI only — it drives a Python engine, which
-            has to be installed separately into an interpreter it can find:
+            The extension is the UI only — it drives a Python engine. You do
+            not have to install that yourself: when it cannot find one, the
+            extension offers **Install the Engine**, which sets up an
+            interpreter, installs the engine into it and points
+            `magpylib-studio.pythonPath` at it.
+
+            To do it by hand instead, into any interpreter >= 3.11:
 
             ```sh
-            pip install "magpylib-studio @ git+https://github.com/magpylib/magpylib-studio.git"
+            pip install magpylib-studio
             ```
 
             Then set `magpylib-studio.pythonPath` to that interpreter.
