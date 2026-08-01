@@ -122,6 +122,25 @@ async function fileWhere(
  *  is no event to poll for, so the only honest option is to give it time. */
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Load an example from a known-empty scene.
+ *
+ * Waiting for "the scene contains halbach" is not enough on its own: the
+ * previous test leaves one loaded, so the predicate is already true and the
+ * wait returns the *old* scene. That is not theoretical — it let a test write
+ * a stale scene to its file and then delete an object the file did not
+ * contain, which surfaced as an "unknown object id" popup and, worse, made
+ * the assertion that the removal landed pass because the object had never
+ * been there. Clearing first makes empty -> loaded a transition that can only
+ * mean this call.
+ */
+async function loadExample(name: string, rootId: string) {
+  await vscode.commands.executeCommand('magpylib-studio.newScene', DISCARD);
+  await sceneWhere(nothing, 'the scene to clear');
+  await vscode.commands.executeCommand('magpylib-studio.loadExample', name, DISCARD);
+  return sceneWhere(holding(rootId), `the ${name} example to load`);
+}
+
 /** A scratch file that goes away with the test run. */
 function tempScene(name: string): vscode.Uri {
   return vscode.Uri.file(join(mkdtempSync(join(tmpdir(), 'magpy-')), name));
@@ -168,7 +187,7 @@ suite('magpylib-studio', () => {
 
   test('the engine builds a scene and the virtual document shows it', async function () {
     this.timeout(60000);
-    await vscode.commands.executeCommand('magpylib-studio.loadExample', 'halbach', DISCARD);
+    await loadExample('halbach', 'halbach');
     const doc = await scene();
     // one magnet and one pattern step per ring, not twenty declared magnets
     assert.ok(doc.events.length > 0, 'the log is empty');
@@ -181,7 +200,7 @@ suite('magpylib-studio', () => {
 
   test('removing a patterned magnet takes its copies with it', async function () {
     this.timeout(60000);
-    await vscode.commands.executeCommand('magpylib-studio.loadExample', 'halbach', DISCARD);
+    await loadExample('halbach', 'halbach');
 
     // the tree hands the command an object; a test can hand it the same thing
     await vscode.commands.executeCommand('magpylib-studio.removeObject', {
@@ -200,7 +219,7 @@ suite('magpylib-studio', () => {
 
   test('the script tab renders the scene and applies on save', async function () {
     this.timeout(60000);
-    await vscode.commands.executeCommand('magpylib-studio.loadExample', 'halbach', DISCARD);
+    await loadExample('halbach', 'halbach');
     await vscode.commands.executeCommand('magpylib-studio.viewScript');
 
     const tab = vscode.workspace.textDocuments.find((d) => d.fileName.endsWith('scene.py'));
@@ -232,8 +251,7 @@ suite('magpylib-studio', () => {
 
   test('a scene saved to a file opens again as the same scene', async function () {
     this.timeout(60000);
-    await vscode.commands.executeCommand('magpylib-studio.loadExample', 'halbach', DISCARD);
-    const before = await sceneWhere(holding('halbach'), 'the halbach example to load');
+    const before = await loadExample('halbach', 'halbach');
 
     // The save dialog cannot be driven from a test, so the file is written the
     // way Save writes it and opened through the real command — which is the
@@ -252,17 +270,19 @@ suite('magpylib-studio', () => {
 
   test('saving a scene that has a file writes to it without asking', async function () {
     this.timeout(60000);
-    await vscode.commands.executeCommand('magpylib-studio.loadExample', 'halbach', DISCARD);
+    const fresh = await loadExample('halbach', 'halbach');
     const file = tempScene('save.magpy.json');
-    await writeJson(file, await sceneWhere(holding('halbach'), 'the halbach example to load'));
+    await writeJson(file, fresh);
+    await vscode.commands.executeCommand('magpylib-studio.newScene', DISCARD);
+    await sceneWhere(nothing, 'the scene to clear');
     await vscode.commands.executeCommand('magpylib-studio.loadScene', file, DISCARD);
-    await sceneWhere(holding('halbach'), 'the file to open');
+    await sceneWhere(holding('r2'), 'the file to open');
 
     await vscode.commands.executeCommand('magpylib-studio.removeObject', {
       id: 'r2',
       type: 'magnet.Cuboid',
       label: 'Magnet 2',
-      parent: 'ring1',
+      parent: 'ring2',
       visible: true,
     });
     await sceneWhere(without('r2'), 'the removal to land');
@@ -279,9 +299,8 @@ suite('magpylib-studio', () => {
 
   test('a saved file says what format and what wrote it', async function () {
     this.timeout(60000);
-    await vscode.commands.executeCommand('magpylib-studio.loadExample', 'halbach', DISCARD);
     const file = tempScene('stamp.magpy.json');
-    await writeJson(file, await sceneWhere(holding('halbach'), 'the halbach example to load'));
+    await writeJson(file, await loadExample('halbach', 'halbach'));
     await vscode.commands.executeCommand('magpylib-studio.loadScene', file, DISCARD);
     await vscode.commands.executeCommand('magpylib-studio.saveScene');
 
@@ -294,16 +313,17 @@ suite('magpylib-studio', () => {
 
   test('the scene knows its file, and says so when it drifts from it', async function () {
     this.timeout(60000);
-    await vscode.commands.executeCommand('magpylib-studio.loadExample', 'halbach', DISCARD);
-    await sceneWhere(holding('halbach'), 'the halbach example to load');
+    await loadExample('halbach', 'halbach');
     // an example is a starting point, not a document: no file, and unsaved
     assert.strictEqual(sceneFileState().file, undefined);
     assert.strictEqual(sceneFileState().dirty, true);
 
     const file = tempScene('state.magpy.json');
     await writeJson(file, await scene());
+    await vscode.commands.executeCommand('magpylib-studio.newScene', DISCARD);
+    await sceneWhere(nothing, 'the scene to clear');
     await vscode.commands.executeCommand('magpylib-studio.loadScene', file, DISCARD);
-    await sceneWhere(holding('halbach'), 'the file to open');
+    await sceneWhere(holding('r2'), 'the file to open');
     assert.strictEqual(sceneFileState().file, file.toString(), 'the file was not adopted');
     assert.strictEqual(sceneFileState().dirty, false, 'a freshly opened scene is not dirty');
 
@@ -311,7 +331,7 @@ suite('magpylib-studio', () => {
       id: 'r2',
       type: 'magnet.Cuboid',
       label: 'Magnet 2',
-      parent: 'ring1',
+      parent: 'ring2',
       visible: true,
     });
     await sceneWhere(without('r2'), 'the removal to land');
@@ -334,11 +354,10 @@ suite('magpylib-studio', () => {
     // The scene lives in a subprocess that dies with the window, so this file
     // is the only copy of anything unsaved. The reload that reads it back is a
     // manual check; that it is written, and correct, is not.
-    await vscode.commands.executeCommand('magpylib-studio.loadExample', 'coil', DISCARD);
+    await loadExample('coil', 'coil');
     const backup = sceneFileState().backup;
     assert.ok(backup, 'no backup location');
 
-    await sceneWhere(holding('coil'), 'the coil example to load');
     // Wait for the backup to be *written* with this scene; whether it is
     // faithful is the assertion below, not the thing being waited for — a
     // wait that is also the check can only ever time out when it fails.
@@ -369,8 +388,7 @@ suite('magpylib-studio', () => {
 
   test('a scene from a newer version is refused, leaving the open one alone', async function () {
     this.timeout(60000);
-    await vscode.commands.executeCommand('magpylib-studio.loadExample', 'halbach', DISCARD);
-    const intact = await sceneWhere(holding('halbach'), 'the halbach example to load');
+    const intact = await loadExample('halbach', 'halbach');
 
     const file = tempScene('from-the-future.magpy.json');
     await writeJson(file, { version: 99, events: [], objects: [] });

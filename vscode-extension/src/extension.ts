@@ -1808,7 +1808,10 @@ export function activate(context: vscode.ExtensionContext): void {
    * this works wherever VS Code can reach — a remote workspace, a virtual
    * filesystem — instead of only where the Python process can open() it.
    */
-  const openSceneFile = async (uri: vscode.Uri): Promise<boolean> => {
+  const openSceneFile = async (
+    uri: vscode.Uri,
+    { reveal = true } = {},
+  ): Promise<boolean> => {
     let scene: unknown;
     try {
       scene = JSON.parse(Buffer.from(await vscode.workspace.fs.readFile(uri)).toString('utf8'));
@@ -1823,7 +1826,12 @@ export function activate(context: vscode.ExtensionContext): void {
       return false; // the engine said why (wrong format, or a newer version)
     }
     await setSceneFile(uri);
-    openStudioPanel(context);
+    if (reveal) {
+      // Opening a scene *you asked to open* should show it. Reopening one at
+      // startup should not: a window that puts a plot tab in front of you
+      // before you have done anything has taken a decision that was yours.
+      openStudioPanel(context);
+    }
     return true;
   };
 
@@ -2546,28 +2554,29 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     const file = remembered.file ? vscode.Uri.parse(remembered.file) : undefined;
     // Unsaved changes go through the backup, which is the only copy of them.
-    // Offered rather than restored: coming back to a scene you thought you
-    // had abandoned is its own kind of surprise, so the choice stays yours.
+    //
+    // Restored, not offered. Asking was worse in all three directions: the
+    // question interrupts every single window that had an unfinished scene in
+    // it — which during extension development is every F5 — and *dismissing*
+    // a notification is not an answer, so it came back next time and the time
+    // after. VS Code's own hot exit does not ask either; it brings unsaved
+    // editors back dirty and lets you decide once you can see them. The scene
+    // comes back the same way: marked unsaved, named in the view title, and
+    // one New Scene away from gone.
     if (remembered.dirty && sceneBackupFile && (await exists(sceneBackupFile))) {
-      const name = file ? basename(file) : 'an unsaved scene';
-      const answer = await vscode.window.showInformationMessage(
-        `Magpylib Studio: ${name} had unsaved changes when the window closed.`,
-        'Restore',
-        'Discard',
-      );
-      if (answer === 'Restore') {
-        if (await openSceneFile(sceneBackupFile)) {
-          // it is those changes, not the backup file, that the user is editing
-          await setSceneFile(file, true);
-        }
+      if (await openSceneFile(sceneBackupFile, { reveal: false })) {
+        // it is those changes the user is editing, not the backup file itself
+        await setSceneFile(file, true);
+        vscode.window.setStatusBarMessage(
+          `Magpylib Studio: restored unsaved changes${file ? ` to ${basename(file)}` : ''}`,
+          4000,
+        );
         return;
       }
-      if (answer !== 'Discard') {
-        return; // dismissed: leave the backup alone, ask again next time
-      }
+      // the backup was unreadable; fall through to the saved file, if any
     }
     if (file && (await exists(file))) {
-      await openSceneFile(file);
+      await openSceneFile(file, { reveal: false });
     } else if (file) {
       await setSceneFile(undefined);
       vscode.window.showWarningMessage(

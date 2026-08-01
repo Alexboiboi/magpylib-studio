@@ -87,8 +87,11 @@ newline-delimited JSON-RPC over stdio.
   asks first if there is unsaved work.
 - **A reload does not lose the scene.** It lives in a subprocess that dies with
   the window, so the studio writes a backup after every edit and comes back to
-  the file you were editing next time the workspace opens — offering the
-  unsaved changes if there were any.
+  the scene you were editing next time the workspace opens — unsaved changes
+  included, and still marked unsaved. It does this without asking and without
+  opening anything, the way VS Code restores an unsaved editor: the scene is
+  in the tree when you look, and *New Scene* discards it if you would rather
+  start over.
 - **The script tab is editable both ways** — *Edit Python Script* renders the
   scene as runnable magpylib, and saving it rebuilds the scene from what you
   wrote, as one undo step. Variables and patterns survive the round trip
