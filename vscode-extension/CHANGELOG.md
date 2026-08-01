@@ -4,6 +4,8 @@ All notable changes to the Magpylib Studio extension.
 
 ## [Unreleased]
 
+## [0.1.3]
+
 ### Fixed
 
 - **The Inspector showed numbers that were not the numbers.** Its rounding
