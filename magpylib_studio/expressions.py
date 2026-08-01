@@ -24,17 +24,43 @@ PREFIX = "="
 # object's internals, and no way to build a call target that is not one of
 # the names below.
 _NODES = (
-    ast.Expression, ast.Constant, ast.Name, ast.Load, ast.BinOp, ast.UnaryOp,
-    ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow,
-    ast.USub, ast.UAdd, ast.Call, ast.Tuple, ast.List,
+    ast.Expression,
+    ast.Constant,
+    ast.Name,
+    ast.Load,
+    ast.BinOp,
+    ast.UnaryOp,
+    ast.Add,
+    ast.Sub,
+    ast.Mult,
+    ast.Div,
+    ast.FloorDiv,
+    ast.Mod,
+    ast.Pow,
+    ast.USub,
+    ast.UAdd,
+    ast.Call,
+    ast.Tuple,
+    ast.List,
 )
 _FUNCTIONS = {
-    "abs": abs, "min": min, "max": max, "round": round,
-    "sqrt": math.sqrt, "hypot": math.hypot,
-    "sin": math.sin, "cos": math.cos, "tan": math.tan,
-    "asin": math.asin, "acos": math.acos, "atan": math.atan,
-    "atan2": math.atan2, "radians": math.radians, "degrees": math.degrees,
-    "log": math.log, "exp": math.exp,
+    "abs": abs,
+    "min": min,
+    "max": max,
+    "round": round,
+    "sqrt": math.sqrt,
+    "hypot": math.hypot,
+    "sin": math.sin,
+    "cos": math.cos,
+    "tan": math.tan,
+    "asin": math.asin,
+    "acos": math.acos,
+    "atan": math.atan,
+    "atan2": math.atan2,
+    "radians": math.radians,
+    "degrees": math.degrees,
+    "log": math.log,
+    "exp": math.exp,
 }
 _CONSTANTS = {"pi": math.pi, "e": math.e, "tau": math.tau}
 
@@ -46,11 +72,16 @@ def reference():
         "operators": ["+", "-", "*", "/", "//", "%", "**", "( )"],
         "functions": sorted(_FUNCTIONS),
         "constants": sorted(_CONSTANTS),
-        "examples": ["2.5", "gap * 2", "360 / n", "sqrt(2) * radius",
-                     "max(gap, 1) + 0.5"],
+        "examples": [
+            "2.5",
+            "gap * 2",
+            "360 / n",
+            "sqrt(2) * radius",
+            "max(gap, 1) + 0.5",
+        ],
         "note": "Names are the scene's other variables; one that does not "
-                "exist yet is offered for you to create. No attributes, "
-                "indexing, comparisons or calls to anything else.",
+        "exist yet is offered for you to create. No attributes, "
+        "indexing, comparisons or calls to anything else.",
     }
 
 
@@ -70,13 +101,15 @@ def validate(source):
         if isinstance(node, ast.Call):
             name = getattr(node.func, "id", None)
             if name not in _FUNCTIONS:
-                return (f"{name or 'that'!r} is not one of the functions an "
-                        f"expression may call")
+                return (
+                    f"{name or 'that'!r} is not one of the functions an "
+                    f"expression may call"
+                )
             if node.keywords:
                 return "expression calls take no keyword arguments"
-        if (isinstance(node, ast.Constant) and not isinstance(
-            node.value, int | float
-        )) or isinstance(getattr(node, "value", None), bool):
+        if (
+            isinstance(node, ast.Constant) and not isinstance(node.value, int | float)
+        ) or isinstance(getattr(node, "value", None), bool):
             return f"{getattr(node, 'value', '')!r} is not a number"
     return None
 
@@ -87,7 +120,7 @@ def is_expression(value):
 
 def source_of(value):
     """The Python source inside an expression value ("=a*2" -> "a*2")."""
-    return value[len(PREFIX):]
+    return value[len(PREFIX) :]
 
 
 def evaluate(source, lookup):
@@ -99,9 +132,7 @@ def evaluate(source, lookup):
 
     def walk(node):
         if not isinstance(node, _NODES):
-            raise ValueError(
-                f"{type(node).__name__} is not allowed in an expression"
-            )
+            raise ValueError(f"{type(node).__name__} is not allowed in an expression")
         if isinstance(node, ast.Call):
             if not isinstance(node.func, ast.Name) or node.func.id not in _FUNCTIONS:
                 name = getattr(node.func, "id", "that")
@@ -171,8 +202,12 @@ def referenced_names(value):
                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
             }
             for node in ast.walk(tree):
-                if (isinstance(node, ast.Name) and node.id not in called
-                        and node.id not in _CONSTANTS and node.id not in names):
+                if (
+                    isinstance(node, ast.Name)
+                    and node.id not in called
+                    and node.id not in _CONSTANTS
+                    and node.id not in names
+                ):
                     names.append(node.id)
         elif isinstance(item, list):
             for entry in item:

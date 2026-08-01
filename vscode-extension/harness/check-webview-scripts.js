@@ -12,18 +12,20 @@
  *    by TypeScript into a real line break inside a quoted string — and where
  *    neither tsc nor eslint can see the code at all.
  */
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
+const fs = require("fs");
+const path = require("path");
+const vm = require("vm");
 
-const EXT = path.join(__dirname, '..');
+const EXT = path.join(__dirname, "..");
 let failures = 0;
 
-for (const file of fs.readdirSync(path.join(EXT, 'media')).filter((f) => f.endsWith('.js'))) {
-  const source = fs.readFileSync(path.join(EXT, 'media', file), 'utf8');
+for (const file of fs
+  .readdirSync(path.join(EXT, "media"))
+  .filter((f) => f.endsWith(".js"))) {
+  const source = fs.readFileSync(path.join(EXT, "media", file), "utf8");
   try {
     new vm.Script(source, { filename: file });
-    console.log(`ok    media/${file} (${source.split('\n').length} lines)`);
+    console.log(`ok    media/${file} (${source.split("\n").length} lines)`);
   } catch (err) {
     failures += 1;
     console.log(`FAIL  media/${file}: ${err.message}`);
@@ -32,8 +34,10 @@ for (const file of fs.readdirSync(path.join(EXT, 'media')).filter((f) => f.endsW
 
 // A <script> with a body, as opposed to one that names a file to load.
 const INLINE = /<script(?:\s+nonce="\$\{nonce\}")?>\s*\n[\s\S]*?<\/script>/;
-for (const file of fs.readdirSync(path.join(EXT, 'src')).filter((f) => f.endsWith('.ts'))) {
-  const source = fs.readFileSync(path.join(EXT, 'src', file), 'utf8');
+for (const file of fs
+  .readdirSync(path.join(EXT, "src"))
+  .filter((f) => f.endsWith(".ts"))) {
+  const source = fs.readFileSync(path.join(EXT, "src", file), "utf8");
   if (INLINE.test(source)) {
     failures += 1;
     console.log(

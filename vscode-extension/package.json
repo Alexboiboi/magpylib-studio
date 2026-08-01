@@ -352,7 +352,7 @@
     "viewsWelcome": [
       {
         "view": "magpylib-studio.sceneView",
-        "contents": "The scene is empty.\n[Add Object...](command:magpylib-studio.addObject)\nA magnet, current, sensor or collection.\n[Load Example Scene...](command:magpylib-studio.loadExample)\nA Halbach stack, a solenoid, a mirrored pair or a magnet array \u2014 each built from a couple of parametric steps.\n[Open Scene...](command:magpylib-studio.loadScene)\nA .magpy.json scene saved earlier.\n[Import Python Script...](command:magpylib-studio.importScript)\nRun an existing magpylib script and edit its scene here.\nOr ask Copilot chat to add objects with #magpyAdd."
+        "contents": "The scene is empty.\n[Add Object...](command:magpylib-studio.addObject)\nA magnet, current, sensor or collection.\n[Load Example Scene...](command:magpylib-studio.loadExample)\nA Halbach stack, a solenoid, a mirrored pair or a magnet array — each built from a couple of parametric steps.\n[Open Scene...](command:magpylib-studio.loadScene)\nA .magpy.json scene saved earlier.\n[Import Python Script...](command:magpylib-studio.importScript)\nRun an existing magpylib script and edit its scene here.\nOr ask Copilot chat to add objects with #magpyAdd."
       }
     ],
     "walkthroughs": [
@@ -376,7 +376,7 @@
           {
             "id": "loadExample",
             "title": "Load an example",
-            "description": "Four ready-made scenes \u2014 a Halbach ring, a solenoid, a mirrored pair, a magnet array \u2014 each built from a handful of parametric steps.\n[Load Example Scene\u2026](command:magpylib-studio.loadExample)",
+            "description": "Four ready-made scenes — a Halbach ring, a solenoid, a mirrored pair, a magnet array — each built from a handful of parametric steps.\n[Load Example Scene…](command:magpylib-studio.loadExample)",
             "media": {
               "markdown": "walkthroughs/load-example.md"
             },
@@ -387,7 +387,7 @@
           {
             "id": "addObject",
             "title": "Add your own object",
-            "description": "Add a magnet, current source, sensor or collection, then click it in the Scene tree to edit it in the Inspector.\n[Add Object\u2026](command:magpylib-studio.addObject)",
+            "description": "Add a magnet, current source, sensor or collection, then click it in the Scene tree to edit it in the Inspector.\n[Add Object…](command:magpylib-studio.addObject)",
             "media": {
               "markdown": "walkthroughs/add-object.md"
             },
@@ -406,7 +406,7 @@
           {
             "id": "fieldView",
             "title": "See the field",
-            "description": "Plot B, H, J or M along a sensor's path \u2014 magpylib's own field rendering, in its own panel.\n[Open Field View](command:magpylib-studio.openFieldView)",
+            "description": "Plot B, H, J or M along a sensor's path — magpylib's own field rendering, in its own panel.\n[Open Field View](command:magpylib-studio.openFieldView)",
             "media": {
               "markdown": "walkthroughs/field-view.md"
             },
@@ -417,7 +417,7 @@
           {
             "id": "saveScene",
             "title": "Save your work",
-            "description": "Scenes save as `.magpy.json`, reopenable later, or export a runnable Python script.\n[Save Scene As\u2026](command:magpylib-studio.saveSceneAs)",
+            "description": "Scenes save as `.magpy.json`, reopenable later, or export a runnable Python script.\n[Save Scene As…](command:magpylib-studio.saveSceneAs)",
             "media": {
               "markdown": "walkthroughs/save-scene.md"
             },

@@ -27,11 +27,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: "3.13"
       - run: pip install -e ".[dev]"
       - name: Switch to the property-tree branch
         if: matrix.magpylib == 'property-tree'
-        run: pip install "magpylib @ git+https://github.com/magpylib/magpylib@feat/improve-style"
+        run:
+          pip install "magpylib @
+          git+https://github.com/magpylib/magpylib@feat/improve-style"
       - run: python -m pytest -q
 
   extension:
@@ -41,10 +43,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: "3.13"
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
           cache: npm
           cache-dependency-path: vscode-extension/package-lock.json
       # The extension spawns `python -m magpylib_studio`; with no .venv here it

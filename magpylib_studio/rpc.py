@@ -80,8 +80,10 @@ def handle(session, request):
     method = request.get("method")
     params = request.get("params") or {}
     if method not in _PUBLIC:
-        return {"id": rid, "error": {"type": "MethodError",
-                                     "message": f"unknown method {method!r}"}}
+        return {
+            "id": rid,
+            "error": {"type": "MethodError", "message": f"unknown method {method!r}"},
+        }
     try:
         result = getattr(session, method)(**params)
         return {"id": rid, "result": result}
@@ -101,8 +103,15 @@ def serve(session=None, inp=None, out=None):
         try:
             request = json.loads(line)
         except json.JSONDecodeError as e:
-            out.write(json.dumps({"id": None, "error": {"type": "JSONDecodeError",
-                                                        "message": str(e)}}) + "\n")
+            out.write(
+                json.dumps(
+                    {
+                        "id": None,
+                        "error": {"type": "JSONDecodeError", "message": str(e)},
+                    }
+                )
+                + "\n"
+            )
             out.flush()
             continue
         out.write(json.dumps(handle(session, request)) + "\n")

@@ -89,37 +89,47 @@ def example_scene():
     the ten unit cubes of the default ring would have to overlap (2πr < n) —
     while the hard bounds only rule out the physically impossible.
     """
+
     def ring(number, z):
         return {
             "id": f"ring{number}",
             "type": "Collection",
             "style": {"label": f"Ring {number}"},
-            "children": [{
-                "id": f"r{number}",
-                "type": "magnet.Cuboid",
-                "params": {
-                    "dimension": [1, 1, 1],
-                    "polarization": [1, 0, 0],
-                    "position": ["=radius", 0, z],
-                },
-                "style": {"label": f"Magnet {number}"},
-            }],
+            "children": [
+                {
+                    "id": f"r{number}",
+                    "type": "magnet.Cuboid",
+                    "params": {
+                        "dimension": [1, 1, 1],
+                        "polarization": [1, 0, 0],
+                        "position": ["=radius", 0, z],
+                    },
+                    "style": {"label": f"Magnet {number}"},
+                }
+            ],
         }
 
     def ring_pattern(number):
         return {
-            "target": f"r{number}", "op": "duplicate_around", "count": "=n",
-            "axis": "z", "anchor": [0, 0, 0], "spin": "=360 / n",
+            "target": f"r{number}",
+            "op": "duplicate_around",
+            "count": "=n",
+            "axis": "z",
+            "anchor": [0, 0, 0],
+            "spin": "=360 / n",
         }
 
     return {
         "variables": {
-            "n": 10, "radius": 2.3, "gap": 1.5, "stagger": "=360 / (2 * n)",
-            "tilt": 0.0, "tilt_axis": "z",
+            "n": 10,
+            "radius": 2.3,
+            "gap": 1.5,
+            "stagger": "=360 / (2 * n)",
+            "tilt": 0.0,
+            "tilt_axis": "z",
         },
         "variable_bounds": {
-            "n": {"min": 2, "max": 60, "soft_min": 4, "soft_max": 20,
-                  "integer": True},
+            "n": {"min": 2, "max": 60, "soft_min": 4, "soft_max": 20, "integer": True},
             "radius": {"min": 0.5, "max": 8, "soft_min": 1.6, "soft_max": 4},
             "gap": {"min": 0, "max": 6, "soft_min": 1, "soft_max": 3},
             "tilt": {"min": -180, "max": 180, "soft_min": -90, "soft_max": 90},
@@ -132,14 +142,24 @@ def example_scene():
             ring_pattern(1),
             ring_pattern(2),
             # after ring 2's copies exist, so the group carries them
-            {"target": "ring2", "op": "rotate_from_angax",
-             "angle": "=stagger", "axis": "z", "anchor": 0},
+            {
+                "target": "ring2",
+                "op": "rotate_from_angax",
+                "angle": "=stagger",
+                "axis": "z",
+                "anchor": 0,
+            },
             # Last, so it carries the whole assembled stack: tilting the
             # collection turns everything in it, copies included. Zero by
             # default — the scene looks the same until you drag `tilt`, and
             # then `tilt_axis` decides which way it tips.
-            {"target": "halbach", "op": "rotate_from_angax",
-             "angle": "=tilt", "axis": "=tilt_axis", "anchor": 0},
+            {
+                "target": "halbach",
+                "op": "rotate_from_angax",
+                "angle": "=tilt",
+                "axis": "=tilt_axis",
+                "anchor": 0,
+            },
         ],
         "objects": [
             {
@@ -149,7 +169,7 @@ def example_scene():
                 "children": [ring(1, 0.0), ring(2, "=gap")],
             },
             _bore_sensor(-1.5, 3.0),
-        ]
+        ],
     }
 
 
@@ -173,33 +193,49 @@ def coil_scene():
     of declared turns. `turns` and `pitch` reshape the whole coil."""
     return {
         "variables": {
-            "turns": 12, "coil_radius": 1.0, "pitch": 0.25, "amps": 100,
+            "turns": 12,
+            "coil_radius": 1.0,
+            "pitch": 0.25,
+            "amps": 100,
             "height": "=pitch * (turns - 1)",
         },
         "variable_bounds": {
-            "turns": {"min": 1, "max": 200, "soft_min": 4, "soft_max": 40,
-                      "integer": True},
+            "turns": {
+                "min": 1,
+                "max": 200,
+                "soft_min": 4,
+                "soft_max": 40,
+                "integer": True,
+            },
             "coil_radius": {"min": 0.05, "max": 10, "soft_min": 0.3, "soft_max": 3},
             "pitch": {"min": 0.01, "max": 2, "soft_min": 0.1, "soft_max": 0.6},
             "amps": {"min": -10000, "max": 10000, "soft_min": 0, "soft_max": 500},
         },
-        "events": [{
-            "target": "turn", "op": "duplicate_along", "count": "=turns",
-            "step": [0, 0, "=pitch"],
-        }],
+        "events": [
+            {
+                "target": "turn",
+                "op": "duplicate_along",
+                "count": "=turns",
+                "step": [0, 0, "=pitch"],
+            }
+        ],
         "objects": [
             {
-                "id": "coil", "type": "Collection",
+                "id": "coil",
+                "type": "Collection",
                 "style": {"label": "Solenoid"},
-                "children": [{
-                    "id": "turn", "type": "current.Circle",
-                    "params": {
-                        "current": "=amps",
-                        "diameter": "=2 * coil_radius",
-                        "position": [0, 0, "=-height / 2"],
-                    },
-                    "style": {"label": "Turn"},
-                }],
+                "children": [
+                    {
+                        "id": "turn",
+                        "type": "current.Circle",
+                        "params": {
+                            "current": "=amps",
+                            "diameter": "=2 * coil_radius",
+                            "position": [0, 0, "=-height / 2"],
+                        },
+                        "style": {"label": "Turn"},
+                    }
+                ],
             },
             _bore_sensor(-2.5, 2.5, label="On axis"),
         ],
@@ -220,17 +256,21 @@ def pair_scene():
         ],
         "objects": [
             {
-                "id": "pair", "type": "Collection",
+                "id": "pair",
+                "type": "Collection",
                 "style": {"label": "Facing pair"},
-                "children": [{
-                    "id": "upper", "type": "magnet.Cuboid",
-                    "params": {
-                        "dimension": ["=size", "=size", "=size"],
-                        "polarization": [0, 0, -1],
-                        "position": [0, 0, "=gap / 2"],
-                    },
-                    "style": {"label": "Upper"},
-                }],
+                "children": [
+                    {
+                        "id": "upper",
+                        "type": "magnet.Cuboid",
+                        "params": {
+                            "dimension": ["=size", "=size", "=size"],
+                            "polarization": [0, 0, -1],
+                            "position": [0, 0, "=gap / 2"],
+                        },
+                        "style": {"label": "Upper"},
+                    }
+                ],
             },
             _bore_sensor(-3.0, 3.0, label="Through the gap"),
         ],
@@ -243,39 +283,53 @@ def array_scene():
     return {
         "variables": {"nx": 4, "ny": 3, "pitch": 1.5, "lift": 2.0},
         "variable_bounds": {
-            "nx": {"min": 1, "max": 40, "soft_min": 2, "soft_max": 10,
-                   "integer": True},
-            "ny": {"min": 1, "max": 40, "soft_min": 2, "soft_max": 10,
-                   "integer": True},
+            "nx": {"min": 1, "max": 40, "soft_min": 2, "soft_max": 10, "integer": True},
+            "ny": {"min": 1, "max": 40, "soft_min": 2, "soft_max": 10, "integer": True},
             "pitch": {"min": 0.2, "max": 10, "soft_min": 1, "soft_max": 4},
             "lift": {"min": 0.1, "max": 10, "soft_min": 0.5, "soft_max": 4},
         },
         "events": [
-            {"target": "tile", "op": "duplicate_along", "count": "=nx",
-             "step": ["=pitch", 0, 0]},
-            {"target": "row", "op": "duplicate_along", "count": "=ny",
-             "step": [0, "=pitch", 0]},
+            {
+                "target": "tile",
+                "op": "duplicate_along",
+                "count": "=nx",
+                "step": ["=pitch", 0, 0],
+            },
+            {
+                "target": "row",
+                "op": "duplicate_along",
+                "count": "=ny",
+                "step": [0, "=pitch", 0],
+            },
         ],
         "objects": [
             {
-                "id": "array", "type": "Collection",
+                "id": "array",
+                "type": "Collection",
                 "style": {"label": "Magnet array"},
-                "children": [{
-                    "id": "row", "type": "Collection",
-                    "style": {"label": "Row"},
-                    "children": [{
-                        "id": "tile", "type": "magnet.Cuboid",
-                        "params": {
-                            "dimension": [1, 1, 1],
-                            "polarization": [0, 0, 1],
-                            "position": [0, 0, 0],
-                        },
-                        "style": {"label": "Tile"},
-                    }],
-                }],
+                "children": [
+                    {
+                        "id": "row",
+                        "type": "Collection",
+                        "style": {"label": "Row"},
+                        "children": [
+                            {
+                                "id": "tile",
+                                "type": "magnet.Cuboid",
+                                "params": {
+                                    "dimension": [1, 1, 1],
+                                    "polarization": [0, 0, 1],
+                                    "position": [0, 0, 0],
+                                },
+                                "style": {"label": "Tile"},
+                            }
+                        ],
+                    }
+                ],
             },
             {
-                "id": "sensor", "type": "Sensor",
+                "id": "sensor",
+                "type": "Sensor",
                 "params": {
                     "position": [
                         [round(-1 + 6 * i / 24, 3), 1.5, "=lift"] for i in range(25)
@@ -314,7 +368,8 @@ def pixel_field_scene(resolution=7):
         },
         "objects": [
             {
-                "id": "magnet", "type": "magnet.Cuboid",
+                "id": "magnet",
+                "type": "magnet.Cuboid",
                 "params": {
                     "dimension": ["=mag", "=mag", "=mag"],
                     "polarization": [0, 0, 1],
@@ -322,7 +377,8 @@ def pixel_field_scene(resolution=7):
                 "style": {"label": "Magnet"},
             },
             {
-                "id": "probe", "type": "Sensor",
+                "id": "probe",
+                "type": "Sensor",
                 "params": {
                     "position": [0, 0, "=lift"],
                     "pixel": [
@@ -348,23 +404,26 @@ def quiver_scene(pixels=12, steps=51):
     moves all 144 arrows at once.
     """
     edge = 2.0
-    coordinates = [
-        round(-edge + 2 * edge * i / (pixels - 1), 6) for i in range(pixels)
-    ]
+    coordinates = [round(-edge + 2 * edge * i / (pixels - 1), 6) for i in range(pixels)]
     return {
         "variables": {"lift": 1.0, "width": 3.0},
         "variable_bounds": {
             "lift": {"min": 0.1, "max": 10, "soft_min": 0.5, "soft_max": 3},
             "width": {"min": 0.1, "max": 10, "soft_min": 1, "soft_max": 5},
         },
-        "events": [{
-            "target": "magnet", "op": "rotate_from_angax",
-            "angle": [round(360 * i / (steps - 1), 6) for i in range(steps)],
-            "axis": "y", "start": 0,
-        }],
+        "events": [
+            {
+                "target": "magnet",
+                "op": "rotate_from_angax",
+                "angle": [round(360 * i / (steps - 1), 6) for i in range(steps)],
+                "axis": "y",
+                "start": 0,
+            }
+        ],
         "objects": [
             {
-                "id": "magnet", "type": "magnet.Cuboid",
+                "id": "magnet",
+                "type": "magnet.Cuboid",
                 "params": {
                     "polarization": [0, 0, 1],
                     "dimension": [1, "=width", 1],
@@ -372,12 +431,11 @@ def quiver_scene(pixels=12, steps=51):
                 "style": {"label": "Turning magnet"},
             },
             {
-                "id": "field", "type": "Sensor",
+                "id": "field",
+                "type": "Sensor",
                 "params": {
                     "position": [0, 0, "=lift"],
-                    "pixel": [
-                        [[u, v, 0] for u in coordinates] for v in coordinates
-                    ],
+                    "pixel": [[[u, v, 0] for u in coordinates] for v in coordinates],
                 },
                 "style": {
                     "label": "Field arrows",
@@ -394,30 +452,42 @@ def quiver_scene(pixels=12, steps=51):
 # and each leaning on a different feature — which is the point of having
 # more than one: an example is the shortest documentation there is.
 EXAMPLES = {
-    "halbach": ("Halbach stack",
-                "Two rings of magnets, each one magnet and a circular "
-                "pattern; the upper ring staggered by half a step",
-                example_scene),
-    "coil": ("Solenoid coil",
-             "One current loop patterned along its axis — turns and pitch "
-             "reshape the whole winding",
-             coil_scene),
-    "pair": ("Facing magnet pair",
-             "A magnet and its mirror image across a gap, which stays a "
-             "mirror image as the first is edited",
-             pair_scene),
-    "pixels": ("Field on a plane",
-               "A magnet under a sensor whose pixel grid resizes with a "
-               "variable — open the Field view and read it off the sensor",
-               pixel_field_scene),
-    "quiver": ("Turning magnet, field arrows",
-               "A magnet rotating through a revolution under a grid of "
-               "arrows coloured by what they read — press Animate paths",
-               quiver_scene),
-    "array": ("Magnet array",
-              "A magnet patterned into a row, the row into a grid — two "
-              "linear steps, both counts editable",
-              array_scene),
+    "halbach": (
+        "Halbach stack",
+        "Two rings of magnets, each one magnet and a circular "
+        "pattern; the upper ring staggered by half a step",
+        example_scene,
+    ),
+    "coil": (
+        "Solenoid coil",
+        "One current loop patterned along its axis — turns and pitch "
+        "reshape the whole winding",
+        coil_scene,
+    ),
+    "pair": (
+        "Facing magnet pair",
+        "A magnet and its mirror image across a gap, which stays a "
+        "mirror image as the first is edited",
+        pair_scene,
+    ),
+    "pixels": (
+        "Field on a plane",
+        "A magnet under a sensor whose pixel grid resizes with a "
+        "variable — open the Field view and read it off the sensor",
+        pixel_field_scene,
+    ),
+    "quiver": (
+        "Turning magnet, field arrows",
+        "A magnet rotating through a revolution under a grid of "
+        "arrows coloured by what they read — press Animate paths",
+        quiver_scene,
+    ),
+    "array": (
+        "Magnet array",
+        "A magnet patterned into a row, the row into a grid — two "
+        "linear steps, both counts editable",
+        array_scene,
+    ),
 }
 
 
@@ -460,7 +530,7 @@ _PARAM_DOCS = {
     "polarization": "magnetic polarization J (T), in object coordinates",
     "magnetization": "magnetization M (A/m) — derived from polarization",
     "dimension": "size; Cuboid (a,b,c) m · Cylinder (d,h) m · "
-                 "CylinderSegment (r1,r2,h,phi1,phi2) m/deg",
+    "CylinderSegment (r1,r2,h,phi1,phi2) m/deg",
     "diameter": "diameter (m)",
     "vertices": "corner/path points (m)",
     "faces": "triangle indices into vertices",
@@ -478,8 +548,7 @@ _HIDE_STYLE = {"model3d.showdefault": False, "path.show": False}
 # A mirror borrows the body's own z-flip symmetry, so only shapes that have
 # one can be reflected; the rest would need their vertices mirrored, which is
 # a different object rather than the same one placed differently.
-_MIRRORABLE = ("Cuboid", "Cylinder", "CylinderSegment", "Sphere", "Dipole",
-               "Sensor")
+_MIRRORABLE = ("Cuboid", "Cylinder", "CylinderSegment", "Sphere", "Dipole", "Sensor")
 
 _MIRROR_NORMALS = {"xy": [0, 0, 1], "xz": [0, 1, 0], "yz": [1, 0, 0]}
 
@@ -615,17 +684,41 @@ try:
 except PackageNotFoundError:  # a source tree that was never installed
     __version__ = "0+unknown"
 
-_DOC_KEYS = ("version", "generator", "variables", "variable_bounds",
-             "objects", "events")
+_DOC_KEYS = (
+    "version",
+    "generator",
+    "variables",
+    "variable_bounds",
+    "objects",
+    "events",
+)
 
 # What the engine itself puts on a create event and on the spec projected from
 # it. Anything else on either belongs to something we do not know about — a
 # newer format, a hand-written file, another tool — and is carried rather than
 # dropped, so opening a document here does not quietly strip it.
-_CREATE_KEYS = ("id", "op", "target", "type", "params", "style",
-                "hidden_style", "parent", "visible")
-_SPEC_KEYS = ("id", "type", "params", "style", "hidden_style", "visible",
-              "children", "transforms", "rotations")
+_CREATE_KEYS = (
+    "id",
+    "op",
+    "target",
+    "type",
+    "params",
+    "style",
+    "hidden_style",
+    "parent",
+    "visible",
+)
+_SPEC_KEYS = (
+    "id",
+    "type",
+    "params",
+    "style",
+    "hidden_style",
+    "visible",
+    "children",
+    "transforms",
+    "rotations",
+)
 
 
 def _canonical(doc):
@@ -707,15 +800,19 @@ def _migrate_events(doc):
                 for key, value in unknown.items():
                     described[spec["id"]].setdefault(key, value)
             else:
-                creates.append({
-                    "id": None, "op": "create", "target": spec["id"],
-                    "type": spec["type"],
-                    **({"params": spec["params"]} if spec.get("params") else {}),
-                    **({"style": spec["style"]} if spec.get("style") else {}),
-                    **({"parent": parent} if parent else {}),
-                    **({"visible": False} if spec.get("visible") is False else {}),
-                    **unknown,
-                })
+                creates.append(
+                    {
+                        "id": None,
+                        "op": "create",
+                        "target": spec["id"],
+                        "type": spec["type"],
+                        **({"params": spec["params"]} if spec.get("params") else {}),
+                        **({"style": spec["style"]} if spec.get("style") else {}),
+                        **({"parent": parent} if parent else {}),
+                        **({"visible": False} if spec.get("visible") is False else {}),
+                        **unknown,
+                    }
+                )
             # A parent has to exist before its children can join it, so creates
             # go depth-first from the root; the transforms keep the order the
             # per-object build replayed them in, children before parents.
@@ -737,8 +834,9 @@ def _migrate_events(doc):
         used.add(f"e{n}")
         # rebuilt rather than assigned into, so the id reads first wherever
         # the event came from — a document should not depend on that
-        numbered.append({"id": f"e{n}",
-                         **{k: v for k, v in event.items() if k != "id"}})
+        numbered.append(
+            {"id": f"e{n}", **{k: v for k, v in event.items() if k != "id"}}
+        )
     doc["events"] = numbered
     return doc
 
@@ -775,11 +873,15 @@ def _round_trip_warnings(before, after):
         bucket.append(oid)
     warnings = []
     if collapsed:
-        warnings.append("transform steps collapsed into one equivalent "
-                        f"transform: {_id_list(collapsed)}")
+        warnings.append(
+            "transform steps collapsed into one equivalent "
+            f"transform: {_id_list(collapsed)}"
+        )
     if ungrouped:
-        warnings.append("group transforms are now baked into the children they "
-                        f"moved: {_id_list(ungrouped)}")
+        warnings.append(
+            "group transforms are now baked into the children they "
+            f"moved: {_id_list(ungrouped)}"
+        )
     return warnings
 
 
@@ -883,11 +985,15 @@ def _event_label(event):
     if op == "orientation":
         return f"oriented {_vec(event.get('rotvec'), '°')}"
     if op == "duplicate_around":
-        return (f"{_lit(event.get('count', 1))} copies about "
-                f"{_axis_label(event.get('axis', 'z'))}")
+        return (
+            f"{_lit(event.get('count', 1))} copies about "
+            f"{_axis_label(event.get('axis', 'z'))}"
+        )
     if op == "duplicate_along":
-        return (f"{_lit(event.get('count', 1))} copies every "
-                f"{_vec(event.get('step'), ' m')}")
+        return (
+            f"{_lit(event.get('count', 1))} copies every "
+            f"{_vec(event.get('step'), ' m')}"
+        )
     if op == "mirror":
         plane = event.get("plane") or _vec(event.get("normal"))
         return f"mirrored in {plane}"
@@ -918,11 +1024,14 @@ def _event_source(event):
     if op == "reparent":
         return f"{target} joins {event.get('parent') or 'the scene root'}"
     if op == "duplicate_around":
-        return (f"{target} × {_lit(event.get('count', 1))} about "
-                f"{_lit(event.get('axis', 'z'))}")
+        return (
+            f"{target} × {_lit(event.get('count', 1))} about "
+            f"{_lit(event.get('axis', 'z'))}"
+        )
     if op == "duplicate_along":
-        return (f"{target} × {_lit(event.get('count', 1))} every "
-                f"{_lit(event.get('step'))}")
+        return (
+            f"{target} × {_lit(event.get('count', 1))} every {_lit(event.get('step'))}"
+        )
     if op == "mirror":
         return f"{target} mirrored in {event.get('plane') or event.get('normal')}"
     return f"{target}.{_op_source(event)}"
@@ -1029,8 +1138,9 @@ class MagpylibStudioSession:
                     f"{name} = {value:g} is above its maximum {limits['max']:g}"
                 )
             if limits.get("integer") and float(value) != int(value):
-                raise ValueError(f"{name} = {value:g} counts things, so it "
-                                 f"has to be a whole number")
+                raise ValueError(
+                    f"{name} = {value:g} counts things, so it has to be a whole number"
+                )
         self._objs = {}
         self._derived = {}
         self._inherited = {}
@@ -1045,12 +1155,14 @@ class MagpylibStudioSession:
                 # broken document: the rest of the log still describes a
                 # scene, and refusing to build it would leave nothing to
                 # look at while fixing the event that went wrong.
-                self._broken.append({
-                    "id": event.get("id"),
-                    "target": event.get("target"),
-                    "source": _event_source(event),
-                    "error": f"{type(e).__name__}: {e}",
-                })
+                self._broken.append(
+                    {
+                        "id": event.get("id"),
+                        "target": event.get("target"),
+                        "source": _event_source(event),
+                        "error": f"{type(e).__name__}: {e}",
+                    }
+                )
         # The object tree is a projection of the log, rebuilt here rather than
         # stored: two representations of the same structure would drift.
         self._objects_view = self._project()
@@ -1259,9 +1371,7 @@ class MagpylibStudioSession:
         # the same shape by construction. If that ever stops being true, a
         # silent truncation here would lose exactly the copies this exists to
         # find.
-        for original, made in zip(
-            source.children_all, copy.children_all, strict=True
-        ):
+        for original, made in zip(source.children_all, copy.children_all, strict=True):
             source_id = by_object.get(id(original))
             if source_id is not None:
                 self._inherited.setdefault(source_id, []).append(made)
@@ -1357,16 +1467,18 @@ class MagpylibStudioSession:
             raise ValueError("a mirror plane needs a non-zero normal")
         normal = normal / length
         anchor = event.get("anchor", 0)
-        anchor = np.array([0.0, 0.0, 0.0] if anchor in (0, None) else anchor,
-                          dtype=float)
+        anchor = np.array(
+            [0.0, 0.0, 0.0] if anchor in (0, None) else anchor, dtype=float
+        )
         reflect = np.eye(3) - 2 * np.outer(normal, normal)
         flip = np.diag([1.0, 1.0, -1.0])
 
         source = self._objs[object_id]
         container = self._container_for_copies(object_id)
         copy = source.copy()
-        leaves = (list(copy.children_all)
-                  if isinstance(copy, magpy.Collection) else [copy])
+        leaves = (
+            list(copy.children_all) if isinstance(copy, magpy.Collection) else [copy]
+        )
         for leaf in leaves:
             kind = type(leaf).__name__
             if kind not in _MIRRORABLE:
@@ -1454,6 +1566,7 @@ class MagpylibStudioSession:
 
     def _resolve(self, value):
         """Document value -> plain numbers, substituting the variables."""
+
         def lookup(name):
             if name not in self._vars:
                 raise ValueError(f"unknown variable {name!r}")
@@ -1536,8 +1649,8 @@ class MagpylibStudioSession:
             if events != before:
                 self._rollback = None  # not an append: the preview is stale
             return None
-        added = events[len(before):]
-        del events[len(before):]
+        added = events[len(before) :]
+        del events[len(before) :]
         events[self._rollback : self._rollback] = added
         at = self._rollback
         self._rollback += len(added)
@@ -1557,6 +1670,7 @@ class MagpylibStudioSession:
 
     def _container_of(self, object_id):
         """The list (doc root or a Collection's children) holding this spec."""
+
         def search(lst):
             for s in lst:
                 if s["id"] == object_id:
@@ -1574,40 +1688,50 @@ class MagpylibStudioSession:
     # --- introspection -----------------------------------------------------
     def list_objects(self):
         objects = []
-        creates = {e["target"]: e for e in self.doc.get("events") or []
-                   if e.get("op") == "create"}
+        creates = {
+            e["target"]: e
+            for e in self.doc.get("events") or []
+            if e.get("op") == "create"
+        }
         # what is built, which is the whole document unless it is rolled back
         for spec, parent in self._iter_specs(self._objects_view):
-            objects.append({
-                "id": spec["id"],
-                "type": spec["type"],
-                "label": self._objs[spec["id"]].style.label or spec["type"],
-                "parent": parent["id"] if parent else None,
-                "visible": spec.get("visible", True),
-                # How the object is *written*, expressions and all — not the
-                # resolved numbers. A caller that only gets ids and labels
-                # cannot see the scene's scale or that it is parametric at
-                # all, and fills that gap with whatever it assumes: an LLM
-                # asked to extend this Halbach stack added a 15 mm magnet at
-                # r = 55 mm to a scene whose magnets are 1 and whose radius
-                # is "=radius". One line per object is what stops that.
-                **({"source": _event_source(creates[spec["id"]])}
-                   if spec["id"] in creates else {}),
-                # a sensor carrying a measuring grid is a field source a UI
-                # can offer to read off, so say so where it is listed
-                **self._pixel_shape(self._objs[spec["id"]]),
-            })
+            objects.append(
+                {
+                    "id": spec["id"],
+                    "type": spec["type"],
+                    "label": self._objs[spec["id"]].style.label or spec["type"],
+                    "parent": parent["id"] if parent else None,
+                    "visible": spec.get("visible", True),
+                    # How the object is *written*, expressions and all — not the
+                    # resolved numbers. A caller that only gets ids and labels
+                    # cannot see the scene's scale or that it is parametric at
+                    # all, and fills that gap with whatever it assumes: an LLM
+                    # asked to extend this Halbach stack added a 15 mm magnet at
+                    # r = 55 mm to a scene whose magnets are 1 and whose radius
+                    # is "=radius". One line per object is what stops that.
+                    **(
+                        {"source": _event_source(creates[spec["id"]])}
+                        if spec["id"] in creates
+                        else {}
+                    ),
+                    # a sensor carrying a measuring grid is a field source a UI
+                    # can offer to read off, so say so where it is listed
+                    **self._pixel_shape(self._objs[spec["id"]]),
+                }
+            )
             # copies made by a duplicate event: real objects in the field and
             # the 3D view, but generated, so they have no spec to edit
             for copy_id in self._derived.get(spec["id"], []):
-                objects.append({
-                    "id": copy_id,
-                    "type": spec["type"],
-                    "label": self._objs[copy_id].style.label or spec["type"],
-                    "parent": parent["id"] if parent else None,
-                    "visible": spec.get("visible", True),
-                    "derived": spec["id"],
-                })
+                objects.append(
+                    {
+                        "id": copy_id,
+                        "type": spec["type"],
+                        "label": self._objs[copy_id].style.label or spec["type"],
+                        "parent": parent["id"] if parent else None,
+                        "visible": spec.get("visible", True),
+                        "derived": spec["id"],
+                    }
+                )
         return objects
 
     @staticmethod
@@ -1625,8 +1749,9 @@ class MagpylibStudioSession:
         # Without this the inspector has nothing to build a widget from and
         # the property silently does not appear.
         try:
-            source = (schema["properties"]["pixel"]["properties"]
-                      ["field"]["properties"]["source"])
+            source = schema["properties"]["pixel"]["properties"]["field"]["properties"][
+                "source"
+            ]
         except (KeyError, TypeError):
             return schema
         source.setdefault("type", ["string", "null"])
@@ -1658,8 +1783,11 @@ class MagpylibStudioSession:
                 "kind": kind,
                 "doc": _PARAM_DOCS.get(name, ""),
                 "unit": _PARAM_UNITS.get(name, ""),
-                **({"components": list(_PARAM_COMPONENTS[name])}
-                   if name in _PARAM_COMPONENTS else {}),
+                **(
+                    {"components": list(_PARAM_COMPONENTS[name])}
+                    if name in _PARAM_COMPONENTS
+                    else {}
+                ),
             }
             # `value` is what magpylib holds; when the document says it in
             # terms of a variable, the editor needs the expression as well —
@@ -1749,9 +1877,7 @@ class MagpylibStudioSession:
         Returns {"field", "unit", "points", "values", "magnitude"} in SI.
         """
         if field not in _FIELDS:
-            raise ValueError(
-                f"field must be one of {sorted(_FIELDS)}, got {field!r}"
-            )
+            raise ValueError(f"field must be one of {sorted(_FIELDS)}, got {field!r}")
         sources = self._leaf_sources()
         if not sources:
             raise ValueError("scene has no field sources")
@@ -1795,8 +1921,9 @@ class MagpylibStudioSession:
         span = float(np.max(stacked.max(axis=0) - stacked.min(axis=0)))
         return max(span, 1.0) * 1.2, centre
 
-    def set_pixel_grid(self, object_id, plane="xy", size=2.0, resolution=20,
-                       offset=0.0):
+    def set_pixel_grid(
+        self, object_id, plane="xy", size=2.0, resolution=20, offset=0.0
+    ):
         """Give a Sensor a regular grid of pixels — magpylib's own way to map a
         field. The grid is in the sensor's LOCAL frame, so moving or rotating
         the sensor carries the measurement plane with it (any orientation, not
@@ -1817,9 +1944,18 @@ class MagpylibStudioSession:
         pixel[:, :, inormal] = offset
         return self.set_param(object_id, "pixel", pixel.round(9).tolist())
 
-    def get_field_map(self, plane="xy", offset=0.0, extent=None, resolution=40,
-                      field="B", component="magnitude", log=False,
-                      sensor_id=None, template=None):
+    def get_field_map(
+        self,
+        plane="xy",
+        offset=0.0,
+        extent=None,
+        resolution=40,
+        field="B",
+        component="magnitude",
+        log=False,
+        sensor_id=None,
+        template=None,
+    ):
         """Field on a plane as a plotly heatmap — the 2D map complementing the
         sensor-path plot. `plane` is 'xy' | 'xz' | 'yz' (offset is along the
         remaining axis), `component` is 'magnitude' | 'x' | 'y' | 'z'.
@@ -1830,7 +1966,10 @@ class MagpylibStudioSession:
         (see set_pixel_grid) — the plane then follows the sensor's own pose."""
         if sensor_id is not None:
             return self._sensor_field_map(
-                sensor_id, field=field, component=component, log=log,
+                sensor_id,
+                field=field,
+                component=component,
+                log=log,
                 template=template,
             )
         axes = {"xy": (0, 1, 2), "xz": (0, 2, 1), "yz": (1, 2, 0)}
@@ -1843,8 +1982,10 @@ class MagpylibStudioSession:
         if extent is None:
             size, centre = self._scene_extent()
             extent = [
-                centre[iu] - size, centre[iu] + size,
-                centre[iv] - size, centre[iv] + size,
+                centre[iu] - size,
+                centre[iu] + size,
+                centre[iv] - size,
+                centre[iv] + size,
             ]
         u = np.linspace(extent[0], extent[1], int(resolution))
         v = np.linspace(extent[2], extent[3], int(resolution))
@@ -1857,20 +1998,30 @@ class MagpylibStudioSession:
         data = self.get_field(points=points.tolist(), field=field)
         values = np.array(data["values"]).reshape(len(v), len(u), 3)
         return self._heatmap(
-            u, v, values, data["unit"], field, component, log, template,
+            u,
+            v,
+            values,
+            data["unit"],
+            field,
+            component,
+            log,
+            template,
             labels=(f"{plane[0]} (m)", f"{plane[1]} (m)"),
             subtitle=f"on {plane} at {'xyz'[inormal]} = {offset:g} m",
         )
 
-    def _sensor_field_map(self, sensor_id, field="B", component="magnitude",
-                          log=False, template=None):
+    def _sensor_field_map(
+        self, sensor_id, field="B", component="magnitude", log=False, template=None
+    ):
         """Field over a Sensor's pixel grid — magpylib computes it directly on
         the sensor, so the plane follows the sensor's position/orientation."""
         sensor = self._objs[sensor_id]
         if not isinstance(sensor, magpy.Sensor):
             # ValueError like the rest of the surface: RPC reports the type name
             raise ValueError(f"{sensor_id!r} is not a Sensor")
-        pixel = np.array(sensor.pixel, dtype=float) if sensor.pixel is not None else None
+        pixel = (
+            np.array(sensor.pixel, dtype=float) if sensor.pixel is not None else None
+        )
         if pixel is None or pixel.ndim != 3:
             raise ValueError(
                 f"sensor {sensor_id!r} has no pixel grid — use set_pixel_grid first"
@@ -1891,22 +2042,32 @@ class MagpylibStudioSession:
         u = pixel[0, :, iu]
         v = pixel[:, 0, iv]
         return self._heatmap(
-            u, v, values, _FIELDS[field][1], field, component, log,
+            u,
+            v,
+            values,
+            _FIELDS[field][1],
+            field,
+            component,
+            log,
             template,
             labels=(f"sensor {'xyz'[iu]} (m)", f"sensor {'xyz'[iv]} (m)"),
             subtitle=f"over {sensor.style.label or sensor_id} "
-                     f"({pixel.shape[0]}×{pixel.shape[1]} pixels{path_note})",
+            f"({pixel.shape[0]}×{pixel.shape[1]} pixels{path_note})",
         )
 
-    def _heatmap(self, u, v, values, unit, field, component, log, template,
-                 labels, subtitle):
+    def _heatmap(
+        self, u, v, values, unit, field, component, log, template, labels, subtitle
+    ):
         """Shared heatmap builder for both field-map sources."""
         if component == "magnitude":
             z = np.linalg.norm(values, axis=-1)
             # sequential: one hue light -> dark, lightest reads as "near zero"
             colorscale = [
-                [0.0, "#cde2fb"], [0.25, "#86b6ef"], [0.5, "#3987e5"],
-                [0.75, "#1c5cab"], [1.0, "#0d366b"],
+                [0.0, "#cde2fb"],
+                [0.25, "#86b6ef"],
+                [0.5, "#3987e5"],
+                [0.75, "#1c5cab"],
+                [1.0, "#0d366b"],
             ]
             zmid = None
             title = f"|{field}| ({unit})"
@@ -1917,8 +2078,11 @@ class MagpylibStudioSession:
             z = values[:, :, "xyz".index(component)]
             # diverging: two poles with a neutral midpoint anchored at zero
             colorscale = [
-                [0.0, "#0d366b"], [0.25, "#3987e5"], [0.5, "#f0efec"],
-                [0.75, "#d03b3b"], [1.0, "#6b1111"],
+                [0.0, "#0d366b"],
+                [0.25, "#3987e5"],
+                [0.5, "#f0efec"],
+                [0.75, "#d03b3b"],
+                [1.0, "#6b1111"],
             ]
             zmid = 0.0
             title = f"{field}{component} ({unit})"
@@ -1984,21 +2148,31 @@ class MagpylibStudioSession:
         return {"ok": True}
 
     # --- scene structure ---------------------------------------------------
-    def add_object(self, object_id, type, params=None, style=None,  # noqa: A002
-                   rotations=None,
-                   parent=None):
+    def add_object(
+        self,
+        object_id,
+        type,  # noqa: A002 - the magpylib class path; renaming it is a protocol change
+        params=None,
+        style=None,
+        rotations=None,
+        parent=None,
+    ):
         if any(s["id"] == object_id for s, _ in self._iter_specs()):
             return {"ok": False, "error": f"object id {object_id!r} already exists"}
         if parent is not None and self._spec(parent)["type"] != "Collection":
             return {"ok": False, "error": f"parent {parent!r} is not a Collection"}
 
         def mutate(doc):
-            self._append({
-                "op": "create", "target": object_id, "type": type,
-                **({"params": params} if params else {}),
-                **({"style": style} if style else {}),
-                **({"parent": parent} if parent else {}),
-            })
+            self._append(
+                {
+                    "op": "create",
+                    "target": object_id,
+                    "type": type,
+                    **({"params": params} if params else {}),
+                    **({"style": style} if style else {}),
+                    **({"parent": parent} if parent else {}),
+                }
+            )
             if rotations:
                 # Recorded after the create, i.e. after whatever has already
                 # happened to the parent — the same thing the equivalent
@@ -2031,8 +2205,10 @@ class MagpylibStudioSession:
         """
         ops = [
             {"op": "position", "value": np.round(world_pos, 9).tolist()},
-            {"op": "orientation",
-             "rotvec": np.round(world_rot.as_rotvec(degrees=True), 9).tolist()},
+            {
+                "op": "orientation",
+                "rotvec": np.round(world_rot.as_rotvec(degrees=True), 9).tolist(),
+            },
         ]
         # A pin supersedes the pin it directly follows. Nudging a position
         # field is one act of placing an object, not a dozen — and a log that
@@ -2041,9 +2217,11 @@ class MagpylibStudioSession:
         # once anything else has happened, order matters and this must append.
         events = self.doc.setdefault("events", [])
         tail = events[-2:]
-        if (len(tail) == 2
-                and all(e.get("target") == object_id for e in tail)
-                and [e.get("op") for e in tail] == ["position", "orientation"]):
+        if (
+            len(tail) == 2
+            and all(e.get("target") == object_id for e in tail)
+            and [e.get("op") for e in tail] == ["position", "orientation"]
+        ):
             events[-2] = {**tail[0], **_plain(ops[0])}
             events[-1] = {**tail[1], **_plain(ops[1])}
         else:
@@ -2053,10 +2231,12 @@ class MagpylibStudioSession:
     def _append(self, event):
         """Add one event to the end of the log, under a fresh id."""
         events = self.doc.setdefault("events", [])
-        events.append({
-            "id": _next_event_id(events),
-            **{k: v for k, v in event.items() if k != "id"},
-        })
+        events.append(
+            {
+                "id": _next_event_id(events),
+                **{k: v for k, v in event.items() if k != "id"},
+            }
+        )
         return events[-1]
 
     def _create_event(self, object_id):
@@ -2078,8 +2258,7 @@ class MagpylibStudioSession:
         """Append transform ops to the end of the event log."""
         events = self.doc.setdefault("events", [])
         for op in expressions.normalized(_plain(ops)):
-            events.append({"id": _next_event_id(events),
-                           "target": object_id, **op})
+            events.append({"id": _next_event_id(events), "target": object_id, **op})
 
     def _append_ops(self, object_id, ops, label):
         """Record magpylib transform calls in the event log and rebuild."""
@@ -2166,9 +2345,11 @@ class MagpylibStudioSession:
         """
         self._spec(object_id)  # raise early on unknown id
         if self._parent_id(object_id) is None:
-            return {"ok": False,
-                    "error": f"{object_id!r} must be inside a Collection to "
-                             f"duplicate it — the copies need a group to join"}
+            return {
+                "ok": False,
+                "error": f"{object_id!r} must be inside a Collection to "
+                f"duplicate it — the copies need a group to join",
+            }
         return self._append_ops(
             object_id,
             [{"op": "duplicate_along", "count": count, "step": step}],
@@ -2185,15 +2366,21 @@ class MagpylibStudioSession:
         """
         self._spec(object_id)  # raise early on unknown id
         if self._parent_id(object_id) is None:
-            return {"ok": False,
-                    "error": f"{object_id!r} must be inside a Collection to "
-                             f"mirror it — the copy needs a group to join"}
+            return {
+                "ok": False,
+                "error": f"{object_id!r} must be inside a Collection to "
+                f"mirror it — the copy needs a group to join",
+            }
         if normal is None and plane not in _MIRROR_NORMALS:
-            return {"ok": False,
-                    "error": f"plane must be one of {sorted(_MIRROR_NORMALS)}"}
-        op = {"op": "mirror",
-              **({"normal": normal} if normal is not None else {"plane": plane}),
-              "anchor": anchor}
+            return {
+                "ok": False,
+                "error": f"plane must be one of {sorted(_MIRROR_NORMALS)}",
+            }
+        op = {
+            "op": "mirror",
+            **({"normal": normal} if normal is not None else {"plane": plane}),
+            "anchor": anchor,
+        }
         return self._append_ops(object_id, [op], f"mirror {object_id}")
 
     def duplicate_around(self, object_id, count, axis="z", anchor=0, spin=0):
@@ -2207,13 +2394,22 @@ class MagpylibStudioSession:
         """
         self._spec(object_id)  # raise early on unknown id
         if self._parent_id(object_id) is None:
-            return {"ok": False,
-                    "error": f"{object_id!r} must be inside a Collection to "
-                             f"duplicate it — the copies need a group to join"}
+            return {
+                "ok": False,
+                "error": f"{object_id!r} must be inside a Collection to "
+                f"duplicate it — the copies need a group to join",
+            }
         return self._append_ops(
             object_id,
-            [{"op": "duplicate_around", "count": count, "axis": axis,
-              "anchor": anchor, "spin": spin}],
+            [
+                {
+                    "op": "duplicate_around",
+                    "count": count,
+                    "axis": axis,
+                    "anchor": anchor,
+                    "spin": spin,
+                }
+            ],
             f"duplicate {object_id}",
         )
 
@@ -2242,7 +2438,9 @@ class MagpylibStudioSession:
     def _next_label(self, label):
         """magpylib's copy convention: 'Cube' -> 'Cube_01' -> 'Cube_02'."""
         match = re.match(r"^(.*)_(\d+)$", label or "")
-        stem, n = (match.group(1), int(match.group(2))) if match else (label or "obj", 0)
+        stem, n = (
+            (match.group(1), int(match.group(2))) if match else (label or "obj", 0)
+        )
         used = {o["label"] for o in self.list_objects()}
         while True:
             n += 1
@@ -2262,8 +2460,10 @@ class MagpylibStudioSession:
         `None` still means the root, so a paste can put it anywhere.
         """
         src = self._spec(object_id)
-        if parent is not _BESIDE and parent is not None and (
-            self._spec(parent)["type"] != "Collection"
+        if (
+            parent is not _BESIDE
+            and parent is not None
+            and (self._spec(parent)["type"] != "Collection")
         ):
             return {"ok": False, "error": f"parent {parent!r} is not a Collection"}
         new_id = self._unique_id(object_id)
@@ -2295,8 +2495,7 @@ class MagpylibStudioSession:
             # events replay onto the new ids, in the order they first ran.
             for event in source_events:
                 if event.get("op") != "create" and event["target"] in renamed:
-                    self._append({**event,
-                                  "target": renamed[event["target"]]})
+                    self._append({**event, "target": renamed[event["target"]]})
 
         result = self._mutate_doc(mutate, f"copy {object_id}")
         if result["ok"]:
@@ -2311,11 +2510,7 @@ class MagpylibStudioSession:
         others. Display only — hidden sources still contribute to the field.
         Hiding a Collection hides every leaf beneath it."""
         spec = self._spec(object_id)
-        leaves = [
-            s
-            for s, _ in self._iter_specs([spec])
-            if s["type"] != "Collection"
-        ]
+        leaves = [s for s, _ in self._iter_specs([spec]) if s["type"] != "Collection"]
 
         def mutate(doc):
             create = self._create_event(object_id)
@@ -2351,8 +2546,10 @@ class MagpylibStudioSession:
         if parent is not None:
             subtree_ids = {s["id"] for s, _ in self._iter_specs([spec])}
             if parent in subtree_ids:
-                return {"ok": False,
-                        "error": f"cannot move {object_id!r} into its own subtree"}
+                return {
+                    "ok": False,
+                    "error": f"cannot move {object_id!r} into its own subtree",
+                }
             if self._spec(parent)["type"] != "Collection":
                 return {"ok": False, "error": f"parent {parent!r} is not a Collection"}
         obj = self._objs[object_id]
@@ -2387,7 +2584,10 @@ class MagpylibStudioSession:
         from the doc and rebuilding — the property tree has no unset."""
         spec = self._spec(object_id)
         if path is not None and path not in spec.get("style", {}):
-            return {"ok": False, "error": f"style path {path!r} is not set on {object_id!r}"}
+            return {
+                "ok": False,
+                "error": f"style path {path!r} is not set on {object_id!r}",
+            }
 
         def mutate(doc):
             create = self._create_event(object_id)
@@ -2423,16 +2623,20 @@ class MagpylibStudioSession:
         # "not a scene document" would be a lie.
         version = scene.get("version") if isinstance(scene, dict) else None
         if isinstance(version, int) and version > DOC_VERSION:
-            return {"ok": False,
-                    "error": f"this scene was written by a newer magpylib-studio "
-                             f"(document version {version}); this one reads up to "
-                             f"version {DOC_VERSION}"}
+            return {
+                "ok": False,
+                "error": f"this scene was written by a newer magpylib-studio "
+                f"(document version {version}); this one reads up to "
+                f"version {DOC_VERSION}",
+            }
         # A document says what it holds: since both keys are optional and an
         # empty scene is legal, something with neither is not an empty scene,
         # it is not a scene — and loading it as one would quietly wipe this.
         if not isinstance(scene, dict) or not {"objects", "events"} & set(scene):
-            return {"ok": False,
-                    "error": "not a scene document: expected 'objects' or 'events'"}
+            return {
+                "ok": False,
+                "error": "not a scene document: expected 'objects' or 'events'",
+            }
 
         def mutate(doc):
             self.doc = _canonical(_migrate_events(json.loads(json.dumps(scene))))
@@ -2459,19 +2663,23 @@ class MagpylibStudioSession:
                     doc, warnings = importer.document_from_objects(objects, namespace)
                 except ValueError:
                     continue
-                candidates.append({
-                    "label": f"show() call {i + 1} ({len(doc['objects'])} top-level)",
-                    "doc": doc,
-                    "warnings": warnings,
-                })
+                candidates.append(
+                    {
+                        "label": f"show() call {i + 1} ({len(doc['objects'])} top-level)",
+                        "doc": doc,
+                        "warnings": warnings,
+                    }
+                )
             try:
                 doc, warnings = importer.document_from_namespace(namespace)
                 if all(c["doc"] != doc for c in candidates):
-                    candidates.append({
-                        "label": f"all script objects ({len(doc['objects'])} top-level)",
-                        "doc": doc,
-                        "warnings": warnings,
-                    })
+                    candidates.append(
+                        {
+                            "label": f"all script objects ({len(doc['objects'])} top-level)",
+                            "doc": doc,
+                            "warnings": warnings,
+                        }
+                    )
             except ValueError:
                 pass
         except Exception as e:  # noqa: BLE001 - report script errors, don't crash
@@ -2486,8 +2694,10 @@ class MagpylibStudioSession:
         if not self._captured_scenes:
             return {"ok": False, "error": "no imported scenes; run load_script first"}
         if not 0 <= scene < len(self._captured_scenes):
-            return {"ok": False,
-                    "error": f"scene must be 0..{len(self._captured_scenes) - 1}"}
+            return {
+                "ok": False,
+                "error": f"scene must be 0..{len(self._captured_scenes) - 1}",
+            }
         entry = self._captured_scenes[scene]
         result = self.load_scene(json.loads(json.dumps(entry["doc"])))
         if result["ok"]:
@@ -2588,9 +2798,10 @@ class MagpylibStudioSession:
     def load_example(self, name="halbach"):
         """Load one of the built-in scenes; see list_examples()."""
         if name not in EXAMPLES:
-            return {"ok": False,
-                    "error": f"unknown example {name!r}; "
-                             f"try one of {sorted(EXAMPLES)}"}
+            return {
+                "ok": False,
+                "error": f"unknown example {name!r}; try one of {sorted(EXAMPLES)}",
+            }
         label, _, build = EXAMPLES[name]
         result = self.load_scene(build())
         if result["ok"] and not self._history_paused and self._undo:
@@ -2679,8 +2890,12 @@ class MagpylibStudioSession:
         bounds = self.doc.get("variable_bounds") or {}
         return {
             "variables": [
-                {"name": name, "expression": value, "value": self._vars.get(name),
-                 **({"bounds": bounds[name]} if name in bounds else {})}
+                {
+                    "name": name,
+                    "expression": value,
+                    "value": self._vars.get(name),
+                    **({"bounds": bounds[name]} if name in bounds else {}),
+                }
                 for name, value in variables.items()
             ]
         }
@@ -2718,9 +2933,16 @@ class MagpylibStudioSession:
             ]
         }
 
-    def set_variable_bounds(self, name, min=None, max=None,  # noqa: A002
-                            soft_min=None, soft_max=None, integer=None,
-                            options=None):
+    def set_variable_bounds(
+        self,
+        name,
+        min=None,  # noqa: A002 - reads as the bound it is; the builtins are unused here
+        max=None,  # noqa: A002
+        soft_min=None,
+        soft_max=None,
+        integer=None,
+        options=None,
+    ):
         """Limit a variable, so a UI can offer a slider and a typo cannot put
         the scene somewhere meaningless.
 
@@ -2746,8 +2968,7 @@ class MagpylibStudioSession:
         """
         if name not in (self.doc.get("variables") or {}):
             return {"ok": False, "error": f"unknown variable {name!r}"}
-        limits = {"min": min, "max": max,
-                  "soft_min": soft_min, "soft_max": soft_max}
+        limits = {"min": min, "max": max, "soft_min": soft_min, "soft_max": soft_max}
         for key, value in limits.items():
             if value is not None and (
                 not isinstance(value, int | float) or isinstance(value, bool)
@@ -2758,10 +2979,14 @@ class MagpylibStudioSession:
             limits["integer"] = True
         if options is not None:
             if not isinstance(options, list) or not options:
-                return {"ok": False,
-                        "error": "options must be a non-empty list of choices"}
-            if any(not isinstance(o, str | int | float) or isinstance(o, bool)
-                   for o in options):
+                return {
+                    "ok": False,
+                    "error": "options must be a non-empty list of choices",
+                }
+            if any(
+                not isinstance(o, str | int | float) or isinstance(o, bool)
+                for o in options
+            ):
                 return {"ok": False, "error": "an option is a name or a number"}
             if len(set(map(str, options))) != len(options):
                 return {"ok": False, "error": "options must be distinct"}
@@ -2769,11 +2994,17 @@ class MagpylibStudioSession:
         for lo, hi in (("min", "max"), ("soft_min", "soft_max")):
             if lo in limits and hi in limits and limits[lo] > limits[hi]:
                 return {"ok": False, "error": f"{lo} must not exceed {hi}"}
-        if ("min" in limits and "soft_min" in limits
-                and limits["soft_min"] < limits["min"]):
+        if (
+            "min" in limits
+            and "soft_min" in limits
+            and limits["soft_min"] < limits["min"]
+        ):
             return {"ok": False, "error": "soft_min is outside min"}
-        if ("max" in limits and "soft_max" in limits
-                and limits["soft_max"] > limits["max"]):
+        if (
+            "max" in limits
+            and "soft_max" in limits
+            and limits["soft_max"] > limits["max"]
+        ):
             return {"ok": False, "error": "soft_max is outside max"}
 
         def mutate(doc):
@@ -2815,8 +3046,7 @@ class MagpylibStudioSession:
             # the rollback's own message, which reads like the variable never
             # existed — say what actually stopped it
             result["error"] = (
-                f"{name!r} is still used by the scene; change what refers to "
-                f"it first"
+                f"{name!r} is still used by the scene; change what refers to it first"
             )
         return result
 
@@ -2840,22 +3070,41 @@ class MagpylibStudioSession:
                 self.doc["variables"][variable] = value
                 self._build()
                 data = self.get_field(sensor_id=sensor_id, points=points, field=field)
-                steps.append({
-                    "value": value,
-                    "values": data["values"],
-                    "magnitude": data["magnitude"],
-                })
+                steps.append(
+                    {
+                        "value": value,
+                        "values": data["values"],
+                        "magnitude": data["magnitude"],
+                    }
+                )
         except Exception as e:  # noqa: BLE001 - a bad value is a result, not a crash
-            return {"ok": False, "error": f"{type(e).__name__}: {e}",
-                    "variable": variable, "steps": steps}
+            return {
+                "ok": False,
+                "error": f"{type(e).__name__}: {e}",
+                "variable": variable,
+                "steps": steps,
+            }
         finally:
             self.doc["variables"][variable] = original
             self._build()
-        return {"ok": True, "variable": variable, "field": field,
-                "unit": _FIELDS[field][1], "steps": steps}
+        return {
+            "ok": True,
+            "variable": variable,
+            "field": field,
+            "unit": _FIELDS[field][1],
+            "steps": steps,
+        }
 
-    def get_sweep_figure(self, variable, values, sensor_id=None, points=None,
-                         field="B", component="magnitude", template=None):
+    def get_sweep_figure(
+        self,
+        variable,
+        values,
+        sensor_id=None,
+        points=None,
+        field="B",
+        component="magnitude",
+        template=None,
+    ):
         """A sweep as a plotly line plot: the field against the variable, one
         trace per observation point (a sensor path gives one per step)."""
         result = self.sweep(variable, values, sensor_id, points, field)
@@ -2873,15 +3122,23 @@ class MagpylibStudioSession:
         traces = []
         for i in range(n_points):
             column = np.array([a[i] for a in per_step])
-            y = (np.linalg.norm(column, axis=-1) if component == "magnitude"
-                 else column[:, "xyz".index(component)])
+            y = (
+                np.linalg.norm(column, axis=-1)
+                if component == "magnitude"
+                else column[:, "xyz".index(component)]
+            )
             shade = shades[i * len(shades) // n_points] if n_points > 1 else shades[3]
-            traces.append(go.Scatter(
-                x=xs, y=y, mode="lines+markers", line={"color": shade},
-                marker={"size": 5},
-                name=f"point {i}" if n_points > 1 else f"|{field}|",
-                showlegend=n_points > 1,
-            ))
+            traces.append(
+                go.Scatter(
+                    x=xs,
+                    y=y,
+                    mode="lines+markers",
+                    line={"color": shade},
+                    marker={"size": 5},
+                    name=f"point {i}" if n_points > 1 else f"|{field}|",
+                    showlegend=n_points > 1,
+                )
+            )
         label = f"|{field}|" if component == "magnitude" else f"{field}{component}"
         fig = go.Figure(traces)
         fig.update_layout(
@@ -2904,14 +3161,18 @@ class MagpylibStudioSession:
         return {
             "rollback": self._rollback,
             "events": [
-                {"index": i, "id": e["id"], "target": e["target"],
-                 "op": e.get("op", "rotate_from_angax"),
-                 "label": _event_label(e),
-                 "source": _event_source(e),
-                 # past the rollback point: part of the scene, not of what is
-                 # currently being shown
-                 **({"pending": True} if i >= applied else {}),
-                 **({"error": broken[e["id"]]} if e["id"] in broken else {})}
+                {
+                    "index": i,
+                    "id": e["id"],
+                    "target": e["target"],
+                    "op": e.get("op", "rotate_from_angax"),
+                    "label": _event_label(e),
+                    "source": _event_source(e),
+                    # past the rollback point: part of the scene, not of what is
+                    # currently being shown
+                    **({"pending": True} if i >= applied else {}),
+                    **({"error": broken[e["id"]]} if e["id"] in broken else {}),
+                }
                 for i, e in enumerate(events)
             ],
         }
@@ -3084,9 +3345,9 @@ class MagpylibStudioSession:
         index(self.doc.get("objects") or [], None)
 
         log = [
-            e for e in self.doc.get("events") or []
-            if e.get("op") not in ("remove", "reparent")
-            and e.get("target") in alive
+            e
+            for e in self.doc.get("events") or []
+            if e.get("op") not in ("remove", "reparent") and e.get("target") in alive
         ]
         events = [e for e in log if e.get("op") != "create"]
         mirrors = [e for e in events if e.get("op") == "mirror"]
@@ -3130,9 +3391,9 @@ class MagpylibStudioSession:
             if op == "create":
                 define(event["target"])
             elif op == "mirror":
-                normal = event.get("normal") or _MIRROR_NORMALS[
-                    event.get("plane", "xy")
-                ]
+                normal = (
+                    event.get("normal") or _MIRROR_NORMALS[event.get("plane", "xy")]
+                )
                 lines.append(
                     f"{self._parent_at(event.get('id'), event['target'])}"
                     f".add(_mirror("
@@ -3148,6 +3409,10 @@ class MagpylibStudioSession:
         # bind exactly the objects this document holds, so importing it back
         # reproduces the same scene. A wrapper would come back as one nested
         # group and take every id inside it with it.
-        lines += ["", f"magpy.show({', '.join(names)}, backend='plotly')"
-                  if names else "# empty scene"]
+        lines += [
+            "",
+            f"magpy.show({', '.join(names)}, backend='plotly')"
+            if names
+            else "# empty scene",
+        ]
         return "\n".join(lines)

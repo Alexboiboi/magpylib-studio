@@ -13,13 +13,13 @@
  * The shim implements what the panels actually use and nothing more, so a
  * missing member is a finding, not a gap to paper over.
  */
-const Module = require('module');
-const path = require('path');
-const fs = require('fs');
-const { spawn } = require('child_process');
+const Module = require("module");
+const path = require("path");
+const fs = require("fs");
+const { spawn } = require("child_process");
 
-const EXT = path.join(__dirname, '..');
-const REPO = path.join(EXT, '..');
+const EXT = path.join(__dirname, "..");
+const REPO = path.join(EXT, "..");
 
 // --------------------------------------------------------------- DOM shim
 class ClassList {
@@ -27,47 +27,50 @@ class ClassList {
     this.el = el;
   }
   add(...names) {
-    this.el.className = [...new Set([...this.el.className.split(' '), ...names])]
+    this.el.className = [
+      ...new Set([...this.el.className.split(" "), ...names]),
+    ]
       .filter(Boolean)
-      .join(' ');
+      .join(" ");
   }
   remove(name) {
     this.el.className = this.el.className
-      .split(' ')
+      .split(" ")
       .filter((n) => n && n !== name)
-      .join(' ');
+      .join(" ");
   }
   toggle(name, on) {
-    if (on === false || (on === undefined && this.contains(name))) this.remove(name);
+    if (on === false || (on === undefined && this.contains(name)))
+      this.remove(name);
     else this.add(name);
   }
   contains(name) {
-    return this.el.className.split(' ').includes(name);
+    return this.el.className.split(" ").includes(name);
   }
 }
 
 class El {
   constructor(tag) {
     this.tagName = tag;
-    this.className = '';
+    this.className = "";
     this.childNodes = [];
     this.style = {};
     this.listeners = new Map();
     this.classList = new ClassList(this);
-    this.text = '';
-    this.value = '';
+    this.text = "";
+    this.value = "";
     this.dataset = {};
   }
   get textContent() {
-    return this.text + this.childNodes.map((c) => c.textContent ?? '').join('');
+    return this.text + this.childNodes.map((c) => c.textContent ?? "").join("");
   }
   set textContent(v) {
-    this.text = String(v ?? '');
+    this.text = String(v ?? "");
     this.childNodes = [];
   }
   set innerHTML(v) {
-    if (v !== '') throw new Error('shim: innerHTML only supports clearing');
-    this.text = '';
+    if (v !== "") throw new Error("shim: innerHTML only supports clearing");
+    this.text = "";
     this.childNodes = [];
   }
   append(...nodes) {
@@ -121,8 +124,17 @@ const document = {
   createTextNode: (t) => new TextNode(t),
   getElementById: (id) => roots.get(id),
 };
-for (const id of ['header', 'step', 'props', 'transform', 'params', 'empty', 'status', 'filter']) {
-  const el = new El('div');
+for (const id of [
+  "header",
+  "step",
+  "props",
+  "transform",
+  "params",
+  "empty",
+  "status",
+  "filter",
+]) {
+  const el = new El("div");
   el.id = id;
   roots.set(id, el);
 }
@@ -140,7 +152,10 @@ const messagesToHost = [];
 const globals = {
   document,
   Option,
-  window: { addEventListener: (type, fn) => type === 'message' && windowListeners.push(fn) },
+  window: {
+    addEventListener: (type, fn) =>
+      type === "message" && windowListeners.push(fn),
+  },
   acquireVsCodeApi: () => ({ postMessage: (m) => messagesToHost.push(m) }),
   console,
   Promise,
@@ -162,8 +177,12 @@ const globals = {
 };
 
 // ------------------------------------------------------------ vscode shim
-const uri = (fsPath) => ({ fsPath, path: fsPath, toString: () => `file://${fsPath}` });
-let capturedHtml = '';
+const uri = (fsPath) => ({
+  fsPath,
+  path: fsPath,
+  toString: () => `file://${fsPath}`,
+});
+let capturedHtml = "";
 const vscode = {
   Uri: { file: uri, joinPath: (b, ...p) => uri(path.join(b.fsPath, ...p)) },
   EventEmitter: class {
@@ -181,19 +200,19 @@ const vscode = {
 };
 const load = Module._load;
 Module._load = (request, parent, isMain) =>
-  request === 'vscode' ? vscode : load.apply(Module, [request, parent, isMain]);
+  request === "vscode" ? vscode : load.apply(Module, [request, parent, isMain]);
 
 // ----------------------------------------------------------- engine bridge
 function startEngine() {
-  const python = path.join(REPO, '.venv', 'bin', 'python');
-  const proc = spawn(python, ['-m', 'magpylib_studio'], { cwd: REPO });
+  const python = path.join(REPO, ".venv", "bin", "python");
+  const proc = spawn(python, ["-m", "magpylib_studio"], { cwd: REPO });
   const pending = new Map();
-  let buffer = '';
+  let buffer = "";
   let nextId = 1;
-  proc.stdout.on('data', (chunk) => {
+  proc.stdout.on("data", (chunk) => {
     buffer += chunk.toString();
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
     for (const line of lines.filter((l) => l.trim())) {
       const response = JSON.parse(line);
       const entry = pending.get(response.id);
@@ -203,14 +222,16 @@ function startEngine() {
       else entry.resolve(response.result);
     }
   });
-  proc.stderr.on('data', (c) => process.stderr.write(`[engine] ${c}`));
+  proc.stderr.on("data", (c) => process.stderr.write(`[engine] ${c}`));
   return {
     proc,
     request(method, params) {
       const id = nextId++;
       return new Promise((resolve, reject) => {
         pending.set(id, { resolve, reject });
-        proc.stdin.write(JSON.stringify({ id, method, params: params ?? {} }) + '\n');
+        proc.stdin.write(
+          JSON.stringify({ id, method, params: params ?? {} }) + "\n",
+        );
       });
     },
   };
@@ -220,59 +241,79 @@ function startEngine() {
 function dump(el, depth = 0, out = []) {
   if (!(el instanceof El)) {
     // text nodes and <option>s: whatever they read as, one line
-    const text = String(el.textContent ?? el.label ?? '').trim();
-    if (text) out.push('  '.repeat(depth) + JSON.stringify(text));
+    const text = String(el.textContent ?? el.label ?? "").trim();
+    if (text) out.push("  ".repeat(depth) + JSON.stringify(text));
     return out;
   }
   const own = el.text.trim();
   const attrs = [
-    el.className && `.${el.className.split(' ').join('.')}`,
+    el.className && `.${el.className.split(" ").join(".")}`,
     el.type && `[${el.type}]`,
-    el.value !== undefined && el.value !== '' && `= ${JSON.stringify(el.value)}`,
-    el.hidden && '(hidden)',
-    el.style.display === 'none' && '(display:none)',
+    el.value !== undefined &&
+      el.value !== "" &&
+      `= ${JSON.stringify(el.value)}`,
+    el.hidden && "(hidden)",
+    el.style.display === "none" && "(display:none)",
   ]
     .filter(Boolean)
-    .join(' ');
-  out.push(`${'  '.repeat(depth)}<${el.tagName}> ${attrs} ${own ? JSON.stringify(own) : ''}`.trimEnd());
+    .join(" ");
+  out.push(
+    `${"  ".repeat(depth)}<${el.tagName}> ${attrs} ${own ? JSON.stringify(own) : ""}`.trimEnd(),
+  );
   for (const child of el.childNodes) dump(child, depth + 1, out);
   return out;
 }
 
 // -------------------------------------------------------------------- main
 async function main() {
-  const which = process.argv[2] ?? 'inspector';
+  const which = process.argv[2] ?? "inspector";
   const example = process.argv[3];
   const engine = startEngine();
 
   if (example) {
-    await engine.request('load_example', { name: example });
+    await engine.request("load_example", { name: example });
   }
 
   const request = (method, params) => engine.request(method, params);
   const PANELS = {
     inspector: {
-      elementIds: ['header', 'step', 'params', 'transform', 'props', 'status'],
+      elementIds: ["header", "step", "params", "transform", "props", "status"],
       build: () => {
-        const { InspectorViewProvider } = require(path.join(EXT, 'out', 'inspectorView.js'));
-        return new InspectorViewProvider(uri(EXT), request, () => {}, () => undefined);
+        const { InspectorViewProvider } = require(
+          path.join(EXT, "out", "inspectorView.js"),
+        );
+        return new InspectorViewProvider(
+          uri(EXT),
+          request,
+          () => {},
+          () => undefined,
+        );
       },
     },
     variables: {
-      elementIds: ['list', 'empty', 'help', 'helpBody', 'status'],
+      elementIds: ["list", "empty", "help", "helpBody", "status"],
       build: () => {
-        const { VariablesViewProvider } = require(path.join(EXT, 'out', 'variablesView.js'));
-        return new VariablesViewProvider(uri(EXT), request, () => {}, () => {});
+        const { VariablesViewProvider } = require(
+          path.join(EXT, "out", "variablesView.js"),
+        );
+        return new VariablesViewProvider(
+          uri(EXT),
+          request,
+          () => {},
+          () => {},
+        );
       },
     },
   };
   const panel = PANELS[which];
   if (!panel) {
-    throw new Error(`no harness for ${which}; try ${Object.keys(PANELS).join(' or ')}`);
+    throw new Error(
+      `no harness for ${which}; try ${Object.keys(PANELS).join(" or ")}`,
+    );
   }
   for (const id of panel.elementIds) {
     if (!roots.has(id)) {
-      const el = new El('div');
+      const el = new El("div");
       el.id = id;
       roots.set(id, el);
     }
@@ -284,7 +325,7 @@ async function main() {
   let onMessage;
   const webview = {
     options: {},
-    cspSource: 'vscode-resource://harness',
+    cspSource: "vscode-resource://harness",
     asWebviewUri: (u) => `webview://${path.basename(u.fsPath)}`,
     set html(value) {
       capturedHtml = value;
@@ -312,7 +353,7 @@ async function main() {
   if (!named) {
     throw new Error(`${which}: its HTML loads no script`);
   }
-  const script = fs.readFileSync(path.join(EXT, 'media', named[1]), 'utf8');
+  const script = fs.readFileSync(path.join(EXT, "media", named[1]), "utf8");
 
   const names = Object.keys(globals);
   // eslint-disable-next-line no-new-func
@@ -337,29 +378,31 @@ async function main() {
       console.log(`--- #${id} (${body.length} nodes)`);
       // Generous: a dump that stops before the row you are looking at sends
       // you hunting for a bug that is only off the bottom of the screen.
-      console.log(body.slice(0, 200).join('\n'));
+      console.log(body.slice(0, 200).join("\n"));
     }
   };
 
-  if (which === 'variables') {
+  if (which === "variables") {
     // Nothing to select: the panel loads itself from the scene's variables,
     // and the host asks it for the expression help on ready.
     await settle();
-    show(example ? `${example} variables` : 'variables');
+    show(example ? `${example} variables` : "variables");
   } else {
-    const objects = await engine.request('list_objects');
+    const objects = await engine.request("list_objects");
     for (const target of [
       objects.find((o) => !o.derived),
       objects.find((o) => o.derived),
     ].filter(Boolean)) {
-      await webview.postMessage({ type: 'select', objectId: target.id });
+      await webview.postMessage({ type: "select", objectId: target.id });
       await settle();
-      show(`${target.id}${target.derived ? ` (copy of ${target.derived})` : ''}`);
+      show(
+        `${target.id}${target.derived ? ` (copy of ${target.derived})` : ""}`,
+      );
     }
     // One construction step of each kind: the step form is the other half of
     // this panel, and it is the half that renders a document's own values.
-    const { events } = await engine.request('get_events');
-    const doc = await engine.request('to_dict');
+    const { events } = await engine.request("get_events");
+    const doc = await engine.request("to_dict");
     const fields = (id) =>
       Object.keys((doc.events || []).find((e) => e.id === id) ?? {}).length;
     // The richest event of each kind, so a "create" with no parameters does
@@ -367,10 +410,11 @@ async function main() {
     const richest = new Map();
     for (const event of events) {
       const best = richest.get(event.op);
-      if (!best || fields(event.id) > fields(best.id)) richest.set(event.op, event);
+      if (!best || fields(event.id) > fields(best.id))
+        richest.set(event.op, event);
     }
     for (const event of richest.values()) {
-      await webview.postMessage({ type: 'operation', eventId: event.id });
+      await webview.postMessage({ type: "operation", eventId: event.id });
       await settle();
       show(`step ${event.op} — ${event.label}`);
     }

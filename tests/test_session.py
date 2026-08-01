@@ -131,7 +131,8 @@ def test_to_script_is_valid_magpylib_code(session):
 
 def test_add_object(session):
     res = session.add_object(
-        "sphere", "magnet.Sphere",
+        "sphere",
+        "magnet.Sphere",
         params={"polarization": [0, 1, 0], "diameter": 1, "position": [0, 2.5, 0]},
         style={"label": "Ball", "color": "green"},
     )
@@ -169,11 +170,15 @@ def test_inspector_offers_only_planes_the_engine_knows():
 
     from magpylib_studio.session import _MIRROR_NORMALS
 
-    source = pathlib.Path(__file__).parent.parent / "vscode-extension/media/inspector.js"
+    source = (
+        pathlib.Path(__file__).parent.parent / "vscode-extension/media/inspector.js"
+    )
     if not source.exists():  # engine installed without the extension beside it
         pytest.skip("extension source not present")
     listed = re.search(r"plane: \[([^\]]*)\]", source.read_text()).group(1)
-    assert sorted(re.findall(r"'(\w+)'", listed)) == sorted(_MIRROR_NORMALS)
+    # Either quote: the panel is prettier-formatted, so which one it uses is
+    # not this test's business — it broke once on exactly that.
+    assert sorted(re.findall(r"['\"](\w+)['\"]", listed)) == sorted(_MIRROR_NORMALS)
 
 
 def test_a_pattern_adds_its_copies_to_their_group_in_one_call():
@@ -193,7 +198,7 @@ def test_a_pattern_adds_its_copies_to_their_group_in_one_call():
         assert not line.startswith("    ") or ".add(" not in line, (
             f"a pattern still adds one copy at a time: {line.strip()}"
         )
-    assert script.count("_copies = []") == 2       # one per ring
+    assert script.count("_copies = []") == 2  # one per ring
     assert script.count(".add(*_copies)") == 2
 
     # and the engine does the same: one add call for the whole batch
@@ -267,9 +272,9 @@ def test_a_variable_can_be_a_choice_rather_than_a_quantity():
         return np.round(s._objs["r1"].position, 3)
 
     s.set_variable("tilt", 90)
-    assert list(where()) == [0, 2.3, 0]          # about z, the default
+    assert list(where()) == [0, 2.3, 0]  # about z, the default
     assert s.set_variable("tilt_axis", "y")["ok"]
-    assert list(where()) == [0, 0, -2.3]         # the same tilt, a different axis
+    assert list(where()) == [0, 0, -2.3]  # the same tilt, a different axis
 
     refused = s.set_variable("tilt_axis", "w")
     assert not refused["ok"] and "not one of its options" in refused["error"]
@@ -298,15 +303,21 @@ def test_the_variables_panel_uses_every_bound_the_engine_can_write():
     import inspect
     import pathlib
 
-    panel = (pathlib.Path(__file__).parent.parent
-             / "vscode-extension" / "media" / "variables.js")
+    panel = (
+        pathlib.Path(__file__).parent.parent
+        / "vscode-extension"
+        / "media"
+        / "variables.js"
+    )
     if not panel.exists():  # engine installed on its own, no extension beside it
         pytest.skip("extension sources not present")
     source = panel.read_text()
 
     limits = [
-        name for name in
-        inspect.signature(MagpylibStudioSession.set_variable_bounds).parameters
+        name
+        for name in inspect.signature(
+            MagpylibStudioSession.set_variable_bounds
+        ).parameters
         if name not in ("self", "name")
     ]
     assert limits, "no bounds to check"
@@ -365,20 +376,26 @@ def test_the_script_builds_the_scene_whatever_order_it_was_built_in():
 
     def sphere(session, name, parent):
         return session.add_object(
-            name, "magnet.Sphere", parent=parent,
-            params={"diameter": 0.4, "polarization": [0, 0, 1],
-                    "position": [0, 0, 1]})
+            name,
+            "magnet.Sphere",
+            parent=parent,
+            params={"diameter": 0.4, "polarization": [0, 0, 1], "position": [0, 0, 1]},
+        )
 
     def after_patterning(s):
         s.load_example("array")
-        sphere(s, "extra", "row")          # into a group already duplicated
+        sphere(s, "extra", "row")  # into a group already duplicated
 
     def between_two_patterns(s):
         s.add_object("box", "Collection")
-        s.add_object("a", "magnet.Cuboid", parent="box",
-                     params={"dimension": [1, 1, 1], "polarization": [1, 0, 0]})
+        s.add_object(
+            "a",
+            "magnet.Cuboid",
+            parent="box",
+            params={"dimension": [1, 1, 1], "polarization": [1, 0, 0]},
+        )
         s.duplicate_along("a", count=3, step=[2, 0, 0])
-        sphere(s, "b", "box")              # after the first pattern
+        sphere(s, "b", "box")  # after the first pattern
         s.duplicate_along("b", count=2, step=[0, 2, 0])
 
     def removed_after_patterning(s):
@@ -428,9 +445,13 @@ def test_removing_a_patterned_object_leaves_nothing_standing_in_the_field():
     for name in ("array", "halbach", "coil", "pair"):
         s = MagpylibStudioSession()
         s.load_example(name)
-        victim = next(o["id"] for o in s.list_objects()
-                      if not o.get("derived") and o["type"] != "Collection"
-                      and "Sensor" not in o["type"])
+        victim = next(
+            o["id"]
+            for o in s.list_objects()
+            if not o.get("derived")
+            and o["type"] != "Collection"
+            and "Sensor" not in o["type"]
+        )
         s.remove_object(victim)
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -463,8 +484,11 @@ def test_removing_an_object_takes_its_generated_copies_with_it():
     for name in EXAMPLES:
         s = MagpylibStudioSession()
         s.load_example(name)
-        victim = next(o["id"] for o in s.list_objects()
-                      if not o.get("derived") and o["type"] != "Collection")
+        victim = next(
+            o["id"]
+            for o in s.list_objects()
+            if not o.get("derived") and o["type"] != "Collection"
+        )
         s.remove_object(victim)
 
         listed = {o["id"] for o in s.list_objects()}
@@ -506,9 +530,16 @@ def test_reset_style(session):
 
 
 def test_load_scene_from_dict_and_file(session, tmp_path):
-    doc = {"objects": [{"id": "solo", "type": "magnet.Sphere",
-                        "params": {"polarization": [0, 0, 1], "diameter": 2},
-                        "style": {"label": "Solo"}}]}
+    doc = {
+        "objects": [
+            {
+                "id": "solo",
+                "type": "magnet.Sphere",
+                "params": {"polarization": [0, 0, 1], "diameter": 2},
+                "style": {"label": "Solo"},
+            }
+        ]
+    }
     assert session.load_scene(doc) == {"ok": True}
     assert [o["id"] for o in session.list_objects()] == ["solo"]
 
@@ -632,7 +663,9 @@ def test_pattern_copies_are_named_after_their_source():
     labels = {o["id"]: o["label"] for o in s.list_objects()}
     assert labels["r1"] == "Magnet 1"
     assert [labels[f"r1#{i}"] for i in (1, 5, 9)] == [
-        "Magnet 1 #1", "Magnet 1 #5", "Magnet 1 #9",
+        "Magnet 1 #1",
+        "Magnet 1 #5",
+        "Magnet 1 #9",
     ]
     assert labels["r2"] == "Magnet 2"  # not shadowed by ring 1's copies
     assert len({*labels.values()}) == len(labels)  # every row named once
@@ -641,7 +674,9 @@ def test_pattern_copies_are_named_after_their_source():
     # agrees with the tree it came from
     ring = exec_script(s.to_script())["ring1"]
     assert [c.style.label for c in ring.children][:3] == [
-        "Magnet 1", "Magnet 1 #1", "Magnet 1 #2",
+        "Magnet 1",
+        "Magnet 1 #1",
+        "Magnet 1 #2",
     ]
 
     # mirrors too, through the helper the script carries
@@ -692,8 +727,9 @@ def test_transforms(session):
     assert session.rotate("cube", 90, "z", anchor=0) == {"ok": True}
     assert np.allclose(session._objs["cube"].position, [0, 1, 2])
     # absolute pose
-    assert session.set_transform("cube", position=[3, 0, 0],
-                                 orientation=[0, 0, 45]) == {"ok": True}
+    assert session.set_transform(
+        "cube", position=[3, 0, 0], orientation=[0, 0, 45]
+    ) == {"ok": True}
     t = session.get_transform("cube")
     assert np.allclose(t["position"], [3, 0, 0])
     assert round(t["euler"][2], 6) == 45.0 and t["path_length"] == 1
@@ -728,8 +764,9 @@ def test_transform_paths(session):
     assert session.move("cube", steps, start=0) == {"ok": True}
     assert session.get_transform("cube")["path_length"] == 5
 
-    assert session.rotate("cube", list(np.linspace(0, 90, 5)), "z",
-                          anchor=0, start=0) == {"ok": True}
+    assert session.rotate(
+        "cube", list(np.linspace(0, 90, 5)), "z", anchor=0, start=0
+    ) == {"ok": True}
     obj = session._objs["cube"]
     assert len(obj.position) == 5 and len(obj.orientation) == 5
 
@@ -771,9 +808,12 @@ def test_copy_object_follows_magpylib_label_convention(session):
 
     # a copied collection brings its subtree, and can be pasted into a group
     session.add_object("grp", "Collection")
-    session.add_object("inner", "magnet.Sphere",
-                       params={"polarization": [0, 0, 1], "diameter": 1},
-                       parent="grp")
+    session.add_object(
+        "inner",
+        "magnet.Sphere",
+        params={"polarization": [0, 0, 1], "diameter": 1},
+        parent="grp",
+    )
     grp_copy = session.copy_object("grp", parent="grp")
     parents = {o["id"]: o["parent"] for o in session.list_objects()}
     assert parents[grp_copy["id"]] == "grp"
@@ -837,15 +877,20 @@ def test_get_params_exposes_physics_properties(session):
     # editing one goes through set_param and keeps everything else
     assert session.set_param("cube", "dimension", [2, 1, 1]) == {"ok": True}
     assert {p["name"]: p["value"] for p in session.get_params("cube")}["dimension"] == [
-        2, 1, 1,
+        2,
+        1,
+        1,
     ]
 
     # scalar and matrix kinds
     session.add_object("loop", "current.Circle", params={"current": 5, "diameter": 2})
     loop = {p["name"]: p for p in session.get_params("loop")}
     assert loop["current"]["kind"] == "scalar" and loop["current"]["value"] == 5
-    session.add_object("line", "current.Polyline",
-                       params={"current": 1, "vertices": [[0, 0, 0], [1, 0, 0]]})
+    session.add_object(
+        "line",
+        "current.Polyline",
+        params={"current": 1, "vertices": [[0, 0, 0], [1, 0, 0]]},
+    )
     assert {p["name"]: p["kind"] for p in session.get_params("line")}["vertices"] == (
         "matrix"
     )
@@ -889,9 +934,7 @@ def test_reparenting_a_collection_keeps_its_subtree():
     assert len(kids) == 10  # the declared magnet plus its generated copies
     assert s.move_object("ring2", None) == {"ok": True}  # out of "halbach"
     assert {o["id"]: o["parent"] for o in s.list_objects()}["ring2"] is None
-    assert np.allclose(
-        kids, [child.position for child in s._objs["ring2"].children]
-    )
+    assert np.allclose(kids, [child.position for child in s._objs["ring2"].children])
 
 
 def test_transform_respects_parent_frame():
@@ -943,7 +986,8 @@ def test_get_field_at_points_matches_direct_getB(session):
 
     res = session.get_field(points=[[0, 0, 2], [0, 0, 3]])
     direct = magpy.getB(
-        [session._objs["cube"], session._objs["cyl"]], [[0, 0, 2], [0, 0, 3]],
+        [session._objs["cube"], session._objs["cyl"]],
+        [[0, 0, 2], [0, 0, 3]],
         sumup=True,
     )
     assert res["field"] == "B" and res["unit"] == "T"
@@ -985,7 +1029,10 @@ def test_get_field_figure():
     assert fig["layout"]["yaxis"]["title"]["text"] == "B (T)"
     assert "template" in fig["layout"]
     json.dumps(fig)
-    assert s.get_field_figure(output="Hx")["layout"]["yaxis"]["title"]["text"] == "Hx (A/m)"
+    assert (
+        s.get_field_figure(output="Hx")["layout"]["yaxis"]["title"]["text"]
+        == "Hx (A/m)"
+    )
     assert len(s.get_field_figure(animation=True).get("frames", [])) == 25
 
 
@@ -1048,8 +1095,9 @@ def test_field_map_from_sensor_pixel_grid():
     # the measurement plane follows the sensor
     before = np.array(fig["data"][0]["z"])
     s.rotate("sensor", 30, "x")
-    assert not np.allclose(np.array(s.get_field_map(sensor_id="sensor")["data"][0]["z"]),
-                           before)
+    assert not np.allclose(
+        np.array(s.get_field_map(sensor_id="sensor")["data"][0]["z"]), before
+    )
     assert "pixel" in s.to_script()  # exported like any other magpylib scene
 
     assert s.set_pixel_grid("r1", plane="xy")["ok"] is False  # not a sensor
@@ -1070,9 +1118,15 @@ def test_get_figure_animation():
 
 def test_nested_structure_ops(session):
     assert session.add_object("grp", "Collection")["ok"] is True
-    assert session.add_object("ball", "magnet.Sphere",
-                              params={"polarization": [0, 0, 1], "diameter": 1},
-                              parent="grp")["ok"] is True
+    assert (
+        session.add_object(
+            "ball",
+            "magnet.Sphere",
+            params={"polarization": [0, 0, 1], "diameter": 1},
+            parent="grp",
+        )["ok"]
+        is True
+    )
     parents = {o["id"]: o["parent"] for o in session.list_objects()}
     assert parents["ball"] == "grp" and parents["grp"] is None
     # nesting into a non-collection is rejected
@@ -1092,13 +1146,23 @@ def test_nested_structure_ops(session):
 
 
 def test_rotations_build_and_round_trip():
-    doc = {"objects": [{
-        "id": "m", "type": "magnet.Cuboid",
-        "params": {"dimension": [1, 1, 1], "polarization": [1, 0, 0],
-                   "position": [2.3, 0, 0]},
-        "rotations": [{"angle": 90, "axis": "z", "anchor": 0},
-                      {"angle": 90, "axis": "z"}],
-    }]}
+    doc = {
+        "objects": [
+            {
+                "id": "m",
+                "type": "magnet.Cuboid",
+                "params": {
+                    "dimension": [1, 1, 1],
+                    "polarization": [1, 0, 0],
+                    "position": [2.3, 0, 0],
+                },
+                "rotations": [
+                    {"angle": 90, "axis": "z", "anchor": 0},
+                    {"angle": 90, "axis": "z"},
+                ],
+            }
+        ]
+    }
     s = MagpylibStudioSession(json.loads(json.dumps(doc)))
     assert s._objs["m"].position.round(6).tolist() == [0, 2.3, 0]  # orbited 90°
     # generated script replays the rotations: same position, 180° total spin
@@ -1118,17 +1182,35 @@ def test_clear_scene(session):
 
 
 def test_batch_applies_all_and_reports_per_op(session):
-    res = session.batch([
-        {"method": "clear_scene"},
-        {"method": "add_object", "params": {
-            "object_id": "s1", "type": "magnet.Sphere",
-            "params": {"polarization": [0, 0, 1], "diameter": 1}}},
-        {"method": "add_object", "params": {
-            "object_id": "s2", "type": "magnet.Sphere",
-            "params": {"polarization": [0, 0, 1], "diameter": 1, "position": [2, 0, 0]}}},
-        {"method": "apply_edit", "params": {
-            "object_id": "s1", "path": "color", "value": "green"}},
-    ])
+    res = session.batch(
+        [
+            {"method": "clear_scene"},
+            {
+                "method": "add_object",
+                "params": {
+                    "object_id": "s1",
+                    "type": "magnet.Sphere",
+                    "params": {"polarization": [0, 0, 1], "diameter": 1},
+                },
+            },
+            {
+                "method": "add_object",
+                "params": {
+                    "object_id": "s2",
+                    "type": "magnet.Sphere",
+                    "params": {
+                        "polarization": [0, 0, 1],
+                        "diameter": 1,
+                        "position": [2, 0, 0],
+                    },
+                },
+            },
+            {
+                "method": "apply_edit",
+                "params": {"object_id": "s1", "path": "color", "value": "green"},
+            },
+        ]
+    )
     assert res["ok"] is True
     assert all(r["ok"] for r in res["results"])
     assert [o["id"] for o in session.list_objects()] == ["s1", "s2"]
@@ -1136,12 +1218,16 @@ def test_batch_applies_all_and_reports_per_op(session):
 
 
 def test_batch_continues_past_failures(session):
-    res = session.batch([
-        {"method": "apply_edit", "params": {
-            "object_id": "cube", "path": "opacity", "value": 5}},  # invalid
-        {"method": "to_script"},  # not batchable
-        {"method": "remove_object", "params": {"object_id": "cyl"}},  # fine
-    ])
+    res = session.batch(
+        [
+            {
+                "method": "apply_edit",
+                "params": {"object_id": "cube", "path": "opacity", "value": 5},
+            },  # invalid
+            {"method": "to_script"},  # not batchable
+            {"method": "remove_object", "params": {"object_id": "cyl"}},  # fine
+        ]
+    )
     assert res["ok"] is False
     assert [r["ok"] for r in res["results"]] == [False, False, True]
     assert [o["id"] for o in session.list_objects()] == ["cube"]
@@ -1153,7 +1239,9 @@ def test_undo_redo_style_and_structure(session):
     history = session.get_history()
     assert history["undo"] == ["edit cube color", "remove cyl"]
     assert [e["label"] for e in history["entries"]] == [
-        "Initial state", "edit cube color", "remove cyl",
+        "Initial state",
+        "edit cube color",
+        "remove cyl",
     ]
     assert history["current"] == 2
 
@@ -1204,11 +1292,15 @@ def test_goto_history_jumps_anywhere(session):
 
 
 def test_batch_is_one_undo_step(session):
-    session.batch([
-        {"method": "apply_edit", "params": {
-            "object_id": "cube", "path": "color", "value": "green"}},
-        {"method": "remove_object", "params": {"object_id": "cyl"}},
-    ])
+    session.batch(
+        [
+            {
+                "method": "apply_edit",
+                "params": {"object_id": "cube", "path": "color", "value": "green"},
+            },
+            {"method": "remove_object", "params": {"object_id": "cyl"}},
+        ]
+    )
     assert session.get_history()["undo"] == ["batch (2 ops)"]
     assert session.undo() == {"ok": True}
     assert [o["id"] for o in session.list_objects()] == ["cube", "cyl"]
@@ -1297,15 +1389,18 @@ rotor.rotate_from_angax(np.linspace(0, 270, 10), 'z', anchor=0)
     assert res["ok"] is True, res
     assert "warnings" not in res  # orientation paths import exactly
 
-    orig = magpy.magnet.Cuboid(polarization=(1, 0, 0), dimension=(1, 1, 1),
-                               position=(2, 0, 0))
+    orig = magpy.magnet.Cuboid(
+        polarization=(1, 0, 0), dimension=(1, 1, 1), position=(2, 0, 0)
+    )
     orig.rotate_from_angax(np.linspace(0, 270, 10), "z", anchor=0)
     rotor = s._objs["rotor"]
     assert np.allclose(rotor.position, orig.position)
     assert np.allclose(rotor.orientation.as_matrix(), orig.orientation.as_matrix())
     # and the generated script reproduces it
     ns = exec_script(s.to_script())
-    assert np.allclose(ns["rotor"].orientation.as_matrix(), orig.orientation.as_matrix())
+    assert np.allclose(
+        ns["rotor"].orientation.as_matrix(), orig.orientation.as_matrix()
+    )
 
 
 @pytest.mark.skipif(
@@ -1472,8 +1567,13 @@ def test_the_log_alone_reconstructs_the_scene():
     field = np.array(s.get_field("sensor")["values"])
 
     log_only = {k: v for k, v in document.items() if k != "objects"}
-    assert set(log_only) == {"version", "generator", "variables",
-                             "variable_bounds", "events"}
+    assert set(log_only) == {
+        "version",
+        "generator",
+        "variables",
+        "variable_bounds",
+        "events",
+    }
     rebuilt = MagpylibStudioSession(log_only)
 
     assert [(o["id"], o["parent"]) for o in rebuilt.list_objects()] == [
@@ -1502,11 +1602,17 @@ def test_a_document_from_before_versions_still_opens():
     "the first format", not "invalid" — otherwise the field would break the
     files it exists to protect."""
     s = MagpylibStudioSession()
-    assert s.load_scene({
-        "objects": [{"id": "c", "type": "magnet.Cuboid",
-                     "params": {"dimension": [1, 1, 1],
-                                "polarization": [1, 0, 0]}}],
-    })["ok"]
+    assert s.load_scene(
+        {
+            "objects": [
+                {
+                    "id": "c",
+                    "type": "magnet.Cuboid",
+                    "params": {"dimension": [1, 1, 1], "polarization": [1, 0, 0]},
+                }
+            ],
+        }
+    )["ok"]
     assert [o["id"] for o in s.list_objects()] == ["c"]
     assert s.to_dict()["version"] == DOC_VERSION  # migrated, and stamped as such
 
@@ -1574,7 +1680,7 @@ def test_listing_objects_shows_how_the_scene_is_written():
     listed = {o["id"]: o for o in s.list_objects()}
 
     magnet = listed["r1"]
-    assert "dimension=(1, 1, 1)" in magnet["source"]      # the scale
+    assert "dimension=(1, 1, 1)" in magnet["source"]  # the scale
     assert "position=(radius, 0, 0.0)" in magnet["source"]  # and the parameter
     assert "magnet.Cuboid" in magnet["source"]
 
@@ -1592,8 +1698,12 @@ def _scene_schema():
     import pathlib
 
     jsonschema = pytest.importorskip("jsonschema")
-    path = (pathlib.Path(__file__).parent.parent
-            / "vscode-extension" / "schemas" / "magpy-scene.schema.json")
+    path = (
+        pathlib.Path(__file__).parent.parent
+        / "vscode-extension"
+        / "schemas"
+        / "magpy-scene.schema.json"
+    )
     if not path.exists():  # engine installed on its own, no extension beside it
         pytest.skip("extension sources not present")
     schema = json.loads(path.read_text())
@@ -1609,8 +1719,9 @@ def test_every_example_validates_against_the_published_schema():
     s = MagpylibStudioSession()
     for example in s.list_examples()["examples"]:
         s.load_example(example["name"])
-        errors = [f"{list(e.path)}: {e.message}"
-                  for e in validator.iter_errors(s.to_dict())]
+        errors = [
+            f"{list(e.path)}: {e.message}" for e in validator.iter_errors(s.to_dict())
+        ]
         assert not errors, f"{example['name']} does not validate: {errors[:3]}"
 
 
@@ -1635,12 +1746,19 @@ def test_the_schema_catches_the_mistakes_it_exists_for():
     assert rejected(lambda d: d["events"][0].update(op="teleport"))
     assert rejected(lambda d: event(d, "duplicate_around").update(axis="zx"))
     assert rejected(lambda d: event(d, "create").pop("type"))
-    assert rejected(lambda d: d["events"].append(
-        {"id": "x", "target": "r1", "op": "move"}))  # no displacement
-    assert rejected(lambda d: d["events"].append(
-        {"id": "x", "target": "r1", "op": "mirror", "plane": "zx"}))
-    assert rejected(lambda d: d["events"].append(
-        {"id": "x", "op": "move", "displacement": [1, 0, 0]}))  # no target
+    assert rejected(
+        lambda d: d["events"].append({"id": "x", "target": "r1", "op": "move"})
+    )  # no displacement
+    assert rejected(
+        lambda d: d["events"].append(
+            {"id": "x", "target": "r1", "op": "mirror", "plane": "zx"}
+        )
+    )
+    assert rejected(
+        lambda d: d["events"].append(
+            {"id": "x", "op": "move", "displacement": [1, 0, 0]}
+        )
+    )  # no target
     assert rejected(lambda d: d["variables"].update(n="360/x"))  # missing '='
     assert rejected(lambda d: [d.pop("objects"), d.pop("events")])
 
@@ -1650,16 +1768,25 @@ def test_legacy_per_object_transforms_migrate_into_the_log():
     fold into it in the order the old build replayed them — children first,
     so a Collection's group transform still lands on top of them."""
     doc = {
-        "objects": [{
-            "id": "ring", "type": "Collection",
-            "rotations": [{"angle": 18, "axis": "z", "anchor": 0}],
-            "children": [{
-                "id": "m", "type": "magnet.Cuboid",
-                "params": {"polarization": [1, 0, 0], "dimension": [1, 1, 1],
-                           "position": [2, 0, 0]},
-                "rotations": [{"angle": 90, "axis": "z", "anchor": 0}],
-            }],
-        }]
+        "objects": [
+            {
+                "id": "ring",
+                "type": "Collection",
+                "rotations": [{"angle": 18, "axis": "z", "anchor": 0}],
+                "children": [
+                    {
+                        "id": "m",
+                        "type": "magnet.Cuboid",
+                        "params": {
+                            "polarization": [1, 0, 0],
+                            "dimension": [1, 1, 1],
+                            "position": [2, 0, 0],
+                        },
+                        "rotations": [{"angle": 90, "axis": "z", "anchor": 0}],
+                    }
+                ],
+            }
+        ]
     }
     s = MagpylibStudioSession(json.loads(json.dumps(doc)))
     log = [(e["op"], e["target"]) for e in s.get_events()["events"]]
@@ -1667,8 +1794,10 @@ def test_legacy_per_object_transforms_migrate_into_the_log():
     # before children; the transforms then keep the order the per-object
     # build replayed them in, children before parents
     assert log == [
-        ("create", "ring"), ("create", "m"),
-        ("rotate_from_angax", "m"), ("rotate_from_angax", "ring"),
+        ("create", "ring"),
+        ("create", "m"),
+        ("rotate_from_angax", "m"),
+        ("rotate_from_angax", "ring"),
     ]
     assert "transforms" not in s._spec("m") and "rotations" not in s._spec("m")
     # 90 deg orbit then an 18 deg group orbit = 108 deg from +x, at radius 2
@@ -1686,9 +1815,7 @@ def test_editing_a_past_event_reapplies_the_later_ones():
     events = s.get_events()["events"]
     # the log opens with the objects coming into being, then what happened
     assert events[0]["source"].startswith("halbach = magpy.Collection(")
-    stagger = next(
-        e for e in events if e["target"] == "ring2" and e["op"] != "create"
-    )
+    stagger = next(e for e in events if e["target"] == "ring2" and e["op"] != "create")
     assert stagger["source"] == "ring2.rotate_from_angax(stagger, 'z', anchor=0)"
 
     before = np.array(s._objs["r2"].position)
@@ -1721,8 +1848,7 @@ def test_event_edits_that_cannot_replay_roll_back():
     # order is semantic: orbit-then-move lands elsewhere than move-then-orbit
     assert np.allclose(pos, [1, 0, 0])
     orbit_at = next(
-        e["index"] for e in s.get_events()["events"]
-        if e["op"] == "rotate_from_angax"
+        e["index"] for e in s.get_events()["events"] if e["op"] == "rotate_from_angax"
     )
     assert s.move_event(events[1]["id"], orbit_at) == {"ok": True}
     assert np.allclose(s._objs["cube"].position, [0, 1, 0])
@@ -1745,15 +1871,21 @@ def test_editing_history_reports_what_it_broke_instead_of_refusing():
     over, the way a CAD history flags the items it could not rebuild."""
     s = MagpylibStudioSession()
     s.add_object("ring", "Collection")
-    s.add_object("m", "magnet.Cuboid",
-                 {"polarization": [1, 0, 0], "dimension": [1, 1, 1],
-                  "position": [2, 0, 0]}, parent="ring")
+    s.add_object(
+        "m",
+        "magnet.Cuboid",
+        {"polarization": [1, 0, 0], "dimension": [1, 1, 1], "position": [2, 0, 0]},
+        parent="ring",
+    )
     s.rotate("m", 45, "z", anchor=[0, 0, 0])
     s.duplicate_around("m", 4, "z", anchor=[0, 0, 0])
     assert len(s._leaf_sources()) == 4
 
-    create = next(e for e in s.get_events()["events"]
-                  if e["op"] == "create" and e["target"] == "m")
+    create = next(
+        e
+        for e in s.get_events()["events"]
+        if e["op"] == "create" and e["target"] == "m"
+    )
     result = s.remove_event(create["id"])
     assert result["ok"] is True
     assert [b["error"] for b in result["broken"]] == [
@@ -1780,8 +1912,12 @@ def test_events_are_labelled_for_what_they_did():
     as the call that carried them out — that is `source`, and the script."""
     s = MagpylibStudioSession()
     s.add_object("ring", "Collection")
-    s.add_object("m", "magnet.Cuboid",
-                 {"polarization": [1, 0, 0], "dimension": [1, 1, 1]}, parent="ring")
+    s.add_object(
+        "m",
+        "magnet.Cuboid",
+        {"polarization": [1, 0, 0], "dimension": [1, 1, 1]},
+        parent="ring",
+    )
     s.rotate("m", 45, "z", anchor=[0, 0, 0])  # an anchor makes it an orbit
     s.rotate("m", 90, "z")  # without one it is a spin in place
     s.move("m", [0, 0, 2])
@@ -1842,7 +1978,8 @@ def test_edits_while_rolled_back_are_inserted_at_that_step():
     s.add_object("a", "magnet.Sphere", {"polarization": [0, 0, 1], "diameter": 1})
     s.move("a", [10, 0, 0])
     assert [e["label"] for e in s.get_events()["events"]] == [
-        "created", "moved by (10, 0, 0) m"
+        "created",
+        "moved by (10, 0, 0) m",
     ]
 
     # step back to just after the sphere was made, and orbit it there
@@ -1850,7 +1987,9 @@ def test_edits_while_rolled_back_are_inserted_at_that_step():
     result = s.rotate("a", 90, "z", anchor=[0, 0, 0])
     assert result == {"ok": True, "inserted_at": 1}
     assert [e["label"] for e in s.get_events()["events"]] == [
-        "created", "orbit 90° about z", "moved by (10, 0, 0) m"
+        "created",
+        "orbit 90° about z",
+        "moved by (10, 0, 0) m",
     ]
     # the step advances past what was inserted, so the next edit follows it
     assert s.get_events()["rollback"] == 2
@@ -1875,8 +2014,11 @@ def test_a_step_can_be_given_a_variable_after_the_fact():
 
     s = MagpylibStudioSession()
     s.load_example()
-    stagger = next(e for e in s.get_events()["events"]
-                   if e["target"] == "ring2" and e["op"] != "create")
+    stagger = next(
+        e
+        for e in s.get_events()["events"]
+        if e["target"] == "ring2" and e["op"] != "create"
+    )
     assert stagger["label"] == "orbit stagger° about z"
 
     assert s.set_variable("stagger", 18) == {"ok": True}
@@ -1894,20 +2036,23 @@ def test_a_step_can_be_given_a_variable_after_the_fact():
 
 
 def test_a_create_event_is_where_an_object_is_changed_after_the_fact():
-    """"Change the dimensions of that magnet" is an edit to the step that
+    """ "Change the dimensions of that magnet" is an edit to the step that
     made it — the same edit the Inspector makes, reached from the history."""
     import numpy as np
 
     s = MagpylibStudioSession()
     s.load_example()
-    create = next(e for e in s.get_events()["events"]
-                  if e["op"] == "create" and e["target"] == "r1")
+    create = next(
+        e
+        for e in s.get_events()["events"]
+        if e["op"] == "create" and e["target"] == "r1"
+    )
     stored = next(e for e in s.to_dict()["events"] if e["id"] == create["id"])
     before = len(s.doc["events"])
 
-    assert s.edit_event(create["id"], {
-        "params": {**stored["params"], "dimension": [2, 1, 0.5]}
-    }) == {"ok": True}
+    assert s.edit_event(
+        create["id"], {"params": {**stored["params"], "dimension": [2, 1, 0.5]}}
+    ) == {"ok": True}
     assert list(s._objs["r1"].dimension) == [2, 1, 0.5]
     # everything recorded after it still applies: the magnet is still orbited
     assert np.allclose(s._objs["r1"].position, [2.3, 0, 0])
@@ -1919,21 +2064,31 @@ def test_placing_an_object_repeatedly_does_not_grow_the_log():
     grew by two entries per nudge would be unreadable, which is the thing it
     most needs not to be."""
     s = MagpylibStudioSession()
-    s.add_object("m", "magnet.Cuboid",
-                 {"polarization": [0, 0, 1], "dimension": [1, 1, 1]})
+    s.add_object(
+        "m", "magnet.Cuboid", {"polarization": [0, 0, 1], "dimension": [1, 1, 1]}
+    )
     s.add_object("n", "magnet.Sphere", {"polarization": [0, 0, 1], "diameter": 1})
     for x in range(4):
         s.set_transform("m", position=[x, 0, 0])
     assert [e["op"] for e in s.doc["events"]] == [
-        "create", "create", "position", "orientation"
+        "create",
+        "create",
+        "position",
+        "orientation",
     ]
 
     # but once anything else has happened, order matters and it must append
     s.set_transform("n", position=[9, 0, 0])
     s.set_transform("m", position=[7, 0, 0])
     assert [e["op"] for e in s.doc["events"]] == [
-        "create", "create", "position", "orientation",
-        "position", "orientation", "position", "orientation",
+        "create",
+        "create",
+        "position",
+        "orientation",
+        "position",
+        "orientation",
+        "position",
+        "orientation",
     ]
     assert list(s._objs["m"].position) == [7, 0, 0]
     assert list(s._objs["n"].position) == [9, 0, 0]
@@ -2049,9 +2204,11 @@ def test_variables_drive_the_scene():
     s = MagpylibStudioSession()
     assert s.set_variable("gap", 2.0) == {"ok": True}
     assert s.set_variable("twice", "=gap * 2") == {"ok": True}
-    s.add_object("m", "magnet.Sphere",
-                 {"polarization": [0, 0, 1], "diameter": 1,
-                  "position": [0, 0, "=twice"]})
+    s.add_object(
+        "m",
+        "magnet.Sphere",
+        {"polarization": [0, 0, 1], "diameter": 1, "position": [0, 0, "=twice"]},
+    )
     assert list(s._objs["m"].position) == [0, 0, 4.0]
     assert s.set_variable("gap", 3.0) == {"ok": True}
     assert list(s._objs["m"].position) == [0, 0, 6.0]
@@ -2073,13 +2230,19 @@ def test_variables_drive_the_scene():
 def test_variable_bounds_are_hard_or_only_advisory(tmp_path):
     s = MagpylibStudioSession()
     s.set_variable("gap", 2)
-    s.add_object("m", "magnet.Sphere",
-                 {"polarization": [0, 0, 1], "diameter": 1,
-                  "position": [0, 0, "=gap"]})
-    assert s.set_variable_bounds("gap", min=0, max=10,
-                                 soft_min=1, soft_max=5) == {"ok": True}
+    s.add_object(
+        "m",
+        "magnet.Sphere",
+        {"polarization": [0, 0, 1], "diameter": 1, "position": [0, 0, "=gap"]},
+    )
+    assert s.set_variable_bounds("gap", min=0, max=10, soft_min=1, soft_max=5) == {
+        "ok": True
+    }
     assert s.get_variables()["variables"][0]["bounds"] == {
-        "min": 0, "max": 10, "soft_min": 1, "soft_max": 5
+        "min": 0,
+        "max": 10,
+        "soft_min": 1,
+        "soft_max": 5,
     }
     # soft bounds do not constrain: only the slider cares
     assert s.set_variable("gap", 8) == {"ok": True}
@@ -2141,8 +2304,9 @@ def test_a_pixel_field_source_is_choosable():
 
     s = MagpylibStudioSession()
     s.load_example("quiver")
-    source = (s.get_schema("field")["properties"]["pixel"]["properties"]
-              ["field"]["properties"]["source"])
+    source = s.get_schema("field")["properties"]["pixel"]["properties"]["field"][
+        "properties"
+    ]["source"]
     assert source["enum"][0] is None  # (default) stays available
     assert source["enum"][1:4] == ["B", "Bx", "By"]
     assert "Jxy" in source["enum"] and "Mxyz" in source["enum"]
@@ -2163,8 +2327,9 @@ def test_every_field_magpylib_can_evaluate_is_offered():
     from magpylib_studio.session import _FIELDS
 
     s = MagpylibStudioSession()
-    s.add_object("m", "magnet.Cuboid",
-                 {"polarization": [0, 0, 1], "dimension": [1, 1, 1]})
+    s.add_object(
+        "m", "magnet.Cuboid", {"polarization": [0, 0, 1], "dimension": [1, 1, 1]}
+    )
     inside, outside = [[0, 0, 0]], [[2, 0, 0]]
     assert set(_FIELDS) == {"B", "H", "J", "M"}
 
@@ -2207,8 +2372,9 @@ def test_a_variable_that_counts_things_stays_whole():
     # and a pattern refuses a fractional count rather than rounding it
     s2 = MagpylibStudioSession()
     s2.add_object("g", "Collection")
-    s2.add_object("m", "magnet.Sphere",
-                  {"polarization": [0, 0, 1], "diameter": 1}, parent="g")
+    s2.add_object(
+        "m", "magnet.Sphere", {"polarization": [0, 0, 1], "diameter": 1}, parent="g"
+    )
     s2.set_variable("k", 4)
     assert s2.duplicate_around("m", "=k", "z", anchor=[0, 0, 0]) == {"ok": True}
     assert len(s2._leaf_sources()) == 4
@@ -2221,19 +2387,39 @@ def test_batch_builds_a_parametric_scene_in_one_step():
     """What an assistant sends for "a Halbach ring of 8": the variables, the
     one magnet written in terms of them, and the arrangement — one undo."""
     s = MagpylibStudioSession()
-    result = s.batch([
-        {"method": "set_variable", "params": {"name": "n", "value": 8}},
-        {"method": "set_variable", "params": {"name": "r", "value": 2.3}},
-        {"method": "add_object", "params": {"object_id": "ring",
-                                            "type": "Collection"}},
-        {"method": "add_object", "params": {
-            "object_id": "m", "type": "magnet.Cuboid", "parent": "ring",
-            "params": {"polarization": [1, 0, 0], "dimension": [1, 1, 1],
-                       "position": ["=r", 0, 0]}}},
-        {"method": "duplicate_around", "params": {
-            "object_id": "m", "count": "=n", "axis": "z", "anchor": [0, 0, 0],
-            "spin": "=360/n"}},
-    ])
+    result = s.batch(
+        [
+            {"method": "set_variable", "params": {"name": "n", "value": 8}},
+            {"method": "set_variable", "params": {"name": "r", "value": 2.3}},
+            {
+                "method": "add_object",
+                "params": {"object_id": "ring", "type": "Collection"},
+            },
+            {
+                "method": "add_object",
+                "params": {
+                    "object_id": "m",
+                    "type": "magnet.Cuboid",
+                    "parent": "ring",
+                    "params": {
+                        "polarization": [1, 0, 0],
+                        "dimension": [1, 1, 1],
+                        "position": ["=r", 0, 0],
+                    },
+                },
+            },
+            {
+                "method": "duplicate_around",
+                "params": {
+                    "object_id": "m",
+                    "count": "=n",
+                    "axis": "z",
+                    "anchor": [0, 0, 0],
+                    "spin": "=360/n",
+                },
+            },
+        ]
+    )
     assert result["ok"] is True
     assert [r["ok"] for r in result["results"]] == [True] * 5
     assert len(s._leaf_sources()) == 8
@@ -2260,9 +2446,11 @@ def test_unknown_variables_are_reported_before_a_value_is_stored():
     }
     # once asked and set, the same values store cleanly
     assert s.set_variable("a", 2) == {"ok": True}
-    assert s.add_object("m", "magnet.Cuboid",
-                        {"polarization": [0, 0, 1],
-                         "dimension": ["=a", "=a", "=2*a"]}) == {"ok": True}
+    assert s.add_object(
+        "m",
+        "magnet.Cuboid",
+        {"polarization": [0, 0, 1], "dimension": ["=a", "=a", "=2*a"]},
+    ) == {"ok": True}
     assert list(s._objs["m"].dimension) == [2, 2, 4]
 
 
@@ -2271,9 +2459,11 @@ def test_editors_see_expressions_as_written_not_only_resolved():
     would replace the expression the moment the user touched a neighbour."""
     s = MagpylibStudioSession()
     s.set_variable("gap", 2)
-    s.add_object("m", "magnet.Sphere",
-                 {"polarization": [0, 0, 1], "diameter": "=gap/4",
-                  "position": [0, 0, "=gap"]})
+    s.add_object(
+        "m",
+        "magnet.Sphere",
+        {"polarization": [0, 0, 1], "diameter": "=gap/4", "position": [0, 0, "=gap"]},
+    )
 
     diameter = next(p for p in s.get_params("m") if p["name"] == "diameter")
     assert diameter["value"] == 0.5 and diameter["written"] == "=gap / 4"
@@ -2293,8 +2483,9 @@ def test_editors_see_expressions_as_written_not_only_resolved():
 
     # a generated copy has no spec, and asking for its params must not raise
     s.add_object("ring", "Collection")
-    s.add_object("c", "magnet.Sphere", {"polarization": [0, 0, 1], "diameter": 1},
-                 parent="ring")
+    s.add_object(
+        "c", "magnet.Sphere", {"polarization": [0, 0, 1], "diameter": 1}, parent="ring"
+    )
     assert s.duplicate_around("c", 3) == {"ok": True}
     assert [p["name"] for p in s.get_params("c#1")] == [
         p["name"] for p in s.get_params("c")
@@ -2307,8 +2498,11 @@ def test_sweep_reads_the_field_and_leaves_the_scene_where_it_found_it():
 
     s = MagpylibStudioSession()
     s.set_variable("gap", 0.01)
-    s.add_object("m", "magnet.Cuboid",
-                 {"polarization": [0, 0, 1], "dimension": [0.01, 0.01, 0.01]})
+    s.add_object(
+        "m",
+        "magnet.Cuboid",
+        {"polarization": [0, 0, 1], "dimension": [0.01, 0.01, 0.01]},
+    )
     s.add_object("sens", "Sensor", {"position": [0, 0, "=gap"]})
     steps_before = len(s.get_history()["undo"])
 
@@ -2334,17 +2528,23 @@ def test_duplicate_around_keeps_an_arrangement_parametric(tmp_path):
     s = MagpylibStudioSession()
     s.set_variable("n", 8)
     s.add_object("ring", "Collection")
-    s.add_object("m", "magnet.Cuboid",
-                 {"polarization": [1, 0, 0], "dimension": [1, 1, 1],
-                  "position": [2.3, 0, 0]}, parent="ring")
-    assert s.duplicate_around("m", "=n", "z", anchor=[0, 0, 0],
-                              spin="=360/n") == {"ok": True}
+    s.add_object(
+        "m",
+        "magnet.Cuboid",
+        {"polarization": [1, 0, 0], "dimension": [1, 1, 1], "position": [2.3, 0, 0]},
+        parent="ring",
+    )
+    assert s.duplicate_around("m", "=n", "z", anchor=[0, 0, 0], spin="=360/n") == {
+        "ok": True
+    }
 
     # one object and one event stand for the whole ring
     assert len(s._spec("ring")["children"]) == 1
     assert len(s._leaf_sources()) == 8
     listed = s.list_objects()
-    assert [o["id"] for o in listed if o.get("derived")] == [f"m#{i}" for i in range(1, 8)]
+    assert [o["id"] for o in listed if o.get("derived")] == [
+        f"m#{i}" for i in range(1, 8)
+    ]
     third = s._objs["m#2"]
     a = np.deg2rad(2 * 360 / 8)
     assert np.allclose(third.position, [2.3 * np.cos(a), 2.3 * np.sin(a), 0])
@@ -2376,17 +2576,26 @@ def test_two_linear_patterns_compose_into_a_grid(tmp_path):
     s.set_variable("pitch", 2.0)
     s.add_object("grid", "Collection")
     s.add_object("row", "Collection", parent="grid")
-    s.add_object("m", "magnet.Cuboid",
-                 {"polarization": [0, 0, 1], "dimension": [1, 1, 1]}, parent="row")
+    s.add_object(
+        "m",
+        "magnet.Cuboid",
+        {"polarization": [0, 0, 1], "dimension": [1, 1, 1]},
+        parent="row",
+    )
 
     assert s.duplicate_along("m", "=nx", ["=pitch", 0, 0]) == {"ok": True}
     assert s.duplicate_along("row", "=ny", [0, "=pitch", 0]) == {"ok": True}
     assert len(s._leaf_sources()) == 12
     assert sorted({round(float(o.position[0]), 1) for o in s._leaf_sources()}) == [
-        0.0, 2.0, 4.0, 6.0
+        0.0,
+        2.0,
+        4.0,
+        6.0,
     ]
     assert sorted({round(float(o.position[1]), 1) for o in s._leaf_sources()}) == [
-        0.0, 2.0, 4.0
+        0.0,
+        2.0,
+        4.0,
     ]
 
     # two numbers describe the whole array
@@ -2416,16 +2625,28 @@ def test_mirror_reflects_the_physics_not_just_the_geometry(tmp_path):
 
     s = MagpylibStudioSession()
     s.add_object("asm", "Collection")
-    s.add_object("m", "magnet.Cuboid",
-                 {"polarization": [0.3, -0.5, 0.8], "dimension": [1, 2, 3],
-                  "position": [1.5, -0.8, 2.2]}, parent="asm")
+    s.add_object(
+        "m",
+        "magnet.Cuboid",
+        {
+            "polarization": [0.3, -0.5, 0.8],
+            "dimension": [1, 2, 3],
+            "position": [1.5, -0.8, 2.2],
+        },
+        parent="asm",
+    )
     # created before the transforms, because to_script writes every
     # definition before every step: a scene that makes an object *after*
     # moving another comes back with the creates hoisted
-    s.add_object("t", "magnet.Tetrahedron",
-                 {"polarization": [0, 0, 1],
-                  "vertices": [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]]},
-                 parent="asm")
+    s.add_object(
+        "t",
+        "magnet.Tetrahedron",
+        {
+            "polarization": [0, 0, 1],
+            "vertices": [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]],
+        },
+        parent="asm",
+    )
     s.rotate("m", 40, "x")  # a pose with nothing special about it
     assert s.mirror("m", "xy") == {"ok": True}
 
@@ -2467,8 +2688,11 @@ def test_jsonrpc_roundtrip():
     """Drive the stdio server end to end through pipes."""
     requests = [
         {"id": 1, "method": "list_objects"},
-        {"id": 2, "method": "apply_edit",
-         "params": {"object_id": "cube", "path": "opacity", "value": 0.5}},
+        {
+            "id": 2,
+            "method": "apply_edit",
+            "params": {"object_id": "cube", "path": "opacity", "value": 0.5},
+        },
         {"id": 3, "method": "get_values", "params": {"object_id": "cube"}},
         {"id": 4, "method": "bogus_method"},
     ]

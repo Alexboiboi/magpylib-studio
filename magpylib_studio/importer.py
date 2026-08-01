@@ -75,13 +75,22 @@ def _unique_id(base, used):
 
 def _spec_from(obj, object_id, used_ids, warnings, names):
     if isinstance(obj, magpy.Collection):
-        spec = {"id": object_id, "type": "Collection", "children": [
-            _spec_from(child,
-                       _unique_id(names.get(id(child)) or child.style.label or "obj",
-                                  used_ids),
-                       used_ids, warnings, names)
-            for child in obj.children
-        ]}
+        spec = {
+            "id": object_id,
+            "type": "Collection",
+            "children": [
+                _spec_from(
+                    child,
+                    _unique_id(
+                        names.get(id(child)) or child.style.label or "obj", used_ids
+                    ),
+                    used_ids,
+                    warnings,
+                    names,
+                )
+                for child in obj.children
+            ],
+        }
     else:
         params = {}
         for attr in _PARAM_ATTRS:
@@ -103,8 +112,10 @@ def _spec_from(obj, object_id, used_ids, warnings, names):
             angle = float(np.linalg.norm(rotvec[0]))
             if angle > 1e-9:
                 spec["rotations"] = [
-                    {"angle": round(angle, 6),
-                     "axis": _zeroed((rotvec[0] / angle).round(9)).tolist()}
+                    {
+                        "angle": round(angle, 6),
+                        "axis": _zeroed((rotvec[0] / angle).round(9)).tolist(),
+                    }
                 ]
     style = style_compat.set_values(obj)
     if style:
@@ -162,9 +173,7 @@ def document_from_objects(objects, namespace):
     """The objects of one captured show() call, named from the namespace
     where possible (falling back to style labels / generated ids)."""
     names = _name_map(namespace)
-    named = [
-        (names.get(id(obj)) or obj.style.label or "obj", obj) for obj in objects
-    ]
+    named = [(names.get(id(obj)) or obj.style.label or "obj", obj) for obj in objects]
     return _document_from_named(named, names)
 
 
@@ -258,13 +267,16 @@ def _mirror_from_call(node, objects, variables):
     if node.func.attr != "add" or len(node.args) != 1:
         return None
     inner = node.args[0]
-    if not (isinstance(inner, ast.Call)
-            and getattr(inner.func, "id", None) == "_mirror"):
+    if not (
+        isinstance(inner, ast.Call) and getattr(inner.func, "id", None) == "_mirror"
+    ):
         return None
     if not inner.args or getattr(inner.args[0], "id", None) not in objects:
         raise _Unparseable("_mirror")
     event = {"op": "mirror", "target": inner.args[0].id}
-    normal = _parsed_value(inner.args[1], variables) if len(inner.args) > 1 else [0, 0, 1]
+    normal = (
+        _parsed_value(inner.args[1], variables) if len(inner.args) > 1 else [0, 0, 1]
+    )
     named = _PLANE_NORMALS.get(tuple(normal)) if isinstance(normal, list) else None
     # a named plane reads better and is what the studio recorded
     event.update({"plane": named} if named else {"normal": normal})
@@ -278,27 +290,35 @@ def _duplicate_from_loop(node, objects, variables):
     """The one loop shape the studio emits — `for i in range(1, n): copy,
     rotate, add` — back into a duplicate event. Any other loop raises, and
     the script goes to the execute path where it flattens into real copies."""
-    if (not isinstance(node.target, ast.Name) or node.target.id != "i"
-            or node.orelse):
+    if not isinstance(node.target, ast.Name) or node.target.id != "i" or node.orelse:
         raise _Unparseable("loop")
     call = node.iter
-    if not (isinstance(call, ast.Call) and getattr(call.func, "id", None) == "range"
-            and len(call.args) == 2):
+    if not (
+        isinstance(call, ast.Call)
+        and getattr(call.func, "id", None) == "range"
+        and len(call.args) == 2
+    ):
         raise _Unparseable("loop range")
     count = _parsed_value(call.args[1], variables)
 
     source_name, spin, parent, rotations, shift = None, 0, None, [], None
     for stmt in node.body:
-        if (isinstance(stmt, ast.Assign) and isinstance(stmt.value, ast.Call)
-                and getattr(stmt.value.func, "attr", None) == "copy"):
+        if (
+            isinstance(stmt, ast.Assign)
+            and isinstance(stmt.value, ast.Call)
+            and getattr(stmt.value.func, "attr", None) == "copy"
+        ):
             source_name = stmt.value.func.value.id
             continue
         # `_copy.style.label = ...`: the studio writes it so the copies are
         # not all renamed to the same thing by magpylib, and regenerates it
         # from the source on the way out, so reading it back is a no-op.
-        if (isinstance(stmt, ast.Assign) and len(stmt.targets) == 1
-                and isinstance(stmt.targets[0], ast.Attribute)
-                and stmt.targets[0].attr == "label"):
+        if (
+            isinstance(stmt, ast.Assign)
+            and len(stmt.targets) == 1
+            and isinstance(stmt.targets[0], ast.Attribute)
+            and stmt.targets[0].attr == "label"
+        ):
             continue
         if not isinstance(stmt, ast.Expr) or not isinstance(stmt.value, ast.Call):
             raise _Unparseable("loop body")
@@ -333,8 +353,12 @@ def _duplicate_from_loop(node, objects, variables):
             if not isinstance(component, ast.BinOp):
                 raise _Unparseable("step")
             step.append(_parsed_value(component.right, variables))
-        return {"op": "duplicate_along", "target": source_name,
-                "count": count, "step": step}
+        return {
+            "op": "duplicate_along",
+            "target": source_name,
+            "count": count,
+            "step": step,
+        }
 
     # first rotation is the orbit (i * 360 / count about the anchor), an
     # optional second is the per-copy spin (i * spin, no anchor)
@@ -349,8 +373,14 @@ def _duplicate_from_loop(node, objects, variables):
         if not isinstance(spin_arg, ast.BinOp):
             raise _Unparseable("spin")
         spin = _parsed_value(spin_arg.right, variables)
-    return {"op": "duplicate_around", "target": source_name, "count": count,
-            "axis": axis, "anchor": anchor, "spin": spin}
+    return {
+        "op": "duplicate_around",
+        "target": source_name,
+        "count": count,
+        "axis": axis,
+        "anchor": anchor,
+        "spin": spin,
+    }
 
 
 def parse_script(source):
@@ -393,8 +423,11 @@ def parse_script(source):
                         # `group.add(*_copies)` — the one call that puts a
                         # pattern's copies in their group. The loop before it
                         # already produced the event; this is its tail.
-                        if (call.func.attr == "add" and len(call.args) == 1
-                                and isinstance(call.args[0], ast.Starred)):
+                        if (
+                            call.func.attr == "add"
+                            and len(call.args) == 1
+                            and isinstance(call.args[0], ast.Starred)
+                        ):
                             continue
                         # `group.add(obj)` — how a Collection takes a child
                         # now that to_script emits in log order and cannot
@@ -403,16 +436,16 @@ def parse_script(source):
                         # a bare name that is already an object, rather than a
                         # call. A pattern's `.add(_copy)` is inside a loop and
                         # never reaches here at all.
-                        if (call.func.attr == "add"
-                                and len(call.args) == 1
-                                and not call.keywords
-                                and isinstance(call.args[0], ast.Name)
-                                and call.args[0].id in objects):
+                        if (
+                            call.func.attr == "add"
+                            and len(call.args) == 1
+                            and not call.keywords
+                            and isinstance(call.args[0], ast.Name)
+                            and call.args[0].id in objects
+                        ):
                             child = call.args[0].id
                             if child in nested:
-                                raise _Unparseable(
-                                    f"{child} is added to two groups"
-                                )
+                                raise _Unparseable(f"{child} is added to two groups")
                             objects[owner].setdefault("children", []).append(
                                 objects[child]
                             )
@@ -421,8 +454,7 @@ def parse_script(source):
                             continue
                         mirrored = _mirror_from_call(call, objects, set(variables))
                         events.append(
-                            mirrored
-                            or _event_from_call(call, owner, set(variables))
+                            mirrored or _event_from_call(call, owner, set(variables))
                         )
                         continue
                 raise _Unparseable(ast.unparse(stmt))
@@ -435,19 +467,29 @@ def parse_script(source):
                 if not isinstance(target.value, ast.Name):
                     raise _Unparseable(ast.unparse(stmt))
                 owner = target.value.id
-                if (owner not in objects
-                        or target.attr not in ("position", "orientation")):
+                if owner not in objects or target.attr not in (
+                    "position",
+                    "orientation",
+                ):
                     raise _Unparseable(ast.unparse(stmt))
                 if target.attr == "position":
-                    events.append({"op": "position", "target": owner,
-                                   "value": value(stmt.value)})
+                    events.append(
+                        {"op": "position", "target": owner, "value": value(stmt.value)}
+                    )
                 else:
                     call = stmt.value
-                    if not (isinstance(call, ast.Call)
-                            and getattr(call.func, "attr", None) == "from_rotvec"):
+                    if not (
+                        isinstance(call, ast.Call)
+                        and getattr(call.func, "attr", None) == "from_rotvec"
+                    ):
                         raise _Unparseable(ast.unparse(stmt))
-                    events.append({"op": "orientation", "target": owner,
-                                   "rotvec": value(call.args[0])})
+                    events.append(
+                        {
+                            "op": "orientation",
+                            "target": owner,
+                            "rotvec": value(call.args[0]),
+                        }
+                    )
                 continue
 
             if not isinstance(target, ast.Name):
