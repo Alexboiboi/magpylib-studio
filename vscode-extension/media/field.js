@@ -192,4 +192,17 @@ window.addEventListener("resize", () => {
   if (canvasEl.data) Plotly.Plots.resize(canvasEl);
 });
 
-refreshField();
+// The sensor list is part of loading, not only of refreshing: nothing posts a
+// refresh when the panel opens, so a scene whose sensor already carries a
+// measuring grid used to offer "on a plane" and nothing else until an
+// unrelated edit happened to redraw everything.
+loadSources()
+  .then(refreshField)
+  .catch((err) => {
+    statusEl.textContent = String(err);
+  });
+
+// Told last, once the listeners above are attached: a message posted before
+// this point has nowhere to land, and the Sweep command posts one in the same
+// tick it creates the panel.
+vscodeApi.postMessage({ type: "ready" });

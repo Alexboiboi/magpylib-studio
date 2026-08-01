@@ -17,6 +17,33 @@ All notable changes to the Magpylib Studio extension.
   step form has no resolved value for `=360 / n` and was reading the expression
   itself as a number; it now says so, and shows the real value where the engine
   reports one.
+- **An engine that dies takes the scene with it, and now brings it back.** The
+  replacement process used to start empty — and the first edit after that wrote
+  the empty scene over the crash backup, which was the only copy of anything
+  unsaved. A restarted engine is handed the backup before anything else can
+  speak to it, and the backup is frozen in the meantime.
+- **Installing the engine no longer freezes VS Code.** `uv venv`,
+  `python -m venv` and `pip install` ran synchronously on the extension host,
+  which is one thread shared by every extension in the window, so the whole
+  editor stopped for the length of the install — the first minute a new user
+  spends here. Finding an interpreter was synchronous for the same reason and is
+  not any more.
+- **The 3D and Field panels come back after a window reload**, like the scene
+  and the script tab already did.
+- **The Field view lists a sensor's measuring grid as soon as it opens**, rather
+  than after the next unrelated edit, and **Sweep a Variable…** no longer races
+  the panel it just opened.
+- Changing `magpylib-studio.pythonPath` restarts the engine on the new
+  interpreter — carrying the scene across — instead of doing nothing until the
+  window is reloaded.
+
+### Changed
+
+- **Install the Engine names the interpreter it is about to change.** When the
+  Python extension has one selected it may be a system Python, and installing
+  into it is a different act from making a `.venv`; the prompt says which one it
+  found and offers a `.venv` instead.
+
 ## [0.1.2]
 
 ### Added

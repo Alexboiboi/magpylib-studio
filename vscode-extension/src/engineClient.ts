@@ -28,6 +28,7 @@ export class EngineClient {
   private pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   private stdoutRemainder = '';
   private exited = false;
+  private killed = false;
 
   onStderr: ((text: string) => void) | undefined;
   onExit: ((code: number | null) => void) | undefined;
@@ -54,6 +55,14 @@ export class EngineClient {
       this.failAll(new Error(`engine failed to start: ${err.message}`));
     });
 
+    // A write into the pipe of a process that has died raises EPIPE on this
+    // stream, and an 'error' with no listener is an uncaught exception — in
+    // the extension host, which is to say in every extension in the window.
+    // The request that caused it is failed by the exit handler below.
+    this.proc.stdin.on('error', (err) => {
+      this.onStderr?.(`engine stdin: ${err.message}\n`);
+    });
+
     this.proc.on('exit', (code) => {
       this.exited = true;
       this.failAll(new Error(`engine exited with code ${code}`));
@@ -65,6 +74,13 @@ export class EngineClient {
     return !this.exited;
   }
 
+  /** Whether it was shut down on purpose, as opposed to having died. Only the
+   *  caller knows which of those it is looking at, and it changes what the
+   *  user should be told. */
+  get wasDisposed(): boolean {
+    return this.killed;
+  }
+
   request<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T> {
     if (this.exited) {
       return Promise.reject(new Error('engine is not running'));
@@ -73,13 +89,26 @@ export class EngineClient {
     const promise = new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
     });
-    this.proc.stdin.write(JSON.stringify({ id, method, params: params ?? {} }) + '\n');
+    try {
+      this.proc.stdin.write(JSON.stringify({ id, method, params: params ?? {} }) + '\n');
+    } catch (err) {
+      this.pending.delete(id);
+      return Promise.reject(
+        new Error(`engine is not reachable: ${err instanceof Error ? err.message : err}`),
+      );
+    }
     return promise;
   }
 
   dispose(): void {
     if (!this.exited) {
+      // Counted as gone from here, not from when the OS gets round to
+      // telling us: the 'exit' event lands a tick or more later, and a
+      // request sent in between goes into a pipe with nothing on the end.
+      this.killed = true;
+      this.exited = true;
       this.proc.kill();
+      this.failAll(new Error('engine was shut down'));
     }
   }
 

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import * as vscode from 'vscode';
 
-import { sceneFileState } from '../extension';
+import { sceneFileState, stopEngineForTest } from '../extension';
 
 /**
  * End-to-end through the real vscode API: activation, the engine subprocess,
@@ -398,6 +398,41 @@ suite('magpylib-studio', () => {
       await sceneWhere(holding('coil'), 'the backup to open'),
       saved,
       'the backup did not come back',
+    );
+  });
+
+  test('an engine that dies comes back holding the same scene', async function () {
+    this.timeout(60000);
+    // The subprocess owning the scene can go away without the window going
+    // with it, and the replacement starts empty. Nothing the user did caused
+    // that, so nothing they did should be lost by it.
+    const before = await loadExample('coil', 'coil');
+    const file = tempScene('crash.magpy.json');
+    await writeJson(file, before);
+    await vscode.commands.executeCommand('magpylib-studio.loadScene', file, DISCARD);
+    await sceneWhere(holding('coil'), 'the file to open');
+
+    // The backup is what the restart reads, so it has to be there first —
+    // exactly as it would be in a session that had been running a while.
+    await fileWhere(
+      vscode.Uri.parse(sceneFileState().backup!),
+      (doc) => ids(doc.objects as { id: string }[]).has('coil'),
+      'the backup to be written',
+    );
+
+    stopEngineForTest();
+
+    // Save, rather than read scene.json: a virtual document is served from
+    // cache until something fires its change event, so reading it straight
+    // after the crash would answer out of the cache and prove nothing. Save
+    // goes to the engine for `to_dict`, which starts the replacement — and
+    // that is the call that has to see a restored scene rather than an empty
+    // one, since it is about to write the file.
+    await vscode.commands.executeCommand('magpylib-studio.saveScene');
+    assert.deepStrictEqual(
+      await readJson(file),
+      before,
+      'the scene did not survive the engine restarting',
     );
   });
 

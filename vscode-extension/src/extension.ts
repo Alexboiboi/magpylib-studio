@@ -1,4 +1,4 @@
-import { spawnSync } from 'child_process';
+import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -29,8 +29,10 @@ let inspector: InspectorViewProvider | undefined;
 let engineOutput: vscode.OutputChannel | undefined;
 let sceneDocEmitter: vscode.EventEmitter<vscode.Uri> | undefined;
 
-// Read-only virtual document generated from the scene (git is the history:
-// the user saves it into their repo; the doc stays canonical).
+// Read-only virtual document generated from the scene. Nothing in the UI
+// opens it today — Save writes the same JSON to a real file, which is what a
+// user wants it for — but it is how the integration tests read the live
+// document out of the engine, through the same API an editor tab would.
 const SCENE_JSON_URI = vscode.Uri.parse('magpylib-studio:/scene.json');
 
 // The script tab, unlike scene.json, is editable and applied back on save, so
@@ -410,9 +412,66 @@ function repoRoot(context: vscode.ExtensionContext): string {
 
 let cachedPython: string | undefined;
 
+/**
+ * Run a command and wait for it, without stopping everything else.
+ *
+ * Every one of these used to be `spawnSync`. The extension host is one
+ * thread shared by every extension in the window, so a synchronous `pip
+ * install` froze all of them — Git, the language servers, the notification
+ * this very function reports progress into — for as long as the install
+ * took, which on the "Install the Engine" path is the first minute a new
+ * user spends with the extension.
+ */
+function run(
+  command: string,
+  args: string[],
+  timeoutMs: number,
+): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
+  return new Promise((resolve) => {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(command, args);
+    } catch (err) {
+      // spawn throws synchronously for an invalid command, rather than
+      // emitting 'error' — a missing interpreter must not take the host down.
+      resolve({
+        ok: false,
+        stdout: '',
+        stderr: '',
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, timeoutMs);
+    child.stdout?.on('data', (chunk: Buffer) => (stdout += chunk.toString()));
+    child.stderr?.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      resolve({ ok: false, stdout, stderr, error: err.message });
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve({
+        ok: !timedOut && code === 0,
+        stdout,
+        stderr,
+        error: timedOut ? `timed out after ${timeoutMs / 1000} s` : undefined,
+      });
+    });
+  });
+}
+
 /** First interpreter that can actually import the engine. A workspace .venv
  *  without magpylib-studio installed must not shadow a working one. */
-function findPython(context: vscode.ExtensionContext): string | undefined {
+async function findPython(
+  context: vscode.ExtensionContext,
+): Promise<string | undefined> {
   if (cachedPython) {
     return cachedPython;
   }
@@ -436,10 +495,8 @@ function findPython(context: vscode.ExtensionContext): string | undefined {
   }
   candidates.push('python3');
   for (const python of candidates) {
-    const probe = spawnSync(python, ['-c', 'import magpylib_studio'], {
-      timeout: 20000,
-    });
-    if (probe.status === 0) {
+    const probe = await run(python, ['-c', 'import magpylib_studio'], 20000);
+    if (probe.ok) {
       cachedPython = python;
       return python;
     }
@@ -464,23 +521,19 @@ function findPython(context: vscode.ExtensionContext): string | undefined {
  *  `py` launcher, so this branches instead of shelling out to a login
  *  shell that would not help. Returns a command *prefix* (`py` needs `-3`
  *  before anything else) rather than a single path. */
-function resolvePythonCommand(): string[] {
+async function resolvePythonCommand(): Promise<string[]> {
   if (process.platform === 'win32') {
     for (const candidate of [['python'], ['py', '-3']]) {
-      const probe = spawnSync(candidate[0], [...candidate.slice(1), '--version'], {
-        timeout: 10000,
-      });
-      if (probe.status === 0) {
+      const probe = await run(candidate[0], [...candidate.slice(1), '--version'], 10000);
+      if (probe.ok) {
         return candidate;
       }
     }
     return ['python'];
   }
   const shell = process.env.SHELL || '/bin/zsh';
-  const result = spawnSync(shell, ['-lc', 'command -v python3'], {
-    timeout: 10000,
-  });
-  const resolved = result.status === 0 ? result.stdout.toString().trim() : '';
+  const result = await run(shell, ['-lc', 'command -v python3'], 10000);
+  const resolved = result.ok ? result.stdout.trim() : '';
   return [resolved || 'python3'];
 }
 
@@ -502,16 +555,18 @@ function pythonInstallTip(): string {
   }
 }
 
-function checkPythonVersion(pythonExe: string): { ok: boolean; version?: string } {
-  const probe = spawnSync(
+async function checkPythonVersion(
+  pythonExe: string,
+): Promise<{ ok: boolean; version?: string }> {
+  const probe = await run(
     pythonExe,
     ['-c', 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")'],
-    { timeout: 10000 },
+    10000,
   );
-  if (probe.status !== 0) {
+  if (!probe.ok) {
     return { ok: false };
   }
-  const version = probe.stdout.toString().trim();
+  const version = probe.stdout.trim();
   const [major, minor] = version.split('.').map(Number);
   const [floorMajor, floorMinor] = PYTHON_FLOOR.split('.').map(Number);
   const ok = major > floorMajor || (major === floorMajor && minor >= floorMinor);
@@ -566,13 +621,38 @@ async function installEngineNow(): Promise<void> {
     const active = pythonApi.environments.getActiveEnvironmentPath(folder.uri);
     const resolved = await pythonApi.environments.resolveEnvironment(active);
     const candidate = resolved?.executable.uri?.fsPath;
-    if (candidate && checkPythonVersion(candidate).ok) {
+    if (candidate && (await checkPythonVersion(candidate)).ok) {
       pythonExe = candidate;
     }
   } catch {
     // ms-python.python not installed, or nothing suitable resolved — fall through
   }
   const usingExisting = Boolean(pythonExe);
+
+  // Installing into an interpreter someone else chose is not the same act as
+  // making a .venv of our own: it may be a system Python, and "install the
+  // engine" is not consent to change one. Name it and ask.
+  if (usingExisting) {
+    const go = await vscode.window.showInformationMessage(
+      `Magpylib Studio: install the engine into ${pythonExe}?`,
+      {
+        modal: true,
+        detail:
+          'That is the interpreter the Python extension has selected for ' +
+          'this workspace. "Use a .venv instead" leaves it untouched and ' +
+          'makes one in the workspace folder.',
+      },
+      'Install There',
+      'Use a .venv instead',
+    );
+    if (!go) {
+      return;
+    }
+    if (go === 'Use a .venv instead') {
+      pythonExe = undefined;
+    }
+  }
+  const intoSelected = Boolean(pythonExe);
 
   const venvDir = path.join(folder.uri.fsPath, '.venv');
   const venvPython =
@@ -590,39 +670,38 @@ async function installEngineNow(): Promise<void> {
       },
       async (progress) => {
         const hasUv =
-          !usingExisting &&
-          spawnSync('uv', ['--version'], { timeout: 10000 }).status === 0;
+          !intoSelected && (await run('uv', ['--version'], 10000)).ok;
         if (hasUv) {
           progress.report({ message: `fetching Python ${PYTHON_FLOOR} via uv…` });
-          const venvResult = spawnSync(
+          const venvResult = await run(
             'uv',
             // --seed: uv venv omits pip by default (it expects `uv pip`
             // instead), which would otherwise make the shared `python -m
             // pip install` step below fail with "No module named pip".
             ['venv', '--python', PYTHON_FLOOR, '--seed', venvDir],
-            { timeout: 120000 },
+            120000,
           );
-          if (venvResult.status !== 0) {
+          if (!venvResult.ok) {
             throw new Error(
-              venvResult.stderr?.toString().trim() || 'uv venv failed',
+              venvResult.stderr.trim() || venvResult.error || 'uv venv failed',
             );
           }
-        } else if (!usingExisting) {
+        } else if (!intoSelected) {
           progress.report({ message: 'creating .venv…' });
-          const [pythonCmd, ...pythonPrefixArgs] = resolvePythonCommand();
-          const venvResult = spawnSync(
+          const [pythonCmd, ...pythonPrefixArgs] = await resolvePythonCommand();
+          const venvResult = await run(
             pythonCmd,
             [...pythonPrefixArgs, '-m', 'venv', venvDir],
-            { timeout: 60000 },
+            60000,
           );
-          if (venvResult.status !== 0) {
+          if (!venvResult.ok) {
             throw new Error(
-              venvResult.stderr?.toString().trim() ||
-                venvResult.error?.message ||
+              venvResult.stderr.trim() ||
+                venvResult.error ||
                 'could not create a virtual environment',
             );
           }
-          const check = checkPythonVersion(venvPython);
+          const check = await checkPythonVersion(venvPython);
           if (!check.ok) {
             throw new Error(
               `found Python ${check.version ?? '(unknown)'}, but magpylib-studio ` +
@@ -633,14 +712,14 @@ async function installEngineNow(): Promise<void> {
           }
         }
         progress.report({ message: 'pip install magpylib-studio…' });
-        const pipResult = spawnSync(
+        const pipResult = await run(
           pythonExe!,
           ['-m', 'pip', 'install', 'magpylib-studio'],
-          { timeout: 180000 },
+          180000,
         );
-        if (pipResult.status !== 0) {
+        if (!pipResult.ok) {
           throw new Error(
-            pipResult.stderr?.toString().trim() || 'pip install failed',
+            pipResult.stderr.trim() || pipResult.error || 'pip install failed',
           );
         }
       },
@@ -668,12 +747,90 @@ async function installEngineNow(): Promise<void> {
     });
 }
 
-function getEngine(context: vscode.ExtensionContext): EngineClient {
-  if (engine?.isRunning) {
-    return engine;
+/** The scene lives in the engine process and nowhere else, so a process that
+ *  dies takes it with it: the replacement starts empty. True while there is a
+ *  scene to put back, and until it has been. */
+let restoreAfterRestart = false;
+/** Set from the moment an engine dies until its replacement has been given
+ *  the backup back. Without it the first edit after a crash writes the empty
+ *  scene over the backup — the only copy of whatever was unsaved. */
+let backupSuspended = false;
+/** Whether backup.magpy.json holds *this* session's scene. It does once we
+ *  have written it, and not before: a backup left by a previous window must
+ *  not be poured into a fresh engine that never had a scene. */
+let backupIsCurrent = false;
+
+/**
+ * Give a freshly started engine the scene the last one died with.
+ *
+ * Same file the reload path reads, for the same reason — but a crash gets no
+ * activation to hang the work off, so it happens here, before the caller's
+ * own request goes down the pipe.
+ */
+async function restoreEngineScene(client: EngineClient): Promise<void> {
+  try {
+    if (!sceneBackupFile) {
+      return;
+    }
+    const bytes = await vscode.workspace.fs.readFile(sceneBackupFile);
+    const doc = JSON.parse(Buffer.from(bytes).toString('utf8'));
+    const result = (await client.request('load_scene', { scene: doc })) as {
+      ok: boolean;
+      error?: string;
+    };
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
+    vscode.window.setStatusBarMessage(
+      'Magpylib Studio: the engine restarted; the scene came back from the backup',
+      4000,
+    );
+  } catch (err) {
+    engineOutput?.appendLine(
+      `[could not restore the scene after the engine restarted: ` +
+        `${err instanceof Error ? err.message : err}]`,
+    );
+    vscode.window.showWarningMessage(
+      'Magpylib Studio: the engine restarted and its scene could not be ' +
+        'restored — the studio is showing an empty one. Do not save over ' +
+        'your file.',
+    );
+  } finally {
+    backupSuspended = false;
+    refreshSurfaces();
   }
-  engineOutput ??= vscode.window.createOutputChannel('Magpylib Studio Engine');
-  const pythonPath = findPython(context);
+}
+
+/** One start at a time. Finding an interpreter is asynchronous now, so two
+ *  callers arriving in that window would otherwise each spawn an engine —
+ *  and the second would silently become the one holding the scene, leaving
+ *  the first running with nobody listening to it. */
+let startingEngine: Promise<EngineClient> | undefined;
+
+function getEngine(context: vscode.ExtensionContext): Promise<EngineClient> {
+  if (engine?.isRunning) {
+    return Promise.resolve(engine);
+  }
+  // There was one and it is gone — crashed, or restarted onto another
+  // interpreter — so it took the scene with it. Nothing may write the backup
+  // until the replacement has been given that scene back, because the backup
+  // is the only place it still exists.
+  if (engine && backupIsCurrent) {
+    restoreAfterRestart = true;
+    backupSuspended = true;
+  }
+  startingEngine ??= startEngine(context).finally(() => {
+    startingEngine = undefined;
+  });
+  return startingEngine;
+}
+
+async function startEngine(context: vscode.ExtensionContext): Promise<EngineClient> {
+  if (!engineOutput) {
+    engineOutput = vscode.window.createOutputChannel('Magpylib Studio Engine');
+    context.subscriptions.push(engineOutput);
+  }
+  const pythonPath = await findPython(context);
   if (!pythonPath) {
     vscode.window
       .showErrorMessage(
@@ -705,10 +862,11 @@ function getEngine(context: vscode.ExtensionContext): EngineClient {
   };
   client.onExit = (code) => {
     engineOutput?.appendLine(`\n[engine exited with code ${code}]`);
-    if (engine === client) {
-      engine = undefined;
-    }
-    if (code !== 0) {
+    // `engine` is left pointing at it: getEngine replaces an engine that is
+    // no longer running, and that is also where the scene it was holding is
+    // put back. Clearing it here would hide from that check the one fact it
+    // needs — that there was a previous engine at all.
+    if (code !== 0 && !client.wasDisposed) {
       cachedPython = undefined; // re-probe interpreters on the next attempt
       const lastLine = stderrTail.trim().split('\n').pop() ?? '';
       vscode.window
@@ -725,6 +883,12 @@ function getEngine(context: vscode.ExtensionContext): EngineClient {
     }
   };
   engine = client;
+  // Before the caller's own request: load_scene is queued first, so whatever
+  // it asked for is answered against the scene it expects to be there.
+  if (restoreAfterRestart) {
+    restoreAfterRestart = false;
+    await restoreEngineScene(client);
+  }
   return client;
 }
 
@@ -748,7 +912,7 @@ function wireRpcRouter(context: vscode.ExtensionContext, webview: vscode.Webview
     }
     const { reqId, method, params } = message;
     try {
-      const result = await getEngine(context).request(method, params);
+      const result = await (await getEngine(context)).request(method, params);
       webview.postMessage({ type: 'rpcResult', reqId, method, result });
     } catch (err) {
       webview.postMessage({
@@ -761,35 +925,96 @@ function wireRpcRouter(context: vscode.ExtensionContext, webview: vscode.Webview
   });
 }
 
+/** Panel type ids. Keep them: keybinding when-clauses and the serializers
+ *  registered at activation both match on these. */
+const STUDIO_PANEL = 'magpylibStudio';
+const FIELD_PANEL = 'magpylibField';
+
+/** The exception the webview guide allows: what would be lost is the camera
+ *  the user has just spent time positioning, and a plotly scene is expensive
+ *  to rebuild. getState/setState cannot cheaply carry it. */
+const PANEL_OPTIONS = (context: vscode.ExtensionContext) => ({
+  enableScripts: true,
+  retainContextWhenHidden: true,
+  localResourceRoots: [context.extensionUri],
+});
+
+/** Fill in a panel — a new one, or one VS Code has restored after a reload.
+ *  Everything a panel needs is here rather than at the creation site, because
+ *  a restored panel arrives already created and needs all of it too. */
+function adoptStudioPanel(
+  context: vscode.ExtensionContext,
+  panel: vscode.WebviewPanel,
+): void {
+  currentPanel = panel;
+  panel.iconPath = logoUri(context); // tabs render icons in full colour
+  panel.webview.options = PANEL_OPTIONS(context);
+  panel.webview.html = createWebviewHtml(context, panel.webview);
+  wireRpcRouter(context, panel.webview);
+  panel.onDidDispose(() => {
+    currentPanel = undefined;
+  });
+}
+
 function openStudioPanel(context: vscode.ExtensionContext): void {
   if (currentPanel) {
     currentPanel.reveal();
     return;
   }
-  const panel = vscode.window.createWebviewPanel(
-    'magpylibStudio', // panel type id: keep, keybinding when-clauses match it
-    'Magpylib Scene',
-    vscode.ViewColumn.One,
-    {
-      enableScripts: true,
-      // The exception the webview guide allows: what would be lost is the
-      // camera the user has just spent time positioning, and a plotly scene
-      // is expensive to rebuild. getState/setState cannot cheaply carry it.
-      retainContextWhenHidden: true,
-      localResourceRoots: [context.extensionUri],
-    },
+  adoptStudioPanel(
+    context,
+    vscode.window.createWebviewPanel(
+      STUDIO_PANEL,
+      'Magpylib Scene',
+      vscode.ViewColumn.One,
+      PANEL_OPTIONS(context),
+    ),
   );
-  currentPanel = panel;
-  panel.iconPath = logoUri(context); // tabs render icons in full colour
-  panel.webview.html = createWebviewHtml(context, panel.webview);
+}
+
+/** The Field panel says when its script is listening, and until it does a
+ *  message meant for it waits here. The Sweep command posts one in the same
+ *  tick the panel is created, which is well before there is anything on the
+ *  other end to receive it — the sidebar views have always had this
+ *  handshake, and this is the panel that needs it. */
+let fieldReady = false;
+let pendingFieldMessage: unknown | undefined;
+
+function postToFieldPanel(message: unknown): void {
+  if (fieldPanel && fieldReady) {
+    void fieldPanel.webview.postMessage(message);
+  } else {
+    pendingFieldMessage = message;
+  }
+}
+
+function adoptFieldPanel(
+  context: vscode.ExtensionContext,
+  panel: vscode.WebviewPanel,
+): void {
+  fieldPanel = panel;
+  fieldReady = false;
+  panel.iconPath = logoUri(context);
+  panel.webview.options = PANEL_OPTIONS(context);
+  panel.webview.html = createFieldViewHtml(context, panel.webview);
   wireRpcRouter(context, panel.webview);
   panel.webview.onDidReceiveMessage((message) => {
-    if (message.type === 'uiCommand') {
-      vscode.commands.executeCommand(`magpylib-studio.${message.command}`);
+    if (message.type !== 'ready') {
+      return;
+    }
+    fieldReady = true;
+    const waiting = pendingFieldMessage;
+    pendingFieldMessage = undefined;
+    if (waiting) {
+      void panel.webview.postMessage(waiting);
     }
   });
   panel.onDidDispose(() => {
-    currentPanel = undefined;
+    fieldPanel = undefined;
+    fieldReady = false;
+    // Whatever was waiting was for this panel. Keeping it would deliver a
+    // sweep to whichever panel is opened next, whenever that is.
+    pendingFieldMessage = undefined;
   });
 }
 
@@ -798,26 +1023,15 @@ function openFieldPanel(context: vscode.ExtensionContext): void {
     fieldPanel.reveal(undefined, true);
     return;
   }
-  const panel = vscode.window.createWebviewPanel(
-    'magpylibField',
-    'Magpylib Field',
-    { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
-    {
-      enableScripts: true,
-      // The exception the webview guide allows: what would be lost is the
-      // camera the user has just spent time positioning, and a plotly scene
-      // is expensive to rebuild. getState/setState cannot cheaply carry it.
-      retainContextWhenHidden: true,
-      localResourceRoots: [context.extensionUri],
-    },
+  adoptFieldPanel(
+    context,
+    vscode.window.createWebviewPanel(
+      FIELD_PANEL,
+      'Magpylib Field',
+      { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
+      PANEL_OPTIONS(context),
+    ),
   );
-  fieldPanel = panel;
-  panel.iconPath = logoUri(context);
-  panel.webview.html = createFieldViewHtml(context, panel.webview);
-  wireRpcRouter(context, panel.webview);
-  panel.onDidDispose(() => {
-    fieldPanel = undefined;
-  });
 }
 
 function selectObjectInStudio(context: vscode.ExtensionContext, objectId: string): void {
@@ -980,7 +1194,7 @@ function registerLmTools(context: vscode.ExtensionContext): void {
       },
       async invoke(options: vscode.LanguageModelToolInvocationOptions<object>) {
         return toolResult(
-          await getEngine(context).request(
+          await (await getEngine(context)).request(
             method,
             options.input as Record<string, unknown>,
           ),
@@ -999,7 +1213,7 @@ function registerLmTools(context: vscode.ExtensionContext): void {
         };
       },
       async invoke(options: vscode.LanguageModelToolInvocationOptions<object>) {
-        const result = (await getEngine(context).request(
+        const result = (await (await getEngine(context)).request(
           method,
           options.input as Record<string, unknown>,
         )) as { ok: boolean; error?: string };
@@ -1040,7 +1254,7 @@ export function activate(context: vscode.ExtensionContext): void {
     context.extensionUri,
     async () => {
       try {
-        return await getEngine(context).request<SceneObject[]>('list_objects');
+        return await (await getEngine(context)).request<SceneObject[]>('list_objects');
       } catch (err) {
         engineOutput?.appendLine(`scene view: ${err instanceof Error ? err.message : err}`);
         return [];
@@ -1051,7 +1265,7 @@ export function activate(context: vscode.ExtensionContext): void {
     },
     async () => {
       try {
-        const { events, rollback } = await getEngine(context).request<{
+        const { events, rollback } = await (await getEngine(context)).request<{
           events: Omit<SceneOperation, 'kind'>[];
           rollback: number | null;
         }>('get_events');
@@ -1070,7 +1284,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const history = new HistoryTreeProvider(async () => {
     try {
-      return await getEngine(context).request<{
+      return await (await getEngine(context)).request<{
         entries: HistoryEntry[];
         current: number;
       }>('get_history');
@@ -1082,11 +1296,11 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const variables = new VariablesViewProvider(
     context.extensionUri,
-    (method, params) => getEngine(context).request(method, params),
+    async (method, params) => (await getEngine(context)).request(method, params),
     (action, name) => {
       void (async () => {
         const found = (
-          await getEngine(context).request<{ variables: Variable[] }>('get_variables')
+          await (await getEngine(context)).request<{ variables: Variable[] }>('get_variables')
         ).variables.find((v) => v.name === name);
         if (!found) {
           return;
@@ -1112,7 +1326,7 @@ export function activate(context: vscode.ExtensionContext): void {
           return { ok: false, error: 'cancelled' };
         }
       }
-      return getEngine(context).request(method, params);
+      return (await getEngine(context)).request(method, params);
     },
     () => {
       currentPanel?.webview.postMessage({ type: 'refresh' });
@@ -1124,7 +1338,7 @@ export function activate(context: vscode.ExtensionContext): void {
   /** Undo/redo: refresh on success; a quiet status message when empty. */
   const undoRedo = async (method: 'undo' | 'redo') => {
     try {
-      const result = (await getEngine(context).request(method)) as {
+      const result = (await (await getEngine(context)).request(method)) as {
         ok: boolean;
         error?: string;
       };
@@ -1164,7 +1378,7 @@ export function activate(context: vscode.ExtensionContext): void {
   /** Run a user script through the engine importer and show the result. */
   const importScript = async (uri: vscode.Uri) => {
     try {
-      const result = (await getEngine(context).request('load_script', {
+      const result = (await (await getEngine(context)).request('load_script', {
         path: uri.fsPath,
       })) as { ok: boolean; error?: string; warnings?: string[]; scenes?: string[] };
       if (!result.ok) {
@@ -1240,7 +1454,7 @@ export function activate(context: vscode.ExtensionContext): void {
     if (Number.isFinite(Number(text.trim()))) {
       return undefined;
     }
-    const result = (await getEngine(context).request('check_expression', {
+    const result = (await (await getEngine(context)).request('check_expression', {
       text,
     })) as { ok: boolean; error?: string };
     return result.ok ? undefined : result.error;
@@ -1248,7 +1462,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   /** One line of what expressions can do, read off the engine's allow-list. */
   const expressionHint = async (): Promise<string> => {
-    const help = (await getEngine(context).request('expression_help')) as {
+    const help = (await (await getEngine(context)).request('expression_help')) as {
       functions: string[];
       constants: string[];
     };
@@ -1395,7 +1609,7 @@ export function activate(context: vscode.ExtensionContext): void {
    * one way this feature could mislead.
    */
   const applyLogEdit = async (method: string, params: Record<string, unknown>) => {
-    const result = (await getEngine(context).request(method, params)) as {
+    const result = (await (await getEngine(context)).request(method, params)) as {
       ok: boolean;
       error?: string;
       broken?: { source: string; error: string }[];
@@ -1542,11 +1756,9 @@ export function activate(context: vscode.ExtensionContext): void {
     if (!spin) {
       return;
     }
-    const asNumber = Number(count);
-    const countValue = Number.isFinite(asNumber) ? asNumber : `=${count.trim()}`;
     await mutateFromTree('duplicate_around', {
       object_id: obj.id,
-      count: countValue,
+      count: asDocumentValue(count),
       axis,
       anchor: [0, 0, 0],
       // one step per copy, expressed against the count so it follows it
@@ -1556,7 +1768,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   /** Sweep a variable and show the field against it in the Field panel. */
   const sweepVariable = async () => {
-    const { variables: available } = await getEngine(context).request<{
+    const { variables: available } = await (await getEngine(context)).request<{
       variables: Variable[];
     }>('get_variables');
     if (!available.length) {
@@ -1588,11 +1800,7 @@ export function activate(context: vscode.ExtensionContext): void {
       (_, i) => from + ((to - from) * i) / (count - 1),
     );
     openFieldPanel(context);
-    fieldPanel?.webview.postMessage({
-      type: 'sweep',
-      variable: pick.label,
-      values,
-    });
+    postToFieldPanel({ type: 'sweep', variable: pick.label, values });
   };
 
     /**
@@ -1603,7 +1811,7 @@ export function activate(context: vscode.ExtensionContext): void {
    * Returns false if the user backed out, meaning: abandon the whole edit.
    */
   const ensureVariablesDefined = async (values: unknown): Promise<boolean> => {
-    const { unknown } = await getEngine(context).request<{ unknown: string[] }>(
+    const { unknown } = await (await getEngine(context)).request<{ unknown: string[] }>(
       'unknown_variables',
       { values },
     );
@@ -1619,7 +1827,7 @@ export function activate(context: vscode.ExtensionContext): void {
         if (text === undefined) {
           return false;
         }
-        const result = (await getEngine(context).request('set_variable', {
+        const result = (await (await getEngine(context)).request('set_variable', {
           name,
           value: asDocumentValue(text),
         })) as { ok: boolean; error?: string };
@@ -1658,7 +1866,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     let ok = false;
     try {
-      const result = (await getEngine(context).request(method, params)) as {
+      const result = (await (await getEngine(context)).request(method, params)) as {
         ok: boolean;
         error?: string;
         inserted_at?: number;
@@ -1687,7 +1895,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const sceneDocProvider: vscode.TextDocumentContentProvider = {
     onDidChange: sceneDocEmitter.event,
     provideTextDocumentContent: async () =>
-      JSON.stringify(await getEngine(context).request('to_dict'), null, 2),
+      JSON.stringify(await (await getEngine(context)).request('to_dict'), null, 2),
   };
 
   // Fixed at activation rather than when the tab is first opened. VS Code
@@ -1729,7 +1937,7 @@ export function activate(context: vscode.ExtensionContext): void {
     if (!force && (open?.isDirty || scriptRejected)) {
       return;
     }
-    const text = (await getEngine(context).request<string>('to_script')) + '\n';
+    const text = (await (await getEngine(context)).request<string>('to_script')) + '\n';
     // Identical: don't churn the editor (it would move the cursor). What we
     // last wrote is only a safe stand-in for the file while the file is still
     // there — storage gets cleaned up, and openTextDocument would then fail.
@@ -1776,7 +1984,7 @@ export function activate(context: vscode.ExtensionContext): void {
   /** Saving the script tab rebuilds the scene from it. */
   const applyScriptFile = async (doc: vscode.TextDocument) => {
     scriptOnDisk = doc.getText(); // the file is the user's text now, not ours
-    const result = (await getEngine(context).request('apply_script', {
+    const result = (await (await getEngine(context)).request('apply_script', {
       path: scriptFile!.fsPath,
     })) as { ok: boolean; error?: string; warnings?: string[] };
     if (!result.ok) {
@@ -1819,16 +2027,29 @@ export function activate(context: vscode.ExtensionContext): void {
 
   sceneBackupFile = vscode.Uri.joinPath(scriptDir, 'backup.magpy.json');
   writeSceneBackup = async () => {
+    // An engine that has just restarted holds an empty scene until it has
+    // been given the backup back. Writing now would overwrite the very file
+    // that restore is about to read — and that file is the only copy.
+    if (backupSuspended) {
+      return;
+    }
     try {
-      const doc = await getEngine(context).request('to_dict');
+      const doc = await (await getEngine(context)).request('to_dict');
+      await vscode.workspace.fs.createDirectory(scriptDir);
       await vscode.workspace.fs.writeFile(
         sceneBackupFile!,
         Buffer.from(JSON.stringify(doc, null, 2) + '\n', 'utf8'),
       );
+      backupIsCurrent = true;
       await rememberScene();
-    } catch {
+    } catch (err) {
       // A backup that cannot be written must not interrupt editing; the next
       // mutation tries again, and the worst case is what we had before it.
+      // Said out loud all the same: a backup that never lands is invisible
+      // exactly until the moment it was needed.
+      engineOutput?.appendLine(
+        `[scene backup not written: ${err instanceof Error ? err.message : err}]`,
+      );
     }
   };
 
@@ -1856,7 +2077,7 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }
     try {
-      const doc = await getEngine(context).request('to_dict');
+      const doc = await (await getEngine(context)).request('to_dict');
       await vscode.workspace.fs.writeFile(
         target,
         Buffer.from(JSON.stringify(doc, null, 2) + '\n', 'utf8'),
@@ -1938,6 +2159,38 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     sceneTreeView,
+    sceneDocEmitter,
+    // A reload brings the tabs back, and without these VS Code has no way to
+    // put anything in them: the scene and the script tab both come back, and
+    // the 3D view coming back empty is the odd one out.
+    vscode.window.registerWebviewPanelSerializer(STUDIO_PANEL, {
+      async deserializeWebviewPanel(panel: vscode.WebviewPanel) {
+        adoptStudioPanel(context, panel);
+      },
+    }),
+    vscode.window.registerWebviewPanelSerializer(FIELD_PANEL, {
+      async deserializeWebviewPanel(panel: vscode.WebviewPanel) {
+        adoptFieldPanel(context, panel);
+      },
+    }),
+    // The interpreter is a setting, so changing it has to mean something
+    // without a reload. The engine is restarted rather than left running on
+    // the old one — and the restart goes through the same backup the crash
+    // path uses, so the scene survives being moved to another interpreter.
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (!event.affectsConfiguration('magpylib-studio.pythonPath')) {
+        return;
+      }
+      cachedPython = undefined;
+      if (engine?.isRunning) {
+        vscode.window.setStatusBarMessage(
+          'Magpylib Studio: restarting the engine on the new interpreter',
+          3000,
+        );
+        engine.dispose();
+        refreshSurfaces(); // asks for the scene, which starts the new one
+      }
+    }),
     // No retainContextWhenHidden: the guide calls it a last resort for good
     // reason (it keeps the whole webview running), and neither sidebar view
     // needs it — both rebuild from the engine the moment they report ready.
@@ -2053,7 +2306,7 @@ export function activate(context: vscode.ExtensionContext): void {
       async (operation: SceneOperation) => {
         // "up to and including this step", which is what pointing at a step
         // means; the bar in a CAD tree sits below the feature it stops after
-        await getEngine(context).request('set_rollback', {
+        await (await getEngine(context)).request('set_rollback', {
           index: operation.index + 1,
         });
         // A view of the document, not a change to it — the log is untouched,
@@ -2062,14 +2315,14 @@ export function activate(context: vscode.ExtensionContext): void {
       },
     ),
     vscode.commands.registerCommand('magpylib-studio.rollbackClear', async () => {
-      await getEngine(context).request('set_rollback', {});
+      await (await getEngine(context)).request('set_rollback', {});
       refreshSurfaces();
     }),
     vscode.commands.registerCommand('magpylib-studio.sweep', async () => sweepVariable()),
     vscode.commands.registerCommand(
       'magpylib-studio.gotoHistory',
       async (entry: HistoryEntry) => {
-        const result = (await getEngine(context).request('goto_history', {
+        const result = (await (await getEngine(context)).request('goto_history', {
           index: entry.index,
         })) as { ok: boolean; error?: string };
         if (!result.ok) {
@@ -2137,7 +2390,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!target) {
         return;
       }
-      const script = await getEngine(context).request<string>('to_script');
+      const script = await (await getEngine(context)).request<string>('to_script');
       await vscode.workspace.fs.writeFile(target, Buffer.from(script + '\n', 'utf8'));
       const open = await vscode.window.showInformationMessage(
         `Magpylib Studio: exported ${basename(target)}`,
@@ -2237,7 +2490,7 @@ export function activate(context: vscode.ExtensionContext): void {
         }
         let chosen = name;
         if (!chosen) {
-          const { examples } = await getEngine(context).request<{
+          const { examples } = await (await getEngine(context)).request<{
             examples: { name: string; label: string; description: string }[];
           }>('list_examples');
           // Each leans on a different feature, so the description is the point
@@ -2276,7 +2529,7 @@ export function activate(context: vscode.ExtensionContext): void {
       mutateFromTree('reset_style', { object_id: obj.id }),
     ),
     vscode.commands.registerCommand('magpylib-studio.moveTo', async (obj: SceneObject) => {
-      const objects = await getEngine(context).request<SceneObject[]>('list_objects');
+      const objects = await (await getEngine(context)).request<SceneObject[]>('list_objects');
       const subtree = new Set([obj.id]); // no moving into itself/descendants
       for (let grew = true; grew; ) {
         grew = false;
@@ -2339,7 +2592,9 @@ export function activate(context: vscode.ExtensionContext): void {
           const flat = isScalar ? String(def) : JSON.stringify(def);
           const text = await vscode.window.showInputBox({
             prompt: `${pick.label} — ${name}${PARAM_UNITS[name] ?? ''}`,
-            value: isScalar ? flat : flat.replace(/[[\]]/g, (m) => (m === '[' ? '' : '')),
+            // brackets off: what the box takes is a list of numbers, and a
+            // nested default comes back to shape through reshape() below
+            value: isScalar ? flat : flat.replace(/[[\]]/g, ''),
             validateInput: (v) => {
               if (isScalar) {
                 return v.trim() ? undefined : 'A number, or an expression';
@@ -2381,7 +2636,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(
       'magpylib-studio.setPosition',
       async (obj: SceneObject) => {
-        const current = (await getEngine(context).request('get_transform', {
+        const current = (await (await getEngine(context)).request('get_transform', {
           object_id: obj.id,
         })) as { position: number[] };
         const text = await vscode.window.showInputBox({
@@ -2662,6 +2917,9 @@ export function activate(context: vscode.ExtensionContext): void {
     // one New Scene away from gone.
     if (remembered.dirty && sceneBackupFile && (await exists(sceneBackupFile))) {
       if (await openSceneFile(sceneBackupFile, { reveal: false })) {
+        // what is on disk is now what the engine holds, which is what makes
+        // it usable again if this engine dies too
+        backupIsCurrent = true;
         // it is those changes the user is editing, not the backup file itself
         await setSceneFile(file, true);
         vscode.window.setStatusBarMessage(
@@ -2720,6 +2978,19 @@ export async function deactivate(): Promise<void> {
  * checks that what a reload would read back is being written correctly. The
  * reload itself stays a manual check.
  */
+/**
+ * Kill the engine the way a crash does.
+ *
+ * Exported for the integration tests, for the same reason as the state above:
+ * the scene lives in a subprocess, and "the subprocess died" is a state the
+ * extension has to survive but no command can ask for. What happens next —
+ * a new process, handed the backup before anyone else gets to speak to it —
+ * is then observable through the ordinary API.
+ */
+export function stopEngineForTest(): void {
+  engine?.dispose();
+}
+
 export function sceneFileState(): {
   file: string | undefined;
   dirty: boolean;
