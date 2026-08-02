@@ -246,7 +246,8 @@ export function incrementRamp(step: number[], steps: number): number[][] {
 type PathChoice =
   | { kind: 'scalar' }
   | { kind: 'linspace' | 'arange'; steps: number }
-  | { kind: 'custom' };
+  | { kind: 'custom' }
+  | { kind: 'formula' };
 
 /**
  * Ask whether a transform applies once or builds an animation path, and if a
@@ -281,13 +282,18 @@ async function askPathKind(title: string): Promise<PathChoice | undefined> {
         detail: 'every step typed out, in an editor',
         how: 'custom' as const,
       },
+      {
+        label: 'Path — formula',
+        detail: 'a curve in t, sampled · stays parametric, count included',
+        how: 'formula' as const,
+      },
     ],
     { placeHolder: `${title}: applied how?` },
   );
   if (!pick) {
     return undefined;
   }
-  if (pick.how === 'scalar' || pick.how === 'custom') {
+  if (pick.how === 'scalar' || pick.how === 'custom' || pick.how === 'formula') {
     return { kind: pick.how };
   }
   const stepText = await vscode.window.showInputBox({
@@ -299,6 +305,70 @@ async function askPathKind(title: string): Promise<PathChoice | undefined> {
         : 'A whole number of steps, 1 or more',
   });
   return stepText ? { kind: pick.how, steps: Number(stepText) } : undefined;
+}
+
+/** A run of points stated as the curve that draws it: what the engine calls
+ *  a sampled value, and what `expressions.SAMPLED` names in the document. */
+interface SampledRun {
+  sampled: { count: number | string; of: (number | string)[] | number | string };
+}
+
+/**
+ * Ask for a run of points as a formula in `t` rather than as the points.
+ *
+ * Two prompts and an editor: how many points, then one line per axis. The
+ * count comes first and on its own because it is the one part that is not a
+ * formula in `t` — and because it may be an expression itself, which is the
+ * whole reason this exists rather than a list of typed-out rows.
+ *
+ * The axes go in the same editor as typed-out points, for the same reason:
+ * three formulas with `cos` in them do not fit an input box, and an editor
+ * brings paste and undo. One line per axis instead of one line per point,
+ * which the header says and the count check enforces.
+ */
+async function askSampledRun(
+  context: vscode.ExtensionContext,
+  name: string,
+  subject: string,
+  header: string[],
+  example: string[],
+): Promise<SampledRun | undefined> {
+  const count = await vscode.window.showInputBox({
+    prompt: 'Number of points — a number, or an expression over the variables',
+    value: '41',
+    validateInput: (v) => {
+      const terms = parseTerms(v);
+      if (!terms || terms.length !== 1) {
+        return 'One number or expression, e.g. 41 or per_turn * turns + 1';
+      }
+      const only = terms[0];
+      return typeof only === 'number' && (!Number.isInteger(only) || only < 2)
+        ? 'At least 2 points, and a whole number of them'
+        : undefined;
+    },
+  });
+  if (count === undefined || !count.trim()) {
+    return undefined;
+  }
+  const axes = await askPointRows(context, {
+    name,
+    subject,
+    noun: 'lines, one an axis',
+    header,
+    example,
+    // One formula to a line, so a line is one value however long it reads:
+    // `radius * cos(tau * turns * t)` is a single term, and commas inside
+    // its brackets are the function's, not the row's.
+    width: 1,
+    min: example.length,
+    max: example.length,
+  });
+  if (!axes) {
+    return undefined;
+  }
+  await closePointEditor(context, name);
+  const of = axes.map(([term]) => term);
+  return { sampled: { count: parseTerms(count)![0], of: of.length === 1 ? of[0] : of } };
 }
 
 /** What a document of typed-out points is being collected for. */
@@ -2886,6 +2956,54 @@ export function activate(context: vscode.ExtensionContext): void {
           if (Array.isArray(template) && Array.isArray(template[0])) {
             const shape = template as number[][];
             const rule = pick.t.rows?.[name] ?? { noun: name, min: 2 };
+            // A fixed count of points is a shape — four corners are four
+            // corners — so only the open-ended ones are worth a curve.
+            const how =
+              rule.max === undefined
+                ? await vscode.window.showQuickPick(
+                    [
+                      {
+                        label: `Type the ${rule.noun}`,
+                        detail: 'a point to a line, in an editor',
+                        formula: false,
+                      },
+                      {
+                        label: 'Sample a formula',
+                        detail: `a curve in t · how many ${rule.noun} is a variable too`,
+                        formula: true,
+                      },
+                    ],
+                    { placeHolder: `${pick.label} — ${name}` },
+                  )
+                : { formula: false };
+            if (!how) {
+              return;
+            }
+            if (how.formula) {
+              const run = await askSampledRun(
+                context,
+                `${id}-${name}`,
+                `A ${pick.label.toLowerCase()}`,
+                [
+                  'One line per axis — x, y, z as formulas in t, which runs',
+                  `0 to 1 along the curve, in the ${pick.label.toLowerCase()}'s`,
+                  'own frame.',
+                  '',
+                  'Numbers or expressions over the variables and t:',
+                  '  radius * cos(tau * turns * t)',
+                ],
+                [
+                  'radius * cos(tau * turns * t)',
+                  'radius * sin(tau * turns * t)',
+                  'height * t - height / 2',
+                ],
+              );
+              if (!run) {
+                return;
+              }
+              values[name] = run;
+              continue;
+            }
             const points = await askPointRows(context, {
               name: `${id}-${name}`,
               subject: `A ${pick.label.toLowerCase()}`,
@@ -2970,7 +3088,26 @@ export function activate(context: vscode.ExtensionContext): void {
           return;
         }
         let displacement: unknown;
-        if (kind.kind === 'custom') {
+        if (kind.kind === 'formula') {
+          const run = await askSampledRun(
+            context,
+            `${obj.id}-move`,
+            'A path formula',
+            [
+              'One line per axis — dx, dy, dz as formulas in t, which runs',
+              `0 to 1 along the path. Relative to where "${obj.label}" is now,`,
+              'so all three should come to zero at t = 0.',
+              '',
+              'Numbers or expressions over the variables and t:',
+              '  radius * (cos(tau * t) - 1)',
+            ],
+            ['radius * (cos(tau * t) - 1)', 'radius * sin(tau * t)', 'height * t'],
+          );
+          if (!run) {
+            return;
+          }
+          displacement = run;
+        } else if (kind.kind === 'custom') {
           // The one kind that keeps expressions: nothing here is divided or
           // scaled, so `0, 0, gap` goes in as written and stays tied to the
           // variable it names.
@@ -3071,7 +3208,26 @@ export function activate(context: vscode.ExtensionContext): void {
           return;
         }
         let angle: unknown;
-        if (kind.kind === 'custom') {
+        if (kind.kind === 'formula') {
+          const run = await askSampledRun(
+            context,
+            `${obj.id}-rotate`,
+            'A turn formula',
+            [
+              'The angle in degrees as a formula in t, which runs 0 to 1 over',
+              `the path — relative to how "${obj.label}" is turned now, so it`,
+              'should come to zero at t = 0.',
+              '',
+              'Numbers or expressions over the variables and t:',
+              '  360 * turns * t',
+            ],
+            ['360 * t'],
+          );
+          if (!run) {
+            return;
+          }
+          angle = run;
+        } else if (kind.kind === 'custom') {
           const points = await askPointRows(context, {
             name: `${obj.id}-rotate`,
             subject: 'A path',

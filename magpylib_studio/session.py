@@ -1281,20 +1281,30 @@ def _path_call(op):
     return _linspace_lit(value)
 
 
-def _op_source(op):
-    """One recorded transform op -> the magpylib call that produced it."""
+def _op_path_value(op):
+    """The op's path argument, whatever kind of thing it is."""
+    return op.get(_PATH_ARG.get(op.get("op"), ""))
+
+
+def _op_source(op, sampled=None):
+    """One recorded transform op -> the magpylib call that produced it.
+
+    `sampled` is the expression a run stated as a formula was written as,
+    which the caller has to build because it comes with a line of its own —
+    the sample has to be named before the call that uses it.
+    """
     kind = op.get("op", "rotate_from_angax")
     if kind == "position":
         return f"position = {_lit(op['value'])}"
     if kind == "orientation":
         return f"orientation = R.from_rotvec({_lit(op['rotvec'])}, degrees=True)"
     if kind == "move":
-        args = _path_call(op) or _lit(op["displacement"])
+        args = sampled or _path_call(op) or _lit(op["displacement"])
     elif kind == "rotate_from_angax":
-        angle = _path_call(op) or _lit(op["angle"])
+        angle = sampled or _path_call(op) or _lit(op["angle"])
         args = f"{angle}, {_lit(op['axis'])}"
     else:  # rotate_from_rotvec
-        rotvec = _path_call(op) or _lit(op["rotvec"])
+        rotvec = sampled or _path_call(op) or _lit(op["rotvec"])
         args = f"{rotvec}, degrees=True"
     anchor = op.get("anchor")
     if anchor is not None:
@@ -3809,7 +3819,10 @@ class MagpylibStudioSession:
         # the mirror helper needs numpy too, and any of them is enough.
         needs_numpy = (
             mirrors
-            or any(_path_call(e) for e in events)
+            or any(
+                _path_call(e) or expressions.is_sampled(_op_path_value(e))
+                for e in events
+            )
             or any(
                 expressions.is_sampled(value) or _param_lit(value).startswith("np.")
                 for spec in spec_of.values()
@@ -3888,7 +3901,15 @@ class MagpylibStudioSession:
             elif op in ("duplicate_around", "duplicate_along"):
                 lines += self._duplicate_source(event)
             else:
-                lines.append(f"{event['target']}.{_op_source(event)}")
+                # A path stated as a formula names its sample on a line of
+                # its own, just above the call that draws with it — the same
+                # shape as a parameter that is one.
+                path = _op_path_value(event)
+                sampled = None
+                if expressions.is_sampled(path):
+                    sample, sampled = _sampled_source(path, taken)
+                    lines.append(sample)
+                lines.append(f"{event['target']}.{_op_source(event, sampled)}")
         names = [spec["id"] for spec in self.doc.get("objects") or []]
         # Shown as loose objects, not wrapped in a Collection: the script must
         # bind exactly the objects this document holds, so importing it back

@@ -197,10 +197,21 @@ def referenced_names(value):
     """Variable names the expressions inside a value refer to, in the order
     they are read. Function names and the built-in constants are not
     variables, so they are left out — what remains is what a document has to
-    define, or a UI has to ask for."""
+    define, or a UI has to ask for.
+
+    Nor is a sampled run's `t`, inside the template that samples over it: it
+    is bound by the node, and a UI that asked the user to define it would be
+    asking for the one thing the node exists to provide.
+    """
     names: list[str] = []
 
-    def visit(item):
+    def visit(item, bound=()):
+        if is_sampled(item):
+            spec = item[SAMPLED]
+            visit(spec.get("count"))
+            visit(spec.get("over"))
+            visit(spec.get("of"), bound=(*bound, SAMPLE))
+            return
         if is_expression(item):
             try:
                 tree = ast.parse(source_of(item), mode="eval")
@@ -216,15 +227,16 @@ def referenced_names(value):
                     isinstance(node, ast.Name)
                     and node.id not in called
                     and node.id not in _CONSTANTS
+                    and node.id not in bound
                     and node.id not in names
                 ):
                     names.append(node.id)
         elif isinstance(item, list):
             for entry in item:
-                visit(entry)
+                visit(entry, bound)
         elif isinstance(item, dict):
             for entry in item.values():
-                visit(entry)
+                visit(entry, bound)
 
     visit(value)
     return names
