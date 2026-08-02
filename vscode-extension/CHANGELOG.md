@@ -11,6 +11,20 @@ All notable changes to the Magpylib Studio extension.
   cylinder segment out of a list of nouns and then seeing what you got is a
   round trip nobody asked for. The menu now carries the same glyph the tree will
   show the object as, from the same source, so the two cannot drift apart.
+- **…and says what each one is, instead of reciting its defaults.** Every entry
+  spent its one line of prose on the numbers it was about to prefill —
+  "polarization (0,0,1) T, diameter 1 m" — which the next screen says again, in
+  the box that asks for it. With the shape now drawn, that line is free to
+  answer the question the menu is actually for: a cylinder segment is "a wedge
+  of a ring — arc magnets, rotor and stator poles", a dipole is "a point source
+  — for a magnet too small or too far to model as a shape". The defaults are
+  unchanged and still prefilled.
+- **Every entry names its magpylib class, and can be found by it.** The old
+  details gave the class away by accident — "moment (0,0,100) A·m²" could only
+  be a Dipole — and dropping them would have left the menu with no machine name
+  at all. Each row now carries its class beside the label, and the filter
+  matches on it: "Current loop" is the friendlier name for `current.Circle`, but
+  typing `Circle` used to match nothing in a menu that offers it.
 - **Reading the scene from chat costs a tenth of what it did.** `#magpyObjects`
   listed every copy a pattern had made — at n=60 the Halbach example was 124
   entries, 118 of them generated copies that say, one by one, that they cannot

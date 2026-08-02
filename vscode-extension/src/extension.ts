@@ -99,7 +99,18 @@ function parseChoices(text: string): (string | number)[] {
     .map((part) => (Number.isFinite(Number(part)) ? Number(part) : part));
 }
 
-/** Object types offered by "Add Object…", with ready-to-build defaults. */
+/**
+ * Object types offered by "Add Object…", with ready-to-build defaults.
+ *
+ * `detail` says what the thing is and what it is reached for, not what its
+ * defaults are: every default is shown again a moment later, prefilled in the
+ * box that asks for it, so spending the menu's one line of prose on them says
+ * nothing the next screen does not. Lowercase, like every other menu here.
+ *
+ * `type` is shown too, as the dimmed half of the row, because it is the name
+ * the script will use and the one a magpylib user already knows — "Current
+ * loop" is friendlier than `current.Circle` but nobody can search for it.
+ */
 const OBJECT_TEMPLATES: {
   label: string;
   type: string;
@@ -109,31 +120,31 @@ const OBJECT_TEMPLATES: {
   {
     label: 'Cuboid magnet',
     type: 'magnet.Cuboid',
-    detail: 'polarization (0,0,1) T, sides 1×1×1 m',
+    detail: 'rectangular block — the bar magnet, and what most arrays are built from',
     params: { polarization: [0, 0, 1], dimension: [1, 1, 1] },
   },
   {
     label: 'Cylinder magnet',
     type: 'magnet.Cylinder',
-    detail: 'polarization (0,0,1) T, diameter 1 m, height 1 m',
+    detail: 'round bar or disc — rod and disc magnets, axial or diametral',
     params: { polarization: [0, 0, 1], dimension: [1, 1] },
   },
   {
     label: 'Cylinder segment magnet',
     type: 'magnet.CylinderSegment',
-    detail: 'polarization (0,0,1) T, radii 1→2 m, height 1 m, 0°→90°',
+    detail: 'a wedge of a ring — arc magnets, rotor and stator poles',
     params: { polarization: [0, 0, 1], dimension: [1, 2, 1, 0, 90] },
   },
   {
     label: 'Sphere magnet',
     type: 'magnet.Sphere',
-    detail: 'polarization (0,0,1) T, diameter 1 m',
+    detail: 'a ball — joysticks and angle sensors; turning it moves only the poles',
     params: { polarization: [0, 0, 1], diameter: 1 },
   },
   {
     label: 'Tetrahedron magnet',
     type: 'magnet.Tetrahedron',
-    detail: 'polarization (0,0,1) T, unit tetrahedron',
+    detail: 'four corners you place yourself — stack them to fill any shape',
     params: {
       polarization: [0, 0, 1],
       vertices: [
@@ -147,13 +158,13 @@ const OBJECT_TEMPLATES: {
   {
     label: 'Current loop',
     type: 'current.Circle',
-    detail: '1000 A, diameter 2 m',
+    detail: 'one circular turn of wire — pattern it along an axis for a solenoid',
     params: { current: 1000, diameter: 2 },
   },
   {
     label: 'Current polyline',
     type: 'current.Polyline',
-    detail: '1000 A, 3-point open path',
+    detail: 'wire through a list of points — PCB traces, busbars, any bent path',
     params: {
       current: 1000,
       vertices: [
@@ -166,11 +177,21 @@ const OBJECT_TEMPLATES: {
   {
     label: 'Dipole',
     type: 'misc.Dipole',
-    detail: 'moment (0,0,100) A·m²',
+    detail: 'a point source — for a magnet too small or too far to model as a shape',
     params: { moment: [0, 0, 100] },
   },
-  { label: 'Sensor', type: 'Sensor', detail: 'field probe, single pixel', params: {} },
-  { label: 'Collection', type: 'Collection', detail: 'empty group', params: {} },
+  {
+    label: 'Sensor',
+    type: 'Sensor',
+    detail: 'where the field is read — B and H at a point, or over a pixel grid',
+    params: {},
+  },
+  {
+    label: 'Collection',
+    type: 'Collection',
+    detail: 'a group that moves, rotates and sums its field as one',
+    params: {},
+  },
 ];
 
 /**
@@ -2583,11 +2604,15 @@ export function activate(context: vscode.ExtensionContext): void {
           // name the thing the same way
           OBJECT_TEMPLATES.map((t) => ({
             label: t.label,
+            description: t.type,
             detail: t.detail,
             iconPath: iconFor(t.type, context.extensionUri),
             t,
           })),
-          { placeHolder: 'Object to add' },
+          // matching the description is what makes the magpylib names
+          // findable: "Current loop" is the friendlier label, but a person
+          // who knows the library types "Circle"
+          { placeHolder: 'Object to add', matchOnDescription: true },
         );
         if (!pick) {
           return;
