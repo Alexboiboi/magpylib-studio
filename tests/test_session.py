@@ -1519,6 +1519,43 @@ def test_a_moved_path_stays_a_move(tmp_path):
     assert back._objs["cuboid1"].position.shape == (100, 3)
 
 
+def test_a_path_built_by_the_gui_is_written_as_one_call(tmp_path):
+    """Move By… and Rotate… spread a *total* over n steps.
+
+    Their first point has therefore already moved, so the path is n+1 evenly
+    spaced points without the one at the origin — and no `linspace(first,
+    last, n)` reproduces it, which is why the wall of numbers survived the
+    first attempt at this. Spelling it the way it was actually built is exact,
+    and exactness is what lets the values stay as they are: the GUI's
+    arithmetic gives a clean 0.55 where a re-derived ramp gives
+    0.5499999999999999, and the document is worth more than the line length.
+    """
+    s = MagpylibStudioSession()
+    s.add_object(
+        "cuboid",
+        "magnet.Cuboid",
+        params={"dimension": [1, 1, 1], "polarization": [0, 0, 1]},
+    )
+    total, steps = (0, 0, 1), 20
+    s.move(
+        "cuboid", [[c * (i + 1) / steps for c in total] for i in range(steps)], start=0
+    )
+    s.rotate("cuboid", [360 * (i + 1) / 12 for i in range(12)], axis="z", start=0)
+
+    script = s.to_script()
+    assert "np.linspace((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), 21)[1:]" in script
+    assert "np.linspace(30.0, 360.0, 12)" in script  # the spin, from its own first step
+    assert max(len(line) for line in script.splitlines()) < 120
+
+    written = tmp_path / "gui.py"
+    written.write_text(script + "\n", encoding="utf-8")
+    back = MagpylibStudioSession()
+    assert back.apply_script(str(written)) == {"ok": True, "mode": "parsed"}
+    assert back.to_dict() == s.to_dict()
+    # the point of the whole exercise: the stored numbers are untouched
+    assert back.to_dict()["events"][1]["displacement"][10][2] == 0.55
+
+
 def test_an_uneven_path_is_written_out_in_full(tmp_path):
     """The compact form is only ever used where it is exactly right."""
     s = MagpylibStudioSession()

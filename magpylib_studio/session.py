@@ -983,10 +983,28 @@ def _linspace_lit(value):
     # are a hundred numbers on one line, and both were made by one call.
     if path.ndim not in (1, 2):
         return None
-    if not np.array_equal(np.linspace(path[0], path[-1], len(path)), path):
-        return None
-    first, last = (_lit(end.tolist()) for end in (path[0], path[-1]))
-    return f"np.linspace({first}, {last}, {len(path)})"
+    count = len(path)
+    origin = np.zeros_like(path[0])
+    # Two spellings, because paths are made two ways. A script writes
+    # `linspace(a, b, n)` and its first point is where it starts. Move By…
+    # and Rotate… ask for a *total* spread over n steps, so their first point
+    # has already moved: that is n+1 evenly spaced points without the one at
+    # the origin, and writing it any other way would not reproduce it — the
+    # arithmetic differs in the last bit, and 0.55 stored is worth more than
+    # 0.5499999999999999 written shorter.
+    for rebuilt, ends, points, tail in (
+        (np.linspace(path[0], path[-1], count), (path[0], path[-1]), count, ""),
+        (
+            np.linspace(origin, path[-1], count + 1)[1:],
+            (origin, path[-1]),
+            count + 1,
+            "[1:]",
+        ),
+    ):
+        if np.array_equal(rebuilt, path):
+            first, last = (_lit(end.tolist()) for end in ends)
+            return f"np.linspace({first}, {last}, {points}){tail}"
+    return None
 
 
 def _op_source(op):

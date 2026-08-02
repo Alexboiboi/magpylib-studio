@@ -264,6 +264,16 @@ def _linspace_value(node):
     identical either way, and the document is unchanged by which one is on
     screen.
     """
+    drop = 0
+    if isinstance(node, ast.Subscript):
+        # `...[1:]` — a path of n steps away from where the object is, which
+        # is n+1 evenly spaced points without the one that has not moved yet.
+        index = node.slice
+        if not isinstance(index, ast.Slice) or index.upper or index.step:
+            return None
+        if not isinstance(index.lower, ast.Constant) or index.lower.value != 1:
+            return None
+        drop, node = 1, node.value
     if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
         return None
     module = node.func.value
@@ -275,7 +285,7 @@ def _linspace_value(node):
         start, stop, num = (ast.literal_eval(arg) for arg in node.args)
     except ValueError:
         return None
-    return np.linspace(start, stop, num).tolist()
+    return np.linspace(start, stop, num)[drop:].tolist()
 
 
 def _parsed_value(node, variables):

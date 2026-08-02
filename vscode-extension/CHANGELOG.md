@@ -30,7 +30,14 @@ All notable changes to the Magpylib Studio extension.
   `cuboid1.move(np.linspace((0.0, 0.0, 0.0), (0.1, 0.1, 0.1), 100), start=0)`
   again — written as the call that makes it wherever that reproduces the path
   _exactly_, and read back the same way, so the round trip stays byte-identical
-  and a path that only looks evenly spaced is still written out in full.
+  and a path that only looks evenly spaced is still written out in full. **Move
+  By… and Rotate… get the same treatment**, which took a second spelling: they
+  spread a _total_ over n steps, so their first point has already moved and the
+  path is n+1 evenly spaced points without the one at the origin —
+  `np.linspace((0, 0, 0), (0, 0, 1), 21)[1:]`. Writing it any other way would
+  not reproduce it, and the difference is not academic: the GUI's arithmetic
+  stores a clean `0.55` where a re-derived ramp stores `0.5499999999999999`, and
+  what is in the document matters more than what is in the line.
 - **Importing a script now says what running it flattened.** A loop of eight
   current loops became eight separate objects with no mention that anything had
   been lost, so the next edit changed one of eight where the script had one
