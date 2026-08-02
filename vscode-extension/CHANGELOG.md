@@ -30,6 +30,17 @@ All notable changes to the Magpylib Studio extension.
   whether the arithmetic happened to coincide. The `move` and `rotate` tools
   take the same `spacing` argument, so a model can build these too.
 
+- **A polyline's vertices are typed the same way, in the same editor.** Add
+  Object… asked for them as a flat run of numbers in one box — nine for the
+  polyline's own default, forty-five for a real PCB trace — and reshaped them
+  by counting in threes, so a miscount by one silently shifted every vertex
+  after it. They now open as a document, one point to a line, prefilled with
+  the defaults. The Inspector had already concluded that a table of numbers on
+  one line "is not an editor, it is a wall" and given editing a proper widget;
+  creation is now the same. The tetrahedron's four corners go the same way, and
+  a wrong count is caught while the editor is still open rather than by the
+  engine after the whole creation.
+
 ### Changed
 
 - **Add Object… shows the shapes it is offering.** The menu named ten classes in
