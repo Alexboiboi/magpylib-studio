@@ -367,6 +367,119 @@ def _arange_value(node):
     return None
 
 
+#: The reverse of session._VECTORISED: `np.cos` is how a template is written
+#: over a whole sample, `cos` is how the document holds it.
+_DEVECTORISED = {
+    "abs": "abs",
+    "round": "round",
+    "sqrt": "sqrt",
+    "hypot": "hypot",
+    "sin": "sin",
+    "cos": "cos",
+    "tan": "tan",
+    "arcsin": "asin",
+    "arccos": "acos",
+    "arctan": "atan",
+    "arctan2": "atan2",
+    "log": "log",
+    "exp": "exp",
+    "radians": "radians",
+    "degrees": "degrees",
+}
+
+
+class _Devectorise(ast.NodeTransformer):
+    """`np.cos(x)` -> `cos(x)`: what a template holds is the scalar call, and
+    the vectorised one is how it is written over a whole sample.
+
+    The sample comes back under the one name a template ever calls it. The
+    script may have had to pick another — it renames wherever the scene
+    already uses `t` — and nothing in the file records what it renamed from,
+    so a document that chose its own name could not survive its own script.
+    Now there is nothing to choose.
+    """
+
+    def __init__(self, sample):
+        self.sample = sample
+
+    def visit_Name(self, node):
+        if node.id == self.sample:
+            node.id = expressions.SAMPLE
+        return node
+
+    def visit_Call(self, node):
+        self.generic_visit(node)
+        func = node.func
+        if (
+            isinstance(func, ast.Attribute)
+            and isinstance(func.value, ast.Name)
+            and func.value.id in ("np", "numpy")
+            and func.attr in _DEVECTORISED
+        ):
+            node.func = ast.Name(id=_DEVECTORISED[func.attr], ctx=ast.Load())
+        return node
+
+
+def _sample_assignment(node):
+    """`np.linspace(a, b, n)` from a hoisted sample -> (start, stop, count).
+
+    A sample runs between two *numbers*. `pts = np.linspace((0,0,0), (1,1,1),
+    5)` is a script naming its own run of points and passing it along, which
+    is a thing people write by hand and which this must not take for a sample
+    — read as one it became a template of itself, the object failed to build,
+    and `apply_script` reported success over a scene that had lost it.
+    """
+    if not _is_numpy_call(node, "linspace", 3):
+        return None
+    if any(isinstance(end, ast.Tuple | ast.List) for end in node.args[:2]):
+        return None
+    count = node.args[2]
+    # `int(...)` is how the writer keeps a count whole when it came from an
+    # expression; the document holds the expression, not the rounding.
+    if (
+        isinstance(count, ast.Call)
+        and isinstance(count.func, ast.Name)
+        and count.func.id == "int"
+        and len(count.args) == 1
+    ):
+        count = count.args[0]
+    return node.args[0], node.args[1], count
+
+
+def _sampled_value(node, sample, span, variables):
+    """`np.column_stack([...])` over a hoisted sample -> a sampled node."""
+    terms = None
+    if _is_numpy_call(node, "column_stack", 1) and isinstance(
+        node.args[0], ast.List | ast.Tuple
+    ):
+        terms = node.args[0].elts
+    elif isinstance(node, ast.Name):
+        # The sample passed along as it is, which is a script holding its own
+        # run of numbers rather than drawing anything with it. A template of
+        # the sample alone says nothing the sample does not.
+        return None
+    elif {n.id for n in ast.walk(node) if isinstance(n, ast.Name)} & {sample}:
+        terms = [node]  # a run of single values, not of points
+    if not terms:
+        return None
+    start, stop, count = span
+
+    def term(each):
+        # `np.full_like(t, 0)` is how a column that does not vary is given the
+        # sample's length; the document just holds the number.
+        if _is_numpy_call(each, "full_like", 2):
+            return _parsed_value(each.args[1], variables)
+        return expressions.PREFIX + ast.unparse(_Devectorise(sample).visit(each))
+
+    spec = {"count": _parsed_value(count, variables), "of": [term(e) for e in terms]}
+    if not _is_numpy_call(node, "column_stack", 1):
+        spec["of"] = spec["of"][0]  # a run of single values, not of points
+    over = [_parsed_value(start, variables), _parsed_value(stop, variables)]
+    if over != [0, 1]:
+        spec["over"] = over
+    return {expressions.SAMPLED: spec}
+
+
 def _parsed_value(node, variables):
     """A literal becomes itself; anything mentioning a variable becomes the
     document's `=expression` form, element-wise inside a tuple or list."""
@@ -560,8 +673,20 @@ def parse_script(source):
     variables, objects, events = {}, {}, []
     nested = set()  # object names that became a Collection's children
     creates = {}  # object name -> its create event, so `.add()` can parent it
+    samples = {}  # name -> (start, stop, count) of a hoisted np.linspace
 
     def value(node):
+        # A parameter written over a hoisted sample is a run of points stated
+        # as the expression that draws it, and comes back as one — not as the
+        # points, which is what it would be reduced to if this ran it.
+        used = {
+            n.id for n in ast.walk(node) if isinstance(n, ast.Name)
+        } & samples.keys()
+        if len(used) == 1:
+            sample = used.pop()
+            built = _sampled_value(node, sample, samples[sample], set(variables))
+            if built is not None:
+                return built
         return _parsed_value(node, set(variables))
 
     try:
@@ -665,6 +790,14 @@ def parse_script(source):
             # scaffolding, like `_copy`, and must not become a variable of
             # the scene.
             if name == "_copies":
+                continue
+
+            # `t = np.linspace(0, 1, int(n))` names the sample a run of points
+            # is drawn over. Not a variable: a variable holds a number, and
+            # nothing in a document can hold the array this makes.
+            span = _sample_assignment(stmt.value)
+            if span is not None:
+                samples[name] = span
                 continue
 
             # name = magpy.Type(...) — an object; otherwise a variable

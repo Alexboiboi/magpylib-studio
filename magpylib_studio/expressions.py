@@ -17,6 +17,8 @@ from __future__ import annotations
 import ast
 import math
 
+import numpy as np
+
 PREFIX = "="
 
 # Everything an expression may contain. Attribute access, subscripts,
@@ -123,8 +125,15 @@ def source_of(value):
     return value[len(PREFIX) :]
 
 
-def evaluate(source, lookup):
-    """Evaluate one expression's source, resolving names through `lookup`."""
+def evaluate(source, lookup, functions=None):
+    """Evaluate one expression's source, resolving names through `lookup`.
+
+    `functions` swaps the table the calls go through, which is how a sampled
+    run is computed for every point at once: bind the sample to an array,
+    hand in the numpy spellings, and the whole column falls out of one pass.
+    What may be *called* is checked against the scalar table either way, so a
+    wider table cannot widen what an expression is allowed to say.
+    """
     try:
         tree = ast.parse(source, mode="eval")
     except SyntaxError as e:
@@ -165,7 +174,8 @@ def evaluate(source, lookup):
             except ZeroDivisionError as e:
                 raise ValueError(f"division by zero in {source!r}") from e
         if isinstance(node, ast.Call):
-            return _FUNCTIONS[node.func.id](*[eval_node(a) for a in node.args])
+            table = functions or _FUNCTIONS
+            return table[node.func.id](*[eval_node(a) for a in node.args])
         # Tuple / List
         return [eval_node(e) for e in node.elts]
 
@@ -263,6 +273,27 @@ def math_names(value):
     return sorted(used - _BUILTIN_FUNCTIONS)
 
 
+def math_names_in_source(source):
+    """The `math` names a finished script uses, sorted.
+
+    Read off the script rather than off the document it came from, because
+    the two no longer agree: a sampled template's `cos` is written as
+    `np.cos`, and importing the one from `math` would be an import nothing
+    calls. An attribute is not a name, so `np.cos` contributes nothing here
+    and a bare `cos` contributes itself.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []  # not our script to fix; the caller will notice sooner
+    used = {
+        node.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name) and node.id in (_FUNCTIONS.keys() | _CONSTANTS)
+    }
+    return sorted(used - _BUILTIN_FUNCTIONS)
+
+
 def contains_expression(value):
     """True if a document value has an expression anywhere inside it."""
     if is_expression(value):
@@ -283,6 +314,14 @@ def normalized(value):
             return PREFIX + ast.unparse(ast.parse(source_of(value), mode="eval"))
         except SyntaxError:
             return value  # let the build report it
+    if is_sampled(value):
+        spec = {k: normalized(v) for k, v in value[SAMPLED].items() if k != "name"}
+        # A default written out is a default the script does not write, and
+        # reading it back would drop it — which is the fixed point above
+        # failing on a document that only said what it meant.
+        if spec.get("over") == [0, 1]:
+            del spec["over"]
+        return {SAMPLED: spec}
     if isinstance(value, list):
         return [normalized(v) for v in value]
     if isinstance(value, dict):
@@ -321,11 +360,149 @@ def resolve_variables(variables):
     return resolved
 
 
+#: A run of points stated as the expression that draws them, rather than as
+#: the points themselves:
+#:
+#:     {"sampled": {"count": "=per_turn * turns + 1", "over": [0, 1],
+#:                  "of": ["=radius * cos(tau * turns * t)", …]}}
+#:
+#: The alternative is what this replaced — sixty rows in the document, each
+#: the same expression with a different literal in it. That form cannot say
+#: how many points it wants, only how many it has, so the count was the one
+#: quantity in a parametric scene that no variable could reach; and it
+#: exported as sixty rows written out, which is not how anyone writes it.
+SAMPLED = "sampled"
+
+#: Functions with no elementwise meaning over a whole sample, so no honest
+#: place in a template. `min(a, b)` of two arrays is not the smaller of each
+#: pair, and writing it as though it were would export a different scene.
+_UNVECTORISABLE = {"min", "max"}
+
+#: The same functions over a whole sample at once. These are the spellings
+#: `to_script` emits, so a scene computed through this table and the script
+#: it exports are doing the identical arithmetic rather than merely agreeing
+#: to the precision they happen to agree to.
+_ARRAY_FUNCTIONS = {
+    "abs": np.abs,
+    "round": np.round,
+    "sqrt": np.sqrt,
+    "hypot": np.hypot,
+    "sin": np.sin,
+    "cos": np.cos,
+    "tan": np.tan,
+    "asin": np.arcsin,
+    "acos": np.arccos,
+    "atan": np.arctan,
+    "atan2": np.arctan2,
+    "log": np.log,
+    "exp": np.exp,
+    "radians": np.radians,
+    "degrees": np.degrees,
+}
+
+
+def called_names(values):
+    """Every function an expression inside these values calls."""
+    called = set()
+
+    def visit(item):
+        if is_expression(item):
+            try:
+                tree = ast.parse(source_of(item), mode="eval")
+            except SyntaxError:
+                return
+            called.update(
+                node.func.id
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            )
+        elif isinstance(item, list):
+            for entry in item:
+                visit(entry)
+
+    visit(values)
+    return called
+
+
+def is_sampled(value):
+    """True if a document value is a run of points stated as an expression."""
+    return isinstance(value, dict) and SAMPLED in value
+
+
+#: What a template calls its sample. Not a field of the node: the name is an
+#: internal binding, and letting a document choose it bought nothing and cost
+#: a round trip — the script has to rename it wherever the scene already uses
+#: that name, and no script can say what it was called before.
+SAMPLE = "t"
+
+
+def expand(value, lookup):
+    """A sampled node -> the points it draws.
+
+    `count` is an expression like any other, which is the whole point of the
+    node: the number of points is a thing a slider can hold. `over` is the
+    span `t` runs across, and defaults to the unit interval because a fraction
+    along is what most templates are written in terms of.
+
+    Every column is computed in one pass with `t` bound to the whole sample,
+    which is both how the exported script computes it — so the two agree by
+    construction rather than by luck — and the difference between a slider
+    that drags and one that stutters: sixteen thousand points went from half
+    a second of interpreting one expression at a time to a handful of numpy
+    calls.
+    """
+    spec = value[SAMPLED]
+    if not isinstance(spec, dict) or "of" not in spec:
+        raise ValueError("a sampled value needs 'of': the expression to sample")
+    count = resolve(spec.get("count", 2), lookup)
+    if not isinstance(count, int | float) or count != int(count) or count < 2:
+        raise ValueError(
+            f"a sampled value needs a whole count of 2 or more, not {count!r}"
+        )
+    start, stop = resolve(spec.get("over", [0, 1]), lookup)
+    template = spec["of"]
+    terms = template if isinstance(template, list) else [template]
+    # Refused here rather than discovered at export. `min(a, b)` over a whole
+    # sample is not elementwise and has no honest vectorisation, so a template
+    # that calls one is a scene that could be built and never written down.
+    unvectorisable = _UNVECTORISABLE & set(called_names(terms))
+    if unvectorisable:
+        raise ValueError(
+            f"{', '.join(sorted(unvectorisable))} cannot be sampled over a run "
+            "of points; use arithmetic that applies to each point on its own"
+        )
+    sample = np.linspace(start, stop, int(count))
+
+    def bound(wanted):
+        # The sample shadows the scene's variables rather than joining them: a
+        # template is written against `t`, and a scene that happens to define
+        # one should not quietly change what the template draws.
+        return sample if wanted == SAMPLE else lookup(wanted)
+
+    def column(term):
+        if not is_expression(term):
+            return np.full_like(sample, term)  # a column that does not vary
+        drawn = np.asarray(
+            evaluate(source_of(term), bound, _ARRAY_FUNCTIONS), dtype=float
+        )
+        # An expression naming no `t` comes back as one number for a column
+        # that has to be as long as every other.
+        return np.broadcast_to(drawn, sample.shape) if drawn.ndim == 0 else drawn
+
+    # .tolist(), so what leaves here is plain floats: this goes into a document
+    # that has to survive json.dumps, and a np.float64 does not.
+    if not isinstance(template, list):
+        return column(template).tolist()
+    return np.column_stack([column(term) for term in terms]).tolist()
+
+
 def resolve(value, lookup):
     """Substitute every expression inside a document value (lists and dicts
     included), leaving literals — axis names, op kinds — untouched."""
     if is_expression(value):
         return evaluate(source_of(value), lookup)
+    if is_sampled(value):
+        return expand(value, lookup)
     if isinstance(value, list):
         return [resolve(v, lookup) for v in value]
     if isinstance(value, dict):

@@ -63,6 +63,7 @@ Protocol surface (all JSON-serializable in/out):
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from importlib.metadata import PackageNotFoundError
@@ -177,15 +178,19 @@ def example_scene():
 
 
 def _bore_sensor(start, stop, steps=25, label="Sensor"):
-    """A sensor walking a straight line, the usual way to read a scene."""
+    """A sensor walking a straight line, the usual way to read a scene.
+
+    Built by the call that describes it rather than by arithmetic of its own,
+    and unrounded, so the script writes it back as that one call. Rounded to
+    three places — which is what this did, for a legibility the script no
+    longer needs — it was an even ramp that no linspace reproduces, and it
+    exported as twenty-five triples written out.
+    """
     return {
         "id": "sensor",
         "type": "Sensor",
         "params": {
-            "position": [
-                [0, 0, round(start + (stop - start) * i / (steps - 1), 3)]
-                for i in range(steps)
-            ]
+            "position": np.linspace((0, 0, start), (0, 0, stop), steps).tolist()
         },
         "style": {"label": label},
     }
@@ -241,6 +246,75 @@ def coil_scene():
                 ],
             },
             _bore_sensor(-2.5, 2.5, label="On axis"),
+        ],
+    }
+
+
+def spiral_scene():
+    """A wire spiralling through space, stated as the curve it is.
+
+    The one way to build geometry that no pattern step describes:
+    `duplicate_along` makes a solenoid out of separate loops — which is what
+    the coil example is — but a continuous helical winding is a single object,
+    and what it is is a formula.
+
+    So the document holds the formula. Not the points it comes to: those would
+    be sixty rows of the same expression with a different number in it, which
+    no one writes and which has nowhere to put the one quantity a helix most
+    wants to vary — how finely it is drawn. `per_turn` is a slider here
+    because `count` is an expression like any other.
+    """
+    return {
+        "variables": {
+            "radius": 1.2,
+            "turns": 3.0,
+            "height": 1.5,
+            "per_turn": 20,
+            # Derived, not dialed: a coil is wound to a length and a turn
+            # count, and what that leaves between the turns is the answer
+            # rather than the question. Still worth showing, because it is
+            # the number that says whether the winding is buildable.
+            "pitch": "=height / turns",
+        },
+        "variable_bounds": {
+            "radius": {"min": 0.05, "max": 10, "soft_min": 0.5, "soft_max": 3},
+            "turns": {"min": 0.25, "max": 40, "soft_min": 1, "soft_max": 8},
+            "height": {"min": 0.02, "max": 40, "soft_min": 0.4, "soft_max": 4},
+            # Below about eight a turn reads as the polygon it is; above forty
+            # the picture stops changing and only the point count grows.
+            "per_turn": {
+                "min": 3,
+                "max": 400,
+                "soft_min": 8,
+                "soft_max": 40,
+                "integer": True,
+            },
+        },
+        "objects": [
+            {
+                "id": "winding",
+                "type": "current.Polyline",
+                "params": {
+                    "current": 400,
+                    "vertices": {
+                        expressions.SAMPLED: {
+                            # round(), because turns is not whole either and a
+                            # count of 24.1 points is not a thing to ask for
+                            "count": "=round(per_turn * turns) + 1",
+                            "of": [
+                                "=radius * cos(tau * turns * t)",
+                                "=radius * sin(tau * turns * t)",
+                                "=height * t - height / 2",
+                            ],
+                        }
+                    },
+                },
+                "style": {"label": "Helical winding"},
+            },
+            # Fixed rather than sized off `height`: it reads the bore of the
+            # winding at every setting worth dragging to, and a sensor that
+            # grew with the coil would never show it leaving the field.
+            _bore_sensor(-2.0, 2.0, label="On axis"),
         ],
     }
 
@@ -466,6 +540,12 @@ EXAMPLES = {
         "One current loop patterned along its axis — turns and pitch "
         "reshape the whole winding",
         coil_scene,
+    ),
+    "spiral": (
+        "Helical winding",
+        "One wire spiralling through space — vertices written as "
+        "expressions, so radius, turns and pitch reshape the winding",
+        spiral_scene,
     ),
     "pair": (
         "Facing magnet pair",
@@ -727,7 +807,15 @@ def _walk_specs(specs):
 #: *higher* version is refused, because reading it half-way and saving it back
 #: would drop whatever we did not understand, which is worse than not opening
 #: it. That refusal is the only reason to write the number down.
-DOC_VERSION = 1
+#:
+#: 2: a parameter or a path may be a run of points stated as the formula that
+#: draws them. Version 1 has no idea what that is — it read the template as
+#: three expressions over an undefined `t`, reported the load as fine, and
+#: dropped the object, which is the exact outcome the refusal exists to
+#: replace. (`spacing`, from the same release, needs no bump: an engine that
+#: does not know the field ignores it and builds the same scene, only writing
+#: the path back out as the other of the two calls that describe it.)
+DOC_VERSION = 2
 
 try:
     __version__ = _package_version("magpylib-studio")
@@ -1080,6 +1168,100 @@ def _spacing_error(spacing):
     if spacing is None or spacing in _SPACINGS:
         return None
     return {"ok": False, "error": f"unknown spacing {spacing!r}, expected 'arange'"}
+
+
+#: math name -> the numpy name that means the same thing over a whole array.
+#: `min` and `max` are deliberately absent: `min(a, b)` over arrays is not
+#: elementwise and there is no honest vectorisation of it, so a sampled
+#: template is refused if it calls one rather than exported as a lie.
+_VECTORISED = {
+    "abs": "np.abs",
+    "round": "np.round",
+    "sqrt": "np.sqrt",
+    "hypot": "np.hypot",
+    "sin": "np.sin",
+    "cos": "np.cos",
+    "tan": "np.tan",
+    "asin": "np.arcsin",
+    "acos": "np.arccos",
+    "atan": "np.arctan",
+    "atan2": "np.arctan2",
+    "log": "np.log",
+    "exp": "np.exp",
+    "radians": "np.radians",
+    "degrees": "np.degrees",
+}
+
+
+class _Vectorise(ast.NodeTransformer):
+    """`cos(x)` -> `np.cos(x)`, and the sample under whatever name it ended up
+    with, so one expression covers the whole run of points."""
+
+    def __init__(self, sample, renamed):
+        self.sample, self.renamed = sample, renamed
+
+    def visit_Call(self, node):
+        self.generic_visit(node)
+        if isinstance(node.func, ast.Name) and node.func.id in _VECTORISED:
+            node.func = ast.parse(_VECTORISED[node.func.id], mode="eval").body
+        return node
+
+    def visit_Name(self, node):
+        if node.id == self.sample:
+            node.id = self.renamed
+        return node
+
+
+def _sampled_source(value, taken):
+    """A sampled node -> (the line that names its samples, the expression).
+
+    Emitted the way it would have been written by hand: one `np.linspace` for
+    the sample and one vectorised expression per coordinate. That the script
+    says `np.column_stack([...])` rather than sixty rows is not compression —
+    the document says the same thing, and always did. It was the row-by-row
+    form that was the translation, and it was a bad one: nobody writes a helix
+    as sixty rows, and the count could not be a variable because there is no
+    row to put it in.
+    """
+    spec = value[expressions.SAMPLED]
+    name = renamed = expressions.SAMPLE
+    while renamed in taken:  # whatever it would shadow, it would also lose
+        renamed += "_"
+    start, stop = spec.get("over", [0, 1])
+    # `int()` because the count is an expression like any other, and
+    # `per_turn * turns + 1` is a float however whole it happens to be.
+    count = _lit(spec["count"])
+    if not isinstance(spec["count"], int):
+        count = f"int({count})"
+    sample = f"{renamed} = np.linspace({_lit(start)}, {_lit(stop)}, {count})"
+
+    def term_source(term):
+        if not expressions.is_expression(term):
+            # a constant column still has to be as long as the sample
+            return f"np.full_like({renamed}, {_lit(term)})"
+        tree = ast.parse(expressions.source_of(term), mode="eval")
+        return ast.unparse(_Vectorise(name, renamed).visit(tree).body)
+
+    template = spec["of"]
+    if not isinstance(template, list):
+        return sample, term_source(template)
+    return sample, f"np.column_stack([{', '.join(map(term_source, template))}])"
+
+
+def _param_lit(value):
+    """A constructor parameter as source, compact where it is a run of points.
+
+    A parameter can be as long as a path and made the same way — a sensor's
+    twenty-five positions — and deserves the same spelling. But only a *table*
+    of points: `dimension=(1, 1, 1)` is three numbers describing one box, and
+    `np.linspace(1.0, 1.0, 3)` reproduces it exactly while saying something
+    absurd about it. The test that caught this is the one asserting a document
+    survives its own script, because the round trip came back with 1.0 where
+    the box had been built with 1.
+    """
+    if isinstance(value, list) and value and isinstance(value[0], list):
+        return _linspace_lit(value) or _lit(value)
+    return _lit(value)
 
 
 def _path_call(op):
@@ -1972,7 +2154,12 @@ class MagpylibStudioSession:
             if value is None:
                 continue
             plain = _plain(value)
-            if isinstance(plain, list):
+            if expressions.is_sampled(written.get(name)):
+                # The points are what it comes to, not what it is. Saying
+                # "matrix" here would offer them for editing, and editing them
+                # would replace the curve with the sixty points it drew.
+                kind = "sampled"
+            elif isinstance(plain, list):
                 kind = "matrix" if plain and isinstance(plain[0], list) else "vector"
             else:
                 kind = "scalar"
@@ -1991,7 +2178,9 @@ class MagpylibStudioSession:
             # `value` is what magpylib holds; when the document says it in
             # terms of a variable, the editor needs the expression as well —
             # otherwise editing the field would silently replace it.
-            if expressions.contains_expression(written.get(name)):
+            if expressions.contains_expression(
+                written.get(name)
+            ) or expressions.is_sampled(written.get(name)):
                 entry["written"] = written[name]
             out.append(entry)
         return out
@@ -3615,9 +3804,18 @@ class MagpylibStudioSession:
         events = [e for e in log if e.get("op") != "create"]
         mirrors = [e for e in events if e.get("op") == "mirror"]
         needs_scipy = mirrors or any(e.get("op") == "orientation" for e in events)
-        # np.linspace and np.arange are how an evenly spaced path is written;
-        # the mirror helper needs numpy too, and either is enough to import it.
-        needs_numpy = mirrors or any(_path_call(e) for e in events)
+        # np.linspace and np.arange are how an evenly spaced run of values is
+        # written, whether it reached the script as a path or as a parameter;
+        # the mirror helper needs numpy too, and any of them is enough.
+        needs_numpy = (
+            mirrors
+            or any(_path_call(e) for e in events)
+            or any(
+                expressions.is_sampled(value) or _param_lit(value).startswith("np.")
+                for spec in spec_of.values()
+                for value in (spec.get("params") or {}).values()
+            )
+        )
         lines = ["import magpylib as magpy"]
         if needs_numpy:
             lines.append("import numpy as np")
@@ -3625,11 +3823,11 @@ class MagpylibStudioSession:
             lines.append("from scipy.spatial.transform import Rotation as R")
         # An expression goes into the script verbatim, which is what keeps the
         # script parametric — but `sqrt(2) * radius` needs `sqrt` in scope to
-        # be worth anything. Read off the document, so only what is used is
-        # imported and nothing that is used is missed.
-        maths = expressions.math_names(self.doc)
-        if maths:
-            lines.append(f"from math import {', '.join(maths)}")
+        # be worth anything. Filled in at the end, off the finished script
+        # rather than off the document: a sampled template is emitted as
+        # `np.cos` over the whole run, so what the document calls and what the
+        # script calls are no longer the same list.
+        maths_slot = len(lines)
         lines.append("")
         if mirrors:
             # A helper rather than a frozen pose per copy: magpylib has no
@@ -3643,10 +3841,24 @@ class MagpylibStudioSession:
             lines += [f"{name} = {_lit(value)}" for name, value in variables.items()]
             lines.append("")
 
+        # What the script already binds. The sample is assigned in it, so a
+        # scene with a variable or an object called `t` would lose whichever
+        # of the two was written second.
+        taken = set(variables) | set(spec_of)
+
         def define(target):
             """One object, plus the line that puts it in its group."""
             spec = spec_of[target]
-            parts = [f"{k}={_lit(v)}" for k, v in spec.get("params", {}).items()]
+            parts = []
+            for key, value in spec.get("params", {}).items():
+                if expressions.is_sampled(value):
+                    # The sample is named just above the object that uses it,
+                    # which is where a person writing this would put it.
+                    sample, source = _sampled_source(value, taken)
+                    lines.append(sample)
+                    parts.append(f"{key}={source}")
+                else:
+                    parts.append(f"{key}={_param_lit(value)}")
             if spec.get("style"):
                 parts.append(f"style={_nest(spec['style'])!r}")
             ctor = "Collection" if spec["type"] == "Collection" else spec["type"]
@@ -3688,4 +3900,7 @@ class MagpylibStudioSession:
             if names
             else "# empty scene",
         ]
+        maths = expressions.math_names_in_source("\n".join(lines[maths_slot:]))
+        if maths:
+            lines.insert(maths_slot, f"from math import {', '.join(maths)}")
         return "\n".join(lines)
