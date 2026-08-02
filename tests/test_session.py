@@ -1695,6 +1695,52 @@ def test_a_path_that_carries_its_own_origin_continues_from_minus_one():
     assert len(built({"start": -1})) == len(built({})) - 1
 
 
+def test_a_script_imports_the_maths_its_expressions_use(tmp_path):
+    """An expression is written into the script verbatim, so what it calls has
+    to be in scope when the script runs.
+
+    Nothing imported it, and `sqrt(2) * radius` — the expression help's own
+    worked example — exported a script that raised NameError on its first line
+    of geometry. Only what is used is imported: `abs` and `max` are Python's
+    already, and importing them from `math` would be wrong for one and a lie
+    for the other.
+    """
+    s = MagpylibStudioSession()
+    s.set_variable("radius", 2.0)
+    s.set_variable("n", 8.0)
+    s.add_object(
+        "cube",
+        "magnet.Cuboid",
+        params={
+            "dimension": ["=sqrt(2) * radius", "=max(radius, 1)", 1],
+            "polarization": [0, 0, 1],
+        },
+    )
+    s.move("cube", [["=radius * cos(tau / n)", 0, 0]])
+
+    script = s.to_script()
+    assert "from math import cos, sqrt, tau" in script
+    assert "abs" not in script and "max(radius" in script  # builtins stay put
+    assert exec_script(script)["cube"] is not None  # the real check: it runs
+
+    written = tmp_path / "maths.py"
+    written.write_text(script + "\n", encoding="utf-8")
+    back = MagpylibStudioSession()
+    assert back.apply_script(str(written)) == {"ok": True, "mode": "parsed"}
+    assert back.to_dict() == s.to_dict()
+
+
+def test_a_scene_without_expressions_imports_no_maths():
+    """The import appears because something needs it, not by default."""
+    s = MagpylibStudioSession()
+    s.add_object(
+        "cube",
+        "magnet.Cuboid",
+        params={"dimension": [1, 1, 1], "polarization": [0, 0, 1]},
+    )
+    assert "from math import" not in s.to_script()
+
+
 def test_an_uneven_path_is_written_out_in_full(tmp_path):
     """The compact form is only ever used where it is exactly right."""
     s = MagpylibStudioSession()

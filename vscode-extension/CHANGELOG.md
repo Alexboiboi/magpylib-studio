@@ -96,6 +96,14 @@ All notable changes to the Magpylib Studio extension.
   without their origin are still written compactly, as the same call without its
   first point — they are exactly that, and re-deriving them instead would turn a
   stored `0.55` into `0.5499999999999999`.
+- **An exported script imports the maths its expressions use.** An expression
+  goes into the script verbatim, which is what keeps the script parametric —
+  but nothing imported what it called, so a scene using `sqrt`, `cos`, `pi` or
+  `tau` anywhere exported a script that raised `NameError` on its first line of
+  geometry. That included `sqrt(2) * radius`, which is the worked example the
+  expression help itself offers. The script now carries `from math import …`
+  with exactly the names it uses, and nothing when it uses none; `abs`, `min`,
+  `max` and `round` are Python's already and stay unimported.
 - **A path no longer begins on a repeated frame.** Once paths started carrying
   their own first pose — the one where nothing has moved yet — magpylib's
   `start="auto"` began appending that pose after the one the object was already
