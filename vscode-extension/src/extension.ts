@@ -195,6 +195,34 @@ const OBJECT_TEMPLATES: {
 ];
 
 /**
+ * The poses of an evenly spaced ramp, arithmetic-for-arithmetic as numpy's
+ * `linspace` computes them.
+ *
+ * `to_script` writes such a path as the one call that makes it, but only
+ * where the call reproduces it *exactly* — a path that merely looks evenly
+ * spaced is not one, and the document, not the script, is what the scene is
+ * built from. So the spacing has to be derived the way numpy derives it,
+ * down to which multiply happens first. `(c * i) / steps` is the obvious
+ * spelling and disagrees in the last bit for almost every displacement that
+ * is not a clean 1 — which is why the export was quietly writing a hundred
+ * triples out in full for anything but the prompt's own default.
+ *
+ * numpy divides first and scales by the index, except where any component of
+ * that step is zero, where it scales the total by the index fraction instead
+ * (`any_step_zero`, numpy/_core/function_base.py). Both branches are here
+ * because both are ordinary: `0, 0, 1` takes the second one.
+ */
+function evenRamp(total: number[], steps: number): number[][] {
+  const step = total.map((c) => c / steps);
+  const anyStepZero = step.some((s) => s === 0);
+  const poses = Array.from({ length: steps + 1 }, (_, i) =>
+    anyStepZero ? total.map((c) => (i / steps) * c) : step.map((s) => s * i),
+  );
+  poses[steps] = [...total]; // numpy assigns the endpoint rather than deriving it
+  return poses;
+}
+
+/**
  * Ask whether a transform applies once or builds an animation path; for a
  * path, the number of steps and magpylib's `start` (passed through verbatim:
  * "auto" appends the new path, an index applies from there).
@@ -2733,12 +2761,7 @@ export function activate(context: vscode.ExtensionContext): void {
         // export as a wall of literal triples, because the only exact
         // spelling of "evenly spaced but missing its origin" is a sliced
         // linspace. Including it costs one pose and gains both.
-        const displacement =
-          kind.steps === 1
-            ? d
-            : Array.from({ length: kind.steps + 1 }, (_, i) =>
-                numeric.map((c) => (c * i) / kind.steps),
-              );
+        const displacement = kind.steps === 1 ? d : evenRamp(numeric, kind.steps);
         let startArg: { start?: number } = {};
         if (kind.steps > 1) {
           const chosen = await askStart();
@@ -2787,10 +2810,7 @@ export function activate(context: vscode.ExtensionContext): void {
         const angle =
           kind.steps === 1
             ? total
-            : Array.from(
-                { length: kind.steps + 1 },
-                (_, i) => (total * i) / kind.steps,
-              );
+            : evenRamp([total], kind.steps).map(([a]) => a);
         let startArg: { start?: number } = {};
         if (kind.steps > 1) {
           const chosen = await askStart();
