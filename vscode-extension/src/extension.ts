@@ -383,32 +383,66 @@ async function closePathEditor(name: string) {
 }
 
 /**
- * Last step of a path transform: magpylib's `start`, passed through verbatim.
- * Returns {} for "auto" (magpylib's default) or {start: index}; undefined if
- * the user escaped.
+ * Where a new path goes relative to the one the object already has —
+ * magpylib's `start`, asked as the question a person actually has.
+ *
+ * There are two of those, and `auto` is neither. Since a path built here
+ * carries its own first pose — the one where nothing has moved yet — `auto`
+ * appends that pose after the one the object is already at, and every
+ * animation begins on a repeated frame: 7 poses where 6 were meant, or 10
+ * where 9 were. It was the default, the first row and one keystroke away,
+ * and the way out of it was to pick "index…" and then type the 0 that should
+ * have been on offer to begin with.
+ *
+ * So the two real answers are named and `auto` is not among them. It stays
+ * the engine's default, because it is right for the paths that come from
+ * elsewhere: a hand-written script's path has no leading pose to collide
+ * with, and appending is exactly what it means.
+ *
+ * Returns {start: index}, or undefined if the user escaped.
  */
-async function askStart(): Promise<{ start?: number } | undefined> {
+async function askStart(
+  context: vscode.ExtensionContext,
+  objectId: string,
+): Promise<{ start: number } | undefined> {
+  const { path_length: length } = (await (await getEngine(context)).request(
+    'get_transform',
+    { object_id: objectId },
+  )) as { path_length: number };
+  // Nothing to ask yet: with no path behind it, "start over" and "continue"
+  // are the same instruction, and offering the choice would be inventing a
+  // decision to make the user take.
+  if (length <= 1) {
+    return { start: 0 };
+  }
   const pick = await vscode.window.showQuickPick(
     [
       {
-        label: 'auto',
-        detail:
-          "magpylib default — the new path is appended after the object's current one",
+        label: 'Start over',
+        detail: `the new path replaces the ${length} poses this object has`,
+        index: 0,
         custom: false,
       },
       {
-        label: 'index…',
-        detail: 'apply from a path index instead (0 = first step, -1 = last step)',
+        label: 'Continue',
+        detail: `carries on from the last of those ${length}, without repeating it`,
+        index: -1,
+        custom: false,
+      },
+      {
+        label: 'Index…',
+        detail: 'apply from some other path index instead',
+        index: 0,
         custom: true,
       },
     ],
-    { placeHolder: 'start' },
+    { placeHolder: 'Where does this path start?' },
   );
   if (!pick) {
     return undefined;
   }
   if (!pick.custom) {
-    return {}; // omitted => engine passes "auto"
+    return { start: pick.index };
   }
   const indexText = await vscode.window.showInputBox({
     prompt: 'start — path index (negative counts from the end)',
@@ -2929,7 +2963,7 @@ export function activate(context: vscode.ExtensionContext): void {
         }
         let startArg: { start?: number } = {};
         if (kind.kind !== 'scalar') {
-          const chosen = await askStart();
+          const chosen = await askStart(context, obj.id);
           if (!chosen) {
             return;
           }
@@ -3009,7 +3043,7 @@ export function activate(context: vscode.ExtensionContext): void {
         }
         let startArg: { start?: number } = {};
         if (kind.kind !== 'scalar') {
-          const chosen = await askStart();
+          const chosen = await askStart(context, obj.id);
           if (!chosen) {
             return;
           }
