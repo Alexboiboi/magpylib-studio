@@ -3623,6 +3623,13 @@ class MagpylibStudioSession:
             lines.append("import numpy as np")
         if needs_scipy:
             lines.append("from scipy.spatial.transform import Rotation as R")
+        # An expression goes into the script verbatim, which is what keeps the
+        # script parametric — but `sqrt(2) * radius` needs `sqrt` in scope to
+        # be worth anything. Read off the document, so only what is used is
+        # imported and nothing that is used is missed.
+        maths = expressions.math_names(self.doc)
+        if maths:
+            lines.append(f"from math import {', '.join(maths)}")
         lines.append("")
         if mirrors:
             # A helper rather than a frozen pose per copy: magpylib has no

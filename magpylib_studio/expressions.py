@@ -220,6 +220,49 @@ def referenced_names(value):
     return names
 
 
+#: Names an expression may use that Python already has. The rest of the
+#: allow-list comes from `math`, and a script that uses one has to import it.
+_BUILTIN_FUNCTIONS = {"abs", "min", "max", "round"}
+
+
+def math_names(value):
+    """The `math` names the expressions inside a value use, sorted.
+
+    An expression is written into the exported script verbatim, which is what
+    keeps the script parametric — but `sqrt(2) * radius` only stays true to
+    the document if `sqrt` is in scope when it runs. Nothing was importing it,
+    so every scene using a function or a constant exported a script that
+    raised NameError on its first line of geometry, including the one the
+    expression help offers as its own example.
+
+    Builtins are left out: a script gets `abs` and `max` for free, and
+    importing them from `math` would be wrong for `abs` and a lie for `max`.
+    """
+    used: set[str] = set()
+
+    def visit(item):
+        if is_expression(item):
+            try:
+                tree = ast.parse(source_of(item), mode="eval")
+            except SyntaxError:
+                return  # the build will report it
+            used.update(
+                node.id
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Name)
+                and node.id in (_FUNCTIONS.keys() | _CONSTANTS.keys())
+            )
+        elif isinstance(item, list):
+            for entry in item:
+                visit(entry)
+        elif isinstance(item, dict):
+            for entry in item.values():
+                visit(entry)
+
+    visit(value)
+    return sorted(used - _BUILTIN_FUNCTIONS)
+
+
 def contains_expression(value):
     """True if a document value has an expression anywhere inside it."""
     if is_expression(value):
