@@ -309,12 +309,7 @@ def _linspace_value(node):
         if not isinstance(index.lower, ast.Constant) or index.lower.value != 1:
             return None
         drop, node = 1, node.value
-    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
-        return None
-    module = node.func.value
-    if node.func.attr != "linspace" or not isinstance(module, ast.Name):
-        return None
-    if module.id not in ("np", "numpy") or len(node.args) != 3:
+    if not _is_numpy_call(node, "linspace", 3):
         return None
     try:
         start, stop, num = (ast.literal_eval(arg) for arg in node.args)
@@ -323,14 +318,64 @@ def _linspace_value(node):
     return np.linspace(start, stop, num)[drop:].tolist()
 
 
+def _is_numpy_call(node, name, argc):
+    """`np.name(...)` (or `numpy.name(...)`) with exactly `argc` arguments."""
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+        return False
+    module = node.func.value
+    if node.func.attr != name or not isinstance(module, ast.Name):
+        return False
+    return module.id in ("np", "numpy") and len(node.args) == argc
+
+
+def _is_column(node):
+    """`...[:, None]` — the slice that turns a ramp of indices into a column,
+    so that multiplying by a point broadcasts down the path instead of across
+    the three axes of one position."""
+    if not isinstance(node, ast.Tuple) or len(node.elts) != 2:
+        return False
+    whole, new_axis = node.elts
+    if not isinstance(whole, ast.Slice) or whole.lower or whole.upper or whole.step:
+        return False
+    return isinstance(new_axis, ast.Constant) and new_axis.value is None
+
+
+def _arange_value(node):
+    """`np.arange(n) * step` -> the points it makes, or None.
+
+    The mirror of `session._arange_lit`, for the reason `_linspace_value`
+    mirrors its own: a script that cannot be read back is a one-way door, and
+    the compact spelling is supposed to be a rendering choice.
+    """
+    if not isinstance(node, ast.BinOp) or not isinstance(node.op, ast.Mult):
+        return None
+    # Written one way, but `step * np.arange(n)` is the same path and someone
+    # editing the script by hand will write it.
+    for ramp, step in ((node.left, node.right), (node.right, node.left)):
+        column = isinstance(ramp, ast.Subscript) and _is_column(ramp.slice)
+        if column:
+            ramp = ramp.value
+        if not _is_numpy_call(ramp, "arange", 1):
+            continue
+        try:
+            count = ast.literal_eval(ramp.args[0])
+            increment = np.asarray(ast.literal_eval(step), dtype=float)
+        except (ValueError, TypeError):
+            return None
+        index = np.arange(count)
+        return ((index[:, None] if column else index) * increment).tolist()
+    return None
+
+
 def _parsed_value(node, variables):
     """A literal becomes itself; anything mentioning a variable becomes the
     document's `=expression` form, element-wise inside a tuple or list."""
     if isinstance(node, ast.Tuple | ast.List):
         return [_parsed_value(e, variables) for e in node.elts]
-    points = _linspace_value(node)
-    if points is not None:
-        return points
+    for reader in (_linspace_value, _arange_value):
+        points = reader(node)
+        if points is not None:
+            return points
     if {n.id for n in ast.walk(node) if isinstance(n, ast.Name)} & variables:
         return expressions.PREFIX + ast.unparse(node)
     return _listify(ast.literal_eval(node))  # ValueError if not a literal
@@ -364,6 +409,12 @@ def _event_from_call(node, target, variables):
     # (the length is checked above), and the extras are read elsewhere
     for name, arg in zip(names, node.args, strict=False):
         op[name] = _parsed_value(arg, variables)
+        # Which call made the path is not recoverable from the points — the
+        # two spellings often describe the same ones — so it is read off the
+        # source here and recorded, or writing the script back out would
+        # quietly turn every arange into a linspace.
+        if name == names[0] and _arange_value(arg) is not None:
+            op["spacing"] = "arange"
     for kw in node.keywords:
         if kw.arg == "degrees":  # emitted with rotate_from_rotvec, implied
             continue

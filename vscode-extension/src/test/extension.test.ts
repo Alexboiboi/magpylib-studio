@@ -5,7 +5,12 @@ import { join } from 'node:path';
 
 import * as vscode from 'vscode';
 
-import { sceneFileState, stopEngineForTest } from '../extension';
+import {
+  evenRamp,
+  incrementRamp,
+  sceneFileState,
+  stopEngineForTest,
+} from '../extension';
 
 /**
  * End-to-end through the real vscode API: activation, the engine subprocess,
@@ -449,6 +454,56 @@ suite('magpylib-studio', () => {
       (await scene()).events,
       intact.events,
       'a document we cannot read replaced the one we could',
+    );
+  });
+
+  /**
+   * The values below are what numpy prints, pasted in.
+   *
+   * A path built here is written back out as the numpy call that would make
+   * it, but only where the call reproduces it to the last bit — so these two
+   * functions are an implementation of numpy's arithmetic in another language,
+   * and the only way to know they still agree is to pin what numpy actually
+   * said. The tell is `0.020000000000000004`: the obvious spelling gives
+   * exactly 0.02 there, which is a different number, and that difference
+   * quietly cost almost every path its compact form.
+   */
+  test('an even ramp is spaced the way the call that writes it spaces it', () => {
+    assert.deepStrictEqual(evenRamp([0, 0, 0.1], 5), [
+      [0, 0, 0],
+      [0, 0, 0.020000000000000004],
+      [0, 0, 0.04000000000000001],
+      [0, 0, 0.06],
+      [0, 0, 0.08000000000000002],
+      [0, 0, 0.1],
+    ]);
+    // the other branch: no component of the step is zero
+    assert.deepStrictEqual(evenRamp([1, 2, 3], 4), [
+      [0, 0, 0],
+      [0.25, 0.5, 0.75],
+      [0.5, 1, 1.5],
+      [0.75, 1.5, 2.25],
+      [1, 2, 3],
+    ]);
+    // a spin is the same ramp with one number to a step
+    assert.deepStrictEqual(
+      evenRamp([360], 6).map(([a]) => a),
+      [0, 60, 120, 180, 240, 300, 360],
+    );
+  });
+
+  test('a ramp of increments is one multiply, and needs no such care', () => {
+    assert.deepStrictEqual(incrementRamp([0, 0, 0.001], 5), [
+      [0, 0, 0],
+      [0, 0, 0.001],
+      [0, 0, 0.002],
+      [0, 0, 0.003],
+      [0, 0, 0.004],
+      [0, 0, 0.005],
+    ]);
+    assert.deepStrictEqual(
+      incrementRamp([1.5], 4).map(([a]) => a),
+      [0, 1.5, 3, 4.5, 6],
     );
   });
 
