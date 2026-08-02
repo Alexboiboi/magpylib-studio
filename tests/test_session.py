@@ -1474,6 +1474,67 @@ def test_load_script_says_what_running_it_flattened(tmp_path):
     assert "Collection" not in warning and "Sphere" not in warning
 
 
+def test_a_moved_path_stays_a_move(tmp_path):
+    """An animation is a move that was made, not a hundred-pose constructor.
+
+    A four-line script — a cuboid and `move(np.linspace(...), start=0)` —
+    came back as one line of three hundred numbers: every step of the path
+    baked into `position=`, and the move that made it gone. Two things were
+    wrong. The document holds transforms as the calls that were made, which
+    is the first line of its own design notes, and orientation paths already
+    obeyed it. And a path written out is unreadable at any length worth
+    animating, while the call that made it is one line and exact.
+    """
+    path = tmp_path / "slide.py"
+    path.write_text(
+        "import magpylib as magpy\n"
+        "import numpy as np\n"
+        "\n"
+        "cuboid1 = magpy.magnet.Cuboid(dimension=(0.02, 0.02, 0.02), "
+        "polarization=(0, 0, 1), position=(0, 0, 0))\n"
+        "cuboid1.move(np.linspace((0, 0, 0), (0.1, 0.1, 0.1), 100), start=0)\n"
+        "magpy.show(cuboid1)\n",
+        encoding="utf-8",
+    )
+    s = MagpylibStudioSession()
+    assert s.load_script(str(path))["ok"] is True
+
+    created = next(e for e in s.to_dict()["events"] if e["op"] == "create")
+    assert "position" not in created.get("params", {}), "the path is in the create"
+    assert [e["op"] for e in s.to_dict()["events"]] == ["create", "move"]
+
+    script = s.to_script()
+    assert "np.linspace((0.0, 0.0, 0.0), (0.1, 0.1, 0.1), 100)" in script
+    assert "import numpy as np" in script
+    assert max(len(line) for line in script.splitlines()) < 200
+
+    # and it is a rendering, not a rewrite: reading it back is the same
+    # document, the same script, and the same hundred poses
+    regenerated = tmp_path / "regenerated.py"
+    regenerated.write_text(script + "\n", encoding="utf-8")
+    back = MagpylibStudioSession()
+    assert back.apply_script(str(regenerated)) == {"ok": True, "mode": "parsed"}
+    assert back.to_dict() == s.to_dict()
+    assert back.to_script() == script
+    assert back._objs["cuboid1"].position.shape == (100, 3)
+
+
+def test_an_uneven_path_is_written_out_in_full(tmp_path):
+    """The compact form is only ever used where it is exactly right."""
+    s = MagpylibStudioSession()
+    s.add_object(
+        "cube",
+        "magnet.Cuboid",
+        params={"dimension": [1, 1, 1], "polarization": [0, 0, 1]},
+    )
+    s.move("cube", [[0, 0, 0], [0, 0, 1], [0, 0, 9]])  # not evenly spaced
+
+    script = s.to_script()
+    assert "linspace" not in script
+    assert "import numpy as np" not in script
+    assert "(0, 0, 9)" in script or "(0.0, 0.0, 9.0)" in script
+
+
 def test_load_script_orientation_paths(tmp_path):
     import magpylib as magpy
     import numpy as np

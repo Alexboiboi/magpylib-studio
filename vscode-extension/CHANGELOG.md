@@ -21,6 +21,16 @@ All notable changes to the Magpylib Studio extension.
 
 ### Fixed
 
+- **A moved path stays a move.** A four-line script — a cuboid and
+  `move(np.linspace(...), start=0)` — came back as a single line of three
+  hundred numbers, every pose of the animation baked into `position=` and the
+  move that made it gone. The document records transforms as the calls that were
+  made, which is the first of its own design rules and which orientation paths
+  already followed; position paths now do too. The script says
+  `cuboid1.move(np.linspace((0.0, 0.0, 0.0), (0.1, 0.1, 0.1), 100), start=0)`
+  again — written as the call that makes it wherever that reproduces the path
+  _exactly_, and read back the same way, so the round trip stays byte-identical
+  and a path that only looks evenly spaced is still written out in full.
 - **Importing a script now says what running it flattened.** A loop of eight
   current loops became eight separate objects with no mention that anything had
   been lost, so the next edit changed one of eight where the script had one

@@ -949,6 +949,46 @@ def _lit(value):
     return repr(value)
 
 
+#: The argument that carries a path, per kind of transform — the one the
+#: script writes as a call when it can, and the one to check when deciding
+#: whether the script needs numpy at all.
+_PATH_ARG = {
+    "move": "displacement",
+    "rotate_from_angax": "angle",
+    "rotate_from_rotvec": "rotvec",
+}
+
+
+def _linspace_lit(value):
+    """`np.linspace(a, b, n)` where that reproduces the path exactly, else None.
+
+    A path is the one thing a document holds that is long by nature: an
+    animation is a hundred poses, and written out it is a hundred triples on
+    one line — six thousand characters where the script that made it said
+    `np.linspace((0,0,0), (0.1,0.1,0.1), 100)`. Nothing is lost by writing
+    the call instead, because `importer._linspace_value` reads it back into
+    the same hundred points.
+
+    Exact equality is the whole guard. Reproduced, not approximated, or the
+    literal stands — a path that merely looks evenly spaced is not one, and
+    the document, not the script, is what the scene is built from.
+    """
+    if not isinstance(value, list) or len(value) < 3:
+        return None
+    try:
+        path = np.asarray(value, dtype=float)
+    except (TypeError, ValueError):
+        return None  # holds expressions: it is parametric, leave it alone
+    # 2-D is a path of points (a move), 1-D a path of angles (a spin); both
+    # are a hundred numbers on one line, and both were made by one call.
+    if path.ndim not in (1, 2):
+        return None
+    if not np.array_equal(np.linspace(path[0], path[-1], len(path)), path):
+        return None
+    first, last = (_lit(end.tolist()) for end in (path[0], path[-1]))
+    return f"np.linspace({first}, {last}, {len(path)})"
+
+
 def _op_source(op):
     """One recorded transform op -> the magpylib call that produced it."""
     kind = op.get("op", "rotate_from_angax")
@@ -957,11 +997,13 @@ def _op_source(op):
     if kind == "orientation":
         return f"orientation = R.from_rotvec({_lit(op['rotvec'])}, degrees=True)"
     if kind == "move":
-        args = _lit(op["displacement"])
+        args = _linspace_lit(op["displacement"]) or _lit(op["displacement"])
     elif kind == "rotate_from_angax":
-        args = f"{_lit(op['angle'])}, {_lit(op['axis'])}"
+        angle = _linspace_lit(op["angle"]) or _lit(op["angle"])
+        args = f"{angle}, {_lit(op['axis'])}"
     else:  # rotate_from_rotvec
-        args = f"{_lit(op['rotvec'])}, degrees=True"
+        rotvec = _linspace_lit(op["rotvec"]) or _lit(op["rotvec"])
+        args = f"{rotvec}, degrees=True"
     anchor = op.get("anchor")
     if anchor is not None:
         args += f", anchor={_lit(anchor)}"
@@ -3403,8 +3445,13 @@ class MagpylibStudioSession:
         events = [e for e in log if e.get("op") != "create"]
         mirrors = [e for e in events if e.get("op") == "mirror"]
         needs_scipy = mirrors or any(e.get("op") == "orientation" for e in events)
+        # np.linspace is how an evenly spaced path is written; the mirror
+        # helper needs numpy too, and either is enough to import it.
+        needs_numpy = mirrors or any(
+            _linspace_lit(e.get(_PATH_ARG.get(e.get("op"), ""))) for e in events
+        )
         lines = ["import magpylib as magpy"]
-        if mirrors:
+        if needs_numpy:
             lines.append("import numpy as np")
         if needs_scipy:
             lines.append("from scipy.spatial.transform import Rotation as R")

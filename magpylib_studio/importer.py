@@ -106,9 +106,22 @@ def _spec_from(obj, object_id, used_ids, unnamed, names):
             if value is not None:
                 params[attr] = _tolist(value)
         position = np.array(obj.position)
+        moved = None
+        if position.ndim > 1:
+            # A path, not a place. Baking it into `position` was how a
+            # four-line script came back as one line of three hundred
+            # numbers: every step of the animation became a constructor
+            # argument, and the move that made it disappeared. The document
+            # holds transforms as the magpylib calls that were made — it says
+            # so at the top of session.py — so a path is a move, recorded
+            # from the origin the object starts at.
+            moved = (position - position[0]).tolist()
+            position = position[0]
         if np.any(position):
             params["position"] = position.tolist()
         spec = {"id": object_id, "type": _dotted_type(obj), "params": params}
+        if moved is not None:
+            spec["transforms"] = [{"op": "move", "displacement": moved, "start": 0}]
         rotvec = np.atleast_2d(obj.orientation.as_rotvec(degrees=True))
         if len(rotvec) > 1:
             # orientation path: reproduced exactly, elementwise over the path
@@ -241,11 +254,38 @@ def _listify(value):
     return value
 
 
+def _linspace_value(node):
+    """`np.linspace(a, b, n)` -> the points it makes, or None.
+
+    The one call the parser evaluates, and it is here because `to_script`
+    emits it: a hundred evenly spaced poses are unreadable written out and
+    obvious written as the call that made them. Recognising it back is what
+    keeps that a rendering choice rather than a one-way door — the path is
+    identical either way, and the document is unchanged by which one is on
+    screen.
+    """
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+        return None
+    module = node.func.value
+    if node.func.attr != "linspace" or not isinstance(module, ast.Name):
+        return None
+    if module.id not in ("np", "numpy") or len(node.args) != 3:
+        return None
+    try:
+        start, stop, num = (ast.literal_eval(arg) for arg in node.args)
+    except ValueError:
+        return None
+    return np.linspace(start, stop, num).tolist()
+
+
 def _parsed_value(node, variables):
     """A literal becomes itself; anything mentioning a variable becomes the
     document's `=expression` form, element-wise inside a tuple or list."""
     if isinstance(node, ast.Tuple | ast.List):
         return [_parsed_value(e, variables) for e in node.elts]
+    points = _linspace_value(node)
+    if points is not None:
+        return points
     if {n.id for n in ast.walk(node) if isinstance(n, ast.Name)} & variables:
         return expressions.PREFIX + ast.unparse(node)
     return _listify(ast.literal_eval(node))  # ValueError if not a literal
