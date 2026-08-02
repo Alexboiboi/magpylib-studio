@@ -1837,6 +1837,75 @@ def test_a_sampled_run_refuses_what_it_could_not_write_down():
     assert "2 or more" in bad_count["error"]
 
 
+def test_a_transform_path_can_be_a_formula_too(tmp_path):
+    """What Move By… and Rotate… send when the path is stated as a curve.
+
+    `resolve` expands a sampled value wherever one appears, so the engine
+    took these from the first — but the writer only knew how to spell one in
+    a constructor, and a move exported as the repr of a Python dict. Both go
+    through the same two lines now: the sample named, then the call that
+    draws with it.
+    """
+    import numpy as np
+
+    s = MagpylibStudioSession()
+    for name, value in (("radius", 1.0), ("height", 2.0), ("n", 11)):
+        assert s.set_variable(name, value)["ok"]
+    s.add_object(
+        "cube",
+        "magnet.Cuboid",
+        params={"dimension": [0.2, 0.2, 0.2], "polarization": [0, 0, 1]},
+    )
+    assert s.move(
+        "cube",
+        {
+            "sampled": {
+                "count": "=n",
+                "of": [
+                    "=radius * (cos(tau * t) - 1)",
+                    "=radius * sin(tau * t)",
+                    "=height * t",
+                ],
+            }
+        },
+        start=0,
+    ) == {"ok": True}
+    assert s.rotate(
+        "cube", {"sampled": {"count": "=n", "of": "=360 * t"}}, axis="z", start=0
+    ) == {"ok": True}
+
+    poses = np.atleast_2d(np.array(s._objs["cube"].position, dtype=float))
+    assert len(poses) == 11
+    assert np.allclose(poses[0], [0, 0, 0])  # a path starts where the object is
+    assert s.set_variable("n", 31)["ok"]  # and how many is a slider here too
+    assert len(np.atleast_2d(np.array(s._objs["cube"].position, dtype=float))) == 31
+
+    script = s.to_script()
+    assert "cube.move(np.column_stack([radius * (np.cos(tau * t) - 1)" in script
+    assert "cube.rotate_from_angax(360 * t, 'z', start=0)" in script
+    exec_script(script)
+
+    written = tmp_path / "flown.py"
+    written.write_text(script + "\n", encoding="utf-8")
+    back = MagpylibStudioSession()
+    assert back.apply_script(str(written)) == {"ok": True, "mode": "parsed"}
+    assert back.to_dict() == s.to_dict()
+
+
+def test_the_sample_is_not_a_variable_anyone_has_to_define():
+    """`t` is bound by the node that samples over it.
+
+    Move By… asks the user to define every name a value mentions that the
+    scene does not have yet — so it asked for `t`, which is the one name the
+    node exists to supply.
+    """
+    s = MagpylibStudioSession()
+    node = {"sampled": {"count": "=n", "of": ["=radius * cos(tau * t)", "=t", 0]}}
+    assert s.unknown_variables({"displacement": node})["unknown"] == ["n", "radius"]
+    # and outside a template it is an ordinary name like any other
+    assert s.unknown_variables({"x": "=t * 2"})["unknown"] == ["t"]
+
+
 def test_a_script_that_names_its_own_linspace_is_not_read_as_a_formula(tmp_path):
     """A hand-written script binding a run of points to a name.
 

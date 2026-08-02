@@ -58,6 +58,16 @@ All notable changes to the Magpylib Studio extension.
   at export: over a whole sample neither is elementwise, and there is no
   vectorised spelling that means the same thing.
 
+- **…and both places you would build one ask for it.** Move By… and Rotate…
+  offer **Path — formula** beside the three that make points, and Add Object…
+  asks whether a polyline's vertices are typed or sampled. Either way it is two
+  prompts and an editor: how many points — a number _or_ an expression, which is
+  the whole reason to reach for this — then one line per axis, as formulas in
+  `t` running 0 to 1 along the curve. The axes go in the same editor as
+  typed-out points, because three formulas with `cos` in them do not fit an
+  input box either. A tetrahedron is not asked: four corners are four corners,
+  and a fixed count of points is a shape rather than a curve.
+
 - **A "Helical winding" example**, which is the thing that needed it: every
   other built-in scene is made of patterns — copies of one object — and a
   continuous winding cannot be. The solenoid example stacks separate loops; this

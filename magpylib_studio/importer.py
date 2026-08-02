@@ -510,7 +510,14 @@ class _Unparseable(Exception):
     """The script is not in the shape to_script emits; run it instead."""
 
 
-def _event_from_call(node, target, variables):
+def _event_from_call(node, target, variables, value=None):
+    """One `obj.move(...)` / `obj.rotate_from_angax(...)` back into an event.
+
+    `value` is the reader that knows which names are hoisted samples, so a
+    path stated as a formula comes back as one. Without it the call is read
+    with `_parsed_value` alone, which is right for everything else.
+    """
+    read = value or (lambda arg: _parsed_value(arg, variables))
     method = node.func.attr
     if method not in _METHOD_OPS:
         raise _Unparseable(method)
@@ -521,7 +528,7 @@ def _event_from_call(node, target, variables):
     # not strict: a call may carry more positional args than the op names
     # (the length is checked above), and the extras are read elsewhere
     for name, arg in zip(names, node.args, strict=False):
-        op[name] = _parsed_value(arg, variables)
+        op[name] = read(arg)
         # Which call made the path is not recoverable from the points — the
         # two spellings often describe the same ones — so it is read off the
         # source here and recorded, or writing the script back out would
@@ -533,7 +540,7 @@ def _event_from_call(node, target, variables):
             continue
         if kw.arg not in ("anchor", "start"):
             raise _Unparseable(kw.arg)
-        op[kw.arg] = _parsed_value(kw.value, variables)
+        op[kw.arg] = read(kw.value)
     return op
 
 
@@ -745,7 +752,8 @@ def parse_script(source):
                             continue
                         mirrored = _mirror_from_call(call, objects, set(variables))
                         events.append(
-                            mirrored or _event_from_call(call, owner, set(variables))
+                            mirrored
+                            or _event_from_call(call, owner, set(variables), value)
                         )
                         continue
                 raise _Unparseable(ast.unparse(stmt))
