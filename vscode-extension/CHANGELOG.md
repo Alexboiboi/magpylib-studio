@@ -85,6 +85,19 @@ All notable changes to the Magpylib Studio extension.
   without their origin are still written compactly, as the same call without its
   first point — they are exactly that, and re-deriving them instead would turn a
   stored `0.55` into `0.5499999999999999`.
+- **A path no longer begins on a repeated frame.** Once paths started carrying
+  their own first pose — the one where nothing has moved yet — magpylib's
+  `start="auto"` began appending that pose after the one the object was already
+  at, so the two coincided and the animation held still for a frame at every
+  join: 7 poses where 6 were meant, 10 where 9 were. `auto` was the default, the
+  first row of the prompt and one keystroke away, and the way out of it was to
+  pick "index…" and then type the `0` that should have been on offer to begin
+  with. The prompt now asks the question a person actually has — **Start over**
+  or **Continue** — and neither of them stutters. It is skipped altogether for
+  an object with no path yet, where the two mean the same thing and there is
+  nothing to decide. `auto` remains the engine's default, because a path that
+  comes from a script or an agent has no leading pose to collide with and
+  appending is exactly right for it.
 - **A path from Move By… or Rotate… is spaced the way the call that writes it
   spaces it.** Both wrote `(c * i) / steps`; `np.linspace` divides first and
   scales by the index, and where any component of that step is zero it scales

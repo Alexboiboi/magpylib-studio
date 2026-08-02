@@ -1650,6 +1650,51 @@ def test_a_spacing_nobody_writes_is_refused():
     assert not [e for e in s.to_dict()["events"] if e.get("op") == "move"]
 
 
+def test_a_path_that_carries_its_own_origin_continues_from_minus_one():
+    """Why Move By… and Rotate… stopped offering magpylib's `start="auto"`.
+
+    A path built in the GUI begins with the pose where nothing has moved yet.
+    `auto` appends that pose after the one the object is already at, so the
+    two coincide and the animation holds still for a frame at every join.
+    `start=-1` lands the new path's origin *on* the object's last pose, which
+    is what "continue from here" means and what the menu now says.
+
+    `auto` is still the engine's default, because a path that comes from
+    somewhere else — a hand-written script, an agent — has no leading pose to
+    collide with, and appending is exactly right for it.
+    """
+    import itertools
+
+    import numpy as np
+
+    def poses(session):
+        obj = session._objs["cube"]
+        return np.hstack(
+            [
+                np.atleast_2d(np.array(obj.position, dtype=float)),
+                np.atleast_2d(obj.orientation.as_rotvec(degrees=True)),
+            ]
+        )
+
+    def built(start):
+        s = MagpylibStudioSession()
+        s.add_object(
+            "cube",
+            "magnet.Cuboid",
+            params={"dimension": [1, 1, 1], "polarization": [0, 0, 1]},
+        )
+        s.move("cube", [[0, 0, i / 5] for i in range(6)], start=0)
+        s.rotate("cube", [(i / 4) * 90 for i in range(5)], axis="z", **start)
+        return poses(s)
+
+    def held(path):
+        return sum(1 for a, b in itertools.pairwise(path) if np.allclose(a, b))
+
+    assert held(built({"start": -1})) == 0
+    assert held(built({})) == 1  # "auto": the join is a repeated frame
+    assert len(built({"start": -1})) == len(built({})) - 1
+
+
 def test_an_uneven_path_is_written_out_in_full(tmp_path):
     """The compact form is only ever used where it is exactly right."""
     s = MagpylibStudioSession()
