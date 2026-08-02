@@ -51,7 +51,9 @@ const TYPE_ICON_FILES: Record<string, string> = {
   Sensor: 'sensor',
 };
 
-function iconFor(
+/** The glyph for a magpylib class, shared with the "Add Object…" menu so a
+ *  cylinder is picked by the same picture the tree will show it as. */
+export function iconFor(
   type: string,
   extensionUri: vscode.Uri,
 ): vscode.Uri | vscode.ThemeIcon {

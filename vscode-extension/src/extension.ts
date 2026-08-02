@@ -9,6 +9,7 @@ import { mediaUri, nonce as webviewNonce } from './webview';
 import { Variable, VariablesViewProvider } from './variablesView';
 import { InspectorViewProvider } from './inspectorView';
 import {
+  iconFor,
   isOperation,
   SceneNode,
   SceneObject,
@@ -2578,7 +2579,14 @@ export function activate(context: vscode.ExtensionContext): void {
       'magpylib-studio.addObject',
       async (obj?: SceneObject) => {
         const pick = await vscode.window.showQuickPick(
-          OBJECT_TEMPLATES.map((t) => ({ label: t.label, detail: t.detail, t })),
+          // same glyph the tree will show it as, so the menu and the scene
+          // name the thing the same way
+          OBJECT_TEMPLATES.map((t) => ({
+            label: t.label,
+            detail: t.detail,
+            iconPath: iconFor(t.type, context.extensionUri),
+            t,
+          })),
           { placeHolder: 'Object to add' },
         );
         if (!pick) {
@@ -2693,11 +2701,18 @@ export function activate(context: vscode.ExtensionContext): void {
           );
           return;
         }
+        // A path of `steps` movements is steps + 1 poses, and the first of
+        // them is where the object already is. Leaving it out — which is what
+        // this did — meant the animation never showed the starting position,
+        // and made the path one that no single call describes: `move` would
+        // export as a wall of literal triples, because the only exact
+        // spelling of "evenly spaced but missing its origin" is a sliced
+        // linspace. Including it costs one pose and gains both.
         const displacement =
           kind.steps === 1
             ? d
-            : Array.from({ length: kind.steps }, (_, i) =>
-                numeric.map((c) => (c * (i + 1)) / kind.steps),
+            : Array.from({ length: kind.steps + 1 }, (_, i) =>
+                numeric.map((c) => (c * i) / kind.steps),
               );
         let startArg: { start?: number } = {};
         if (kind.steps > 1) {
@@ -2742,12 +2757,14 @@ export function activate(context: vscode.ExtensionContext): void {
           return;
         }
         const total = Number(text);
+        // Same as Move By…: the turn starts from where the object is, so the
+        // path carries its own zero and exports as one np.linspace call.
         const angle =
           kind.steps === 1
             ? total
             : Array.from(
-                { length: kind.steps },
-                (_, i) => (total * (i + 1)) / kind.steps,
+                { length: kind.steps + 1 },
+                (_, i) => (total * i) / kind.steps,
               );
         let startArg: { start?: number } = {};
         if (kind.steps > 1) {

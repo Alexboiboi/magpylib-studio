@@ -1519,15 +1519,17 @@ def test_a_moved_path_stays_a_move(tmp_path):
     assert back._objs["cuboid1"].position.shape == (100, 3)
 
 
-def test_a_path_built_by_the_gui_is_written_as_one_call(tmp_path):
-    """Move By… and Rotate… spread a *total* over n steps.
+def test_a_path_without_its_origin_is_still_one_call(tmp_path):
+    """An even ramp whose first point has already moved.
 
-    Their first point has therefore already moved, so the path is n+1 evenly
-    spaced points without the one at the origin — and no `linspace(first,
-    last, n)` reproduces it, which is why the wall of numbers survived the
-    first attempt at this. Spelling it the way it was actually built is exact,
-    and exactness is what lets the values stay as they are: the GUI's
-    arithmetic gives a clean 0.55 where a re-derived ramp gives
+    Move By… made these until it learned to include the pose the object
+    starts from, so they are in every scene saved before that, and a script
+    can always write one by hand. No `linspace(first, last, n)` reproduces it
+    — that is what left a wall of numbers standing after the first attempt at
+    this — but n+1 points without the origin does, exactly.
+
+    Exactness is what lets the values stay as they are: this arithmetic gives
+    a clean 0.55 where a ramp re-derived between the same endpoints gives
     0.5499999999999999, and the document is worth more than the line length.
     """
     s = MagpylibStudioSession()

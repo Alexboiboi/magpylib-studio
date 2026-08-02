@@ -6,6 +6,11 @@ All notable changes to the Magpylib Studio extension.
 
 ### Changed
 
+- **Add Object… shows the shapes it is offering.** The menu named ten classes in
+  words while the Scene tree drew each of them as a wireframe; picking a
+  cylinder segment out of a list of nouns and then seeing what you got is a
+  round trip nobody asked for. The menu now carries the same glyph the tree will
+  show the object as, from the same source, so the two cannot drift apart.
 - **Reading the scene from chat costs a tenth of what it did.** `#magpyObjects`
   listed every copy a pattern had made — at n=60 the Halbach example was 124
   entries, 118 of them generated copies that say, one by one, that they cannot
@@ -30,14 +35,16 @@ All notable changes to the Magpylib Studio extension.
   `cuboid1.move(np.linspace((0.0, 0.0, 0.0), (0.1, 0.1, 0.1), 100), start=0)`
   again — written as the call that makes it wherever that reproduces the path
   _exactly_, and read back the same way, so the round trip stays byte-identical
-  and a path that only looks evenly spaced is still written out in full. **Move
-  By… and Rotate… get the same treatment**, which took a second spelling: they
-  spread a _total_ over n steps, so their first point has already moved and the
-  path is n+1 evenly spaced points without the one at the origin —
-  `np.linspace((0, 0, 0), (0, 0, 1), 21)[1:]`. Writing it any other way would
-  not reproduce it, and the difference is not academic: the GUI's arithmetic
-  stores a clean `0.55` where a re-derived ramp stores `0.5499999999999999`, and
-  what is in the document matters more than what is in the line.
+  and a path that only looks evenly spaced is still written out in full.
+- **A path from Move By… or Rotate… starts where the object is.** A path of n
+  movements is n+1 poses and the first of them is the pose you began at; it was
+  being left out, so the animation never showed the starting position and the
+  path was one that no single call could describe. Including it costs one pose
+  and makes the export a plain
+  `np.linspace((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), 21)`. Paths already saved
+  without their origin are still written compactly, as the same call without its
+  first point — they are exactly that, and re-deriving them instead would turn a
+  stored `0.55` into `0.5499999999999999`.
 - **Importing a script now says what running it flattened.** A loop of eight
   current loops became eight separate objects with no mention that anything had
   been lost, so the next edit changed one of eight where the script had one
