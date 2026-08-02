@@ -110,12 +110,18 @@ function parseChoices(text: string): (string | number)[] {
  * `type` is shown too, as the dimmed half of the row, because it is the name
  * the script will use and the one a magpylib user already knows — "Current
  * loop" is friendlier than `current.Circle` but nobody can search for it.
+ *
+ * `rows` constrains a parameter that is a list of points, which is asked for
+ * in an editor rather than a box. How many are allowed cannot be read off the
+ * default — four corners and three vertices look alike from here — and the
+ * engine's refusal comes too late to be useful, after the whole creation.
  */
 const OBJECT_TEMPLATES: {
   label: string;
   type: string;
   detail: string;
   params: Record<string, unknown>;
+  rows?: Record<string, { noun: string; min: number; max?: number }>;
 }[] = [
   {
     label: 'Cuboid magnet',
@@ -154,6 +160,7 @@ const OBJECT_TEMPLATES: {
         [0, 0, 1],
       ],
     },
+    rows: { vertices: { noun: 'corners', min: 4, max: 4 } },
   },
   {
     label: 'Current loop',
@@ -173,6 +180,7 @@ const OBJECT_TEMPLATES: {
         [1, 1, 0],
       ],
     },
+    rows: { vertices: { noun: 'vertices', min: 2 } },
   },
   {
     label: 'Dipole',
@@ -293,12 +301,39 @@ async function askPathKind(title: string): Promise<PathChoice | undefined> {
   return stepText ? { kind: pick.how, steps: Number(stepText) } : undefined;
 }
 
+/** What a document of typed-out points is being collected for. */
+interface PointRowsRequest {
+  /** File basename, so the tab has a name and can be found again to close. */
+  name: string;
+  /** How a wrong count names the thing: "A path", "A current polyline". */
+  subject: string;
+  /** What one row is: "steps", "vertices". */
+  noun: string;
+  /** The explanatory comment block; the count rule is appended to it. */
+  header: string[];
+  /** Starter rows, which for a new object are its defaults. */
+  example: string[];
+  /** Values to a row: 3 for a point, 1 for an angle. */
+  width: number;
+  min: number;
+  max?: number;
+}
+
+/** "at least two vertices", "exactly four vertices" — said once, so the
+ *  header that promises it and the save that enforces it cannot disagree. */
+function rowRule(request: PointRowsRequest): string {
+  const { min, max, noun } = request;
+  return `${min === max ? 'exactly' : 'at least'} ${min} ${noun}`;
+}
+
 /**
- * Collect a path by opening it as a document, one step to a line.
+ * Collect a list of points by opening it as a document, one to a line.
  *
  * A quick-pick chain cannot ask for twenty points and an input box cannot hold
  * them legibly. An editor can, and it brings undo, paste and multiple cursors
- * with it — which is most of what typing out a path by hand needs.
+ * with it — which is most of what typing out a list of points by hand needs.
+ * The Inspector reached the same conclusion for editing an existing one; this
+ * is the same idea for the ones that do not exist yet.
  *
  * It is backed by a real file in the extension's storage rather than by an
  * untitled buffer, because saving an untitled buffer opens a file dialog: the
@@ -307,20 +342,30 @@ async function askPathKind(title: string): Promise<PathChoice | undefined> {
  * the header says it does.
  *
  * A line that does not parse is not a reason to throw the rest away — it is
- * reported and the document stays open, so saving again after a fix is the
- * whole correction.
+ * reported by number and the document stays open, so saving again after a fix
+ * is the whole correction.
  */
-async function askPathPoints(
+async function askPointRows(
   context: vscode.ExtensionContext,
-  name: string,
-  header: string[],
-  example: string[],
-  width: number,
+  request: PointRowsRequest,
 ): Promise<(number | string)[][] | undefined> {
+  const { name, width, min, max } = request;
   const dir = context.storageUri ?? context.globalStorageUri;
   await vscode.workspace.fs.createDirectory(dir);
-  const uri = vscode.Uri.joinPath(dir, `${name}.path.txt`);
-  const template = [...header.map((line) => `# ${line}`), '', ...example, ''];
+  const uri = vscode.Uri.joinPath(dir, `${name}.points.txt`);
+  // The count rule and the save/cancel promise are the helper's own, so it
+  // writes them: a caller repeating them is a caller that can contradict them.
+  const header = [
+    ...request.header,
+    `${request.subject} needs ${rowRule(request)}.`,
+    'Save to apply. Close without saving to cancel.',
+  ];
+  const template = [
+    ...header.map((line) => (line ? `# ${line}` : '#')),
+    '',
+    ...request.example,
+    '',
+  ];
   await vscode.workspace.fs.writeFile(uri, Buffer.from(template.join('\n'), 'utf8'));
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri), {
     preview: false,
@@ -353,9 +398,11 @@ async function askPathPoints(
           }
           points.push(point);
         }
-        if (points.length < 2) {
+        if (points.length < min || (max !== undefined && points.length > max)) {
           vscode.window.showErrorMessage(
-            'Magpylib Studio: a path needs at least two steps.',
+            `Magpylib Studio: ${request.subject.toLowerCase()} needs ` +
+              `${rowRule(request)}; there ${points.length === 1 ? 'is' : 'are'} ` +
+              `${points.length}. Fix it and save again.`,
           );
           return;
         }
@@ -370,14 +417,14 @@ async function askPathPoints(
   });
 }
 
-/** Close the scratch document a path was typed into, once it has been read. */
-async function closePathEditor(name: string) {
+/** Close the scratch document points were typed into, once they are read. */
+async function closePointEditor(name: string) {
   const open = vscode.window.tabGroups.all
     .flatMap((group) => group.tabs)
     .filter(
       (tab) =>
         tab.input instanceof vscode.TabInputText &&
-        tab.input.uri.path.endsWith(`${name}.path.txt`),
+        tab.input.uri.path.endsWith(`${name}.points.txt`),
     );
   await vscode.window.tabGroups.close(open);
 }
@@ -467,14 +514,14 @@ const MUTATING_WITH_VALUES = new Set([
   'edit_event',
 ]);
 
-/** Units shown in the Add Object prompts. */
+/** Units shown in the Add Object prompts. A parameter asked for in an editor
+ *  is not here: its header says the same thing with room to say it. */
 const PARAM_UNITS: Record<string, string> = {
   polarization: ' (T), as Jx, Jy, Jz',
   dimension: ' (m) — Cuboid a,b,c · Cylinder d,h · Segment r1,r2,h,phi1,phi2',
   diameter: ' (m)',
   current: ' (A)',
   moment: ' (A·m²), as mx, my, mz',
-  vertices: ' (m), x,y,z per point',
 };
 
 /** Rotation axis: a named axis or a free vector. */
@@ -602,15 +649,6 @@ function parseBoundPair(text: string): [number | null, number | null] | undefine
   return ends.some((end) => end === undefined)
     ? undefined
     : (ends as [number | null, number | null]);
-}
-
-/** Group a flat list into rows of `width` (e.g. points into [x,y,z]). */
-function reshape<T>(flat: T[], width: number): T[][] {
-  const rows: T[][] = [];
-  for (let i = 0; i + width <= flat.length; i += width) {
-    rows.push(flat.slice(i, i + width));
-  }
-  return rows;
 }
 
 /** Parse "1, 2, gap" into `count` numbers-or-expressions, else undefined. */
@@ -2824,12 +2862,42 @@ export function activate(context: vscode.ExtensionContext): void {
         // Let the user set each parameter, prefilled with the default.
         const values: Record<string, unknown> = { ...pick.t.params };
         for (const [name, def] of Object.entries(pick.t.params)) {
+          // A list of points is asked for in an editor, one to a line, the
+          // same way a custom path is. It used to be a single box holding a
+          // flat run of numbers reshaped by counting in threes — nine of them
+          // for the polyline's default, forty-five for a real PCB trace, and
+          // a miscount by one silently shifted every vertex after it.
+          const template = def as number[] | number[][];
+          if (Array.isArray(template) && Array.isArray(template[0])) {
+            const shape = template as number[][];
+            const rule = pick.t.rows?.[name] ?? { noun: name, min: 2 };
+            const points = await askPointRows(context, {
+              name: `${id}-${name}`,
+              subject: `A ${pick.label.toLowerCase()}`,
+              noun: rule.noun,
+              header: [
+                `One point per line — x, y, z in metres, in the`,
+                `${pick.label.toLowerCase()}'s own frame, in order.`,
+                '',
+                'Numbers or expressions: 0, 0, gap',
+              ],
+              example: shape.map((row) => row.join(', ')),
+              width: shape[0].length,
+              min: rule.min,
+              max: rule.max,
+            });
+            if (!points) {
+              return; // cancelled: abandon the whole creation, as escape does
+            }
+            await closePointEditor(`${id}-${name}`);
+            values[name] = points;
+            continue;
+          }
           const isScalar = typeof def === 'number';
           const flat = isScalar ? String(def) : JSON.stringify(def);
           const text = await vscode.window.showInputBox({
             prompt: `${pick.label} — ${name}${PARAM_UNITS[name] ?? ''}`,
-            // brackets off: what the box takes is a list of numbers, and a
-            // nested default comes back to shape through reshape() below
+            // brackets off: what the box takes is a list of numbers
             value: isScalar ? flat : flat.replace(/[[\]]/g, ''),
             validateInput: (v) => {
               if (isScalar) {
@@ -2843,15 +2911,7 @@ export function activate(context: vscode.ExtensionContext): void {
           if (text === undefined) {
             return; // escaped: abandon the whole creation
           }
-          if (isScalar) {
-            values[name] = asDocumentValue(text);
-          } else {
-            const terms = parseTerms(text)!;
-            const template = def as number[] | number[][];
-            values[name] = Array.isArray(template[0])
-              ? reshape(terms, (template[0] as number[]).length)
-              : terms;
-          }
+          values[name] = isScalar ? asDocumentValue(text) : parseTerms(text)!;
         }
         const params: Record<string, unknown> = {
           object_id: id,
@@ -2899,23 +2959,24 @@ export function activate(context: vscode.ExtensionContext): void {
           // The one kind that keeps expressions: nothing here is divided or
           // scaled, so `0, 0, gap` goes in as written and stays tied to the
           // variable it names.
-          const points = await askPathPoints(
-            context,
-            `${obj.id}-move`,
-            [
+          const points = await askPointRows(context, {
+            name: `${obj.id}-move`,
+            subject: 'A path',
+            noun: 'steps',
+            header: [
               'One displacement per line — dx, dy, dz in metres, relative to',
               `where "${obj.label}" is now.`,
               '',
               'Numbers or expressions: 0, 0, gap',
-              'Save to apply. Close without saving to cancel.',
             ],
-            ['0, 0, 0', '0, 0, 0.5', '0, 0, 1'],
-            3,
-          );
+            example: ['0, 0, 0', '0, 0, 0.5', '0, 0, 1'],
+            width: 3,
+            min: 2,
+          });
           if (!points) {
             return;
           }
-          await closePathEditor(`${obj.id}-move`);
+          await closePointEditor(`${obj.id}-move`);
           displacement = points;
         } else {
           const total = kind.kind === 'linspace';
@@ -2996,23 +3057,24 @@ export function activate(context: vscode.ExtensionContext): void {
         }
         let angle: unknown;
         if (kind.kind === 'custom') {
-          const points = await askPathPoints(
-            context,
-            `${obj.id}-rotate`,
-            [
+          const points = await askPointRows(context, {
+            name: `${obj.id}-rotate`,
+            subject: 'A path',
+            noun: 'steps',
+            header: [
               `One angle per line, in degrees, relative to how "${obj.label}"`,
               'is turned now.',
               '',
               'Numbers or expressions: 90, 180, turn',
-              'Save to apply. Close without saving to cancel.',
             ],
-            ['0', '45', '90'],
-            1,
-          );
+            example: ['0', '45', '90'],
+            width: 1,
+            min: 2,
+          });
           if (!points) {
             return;
           }
-          await closePathEditor(`${obj.id}-rotate`);
+          await closePointEditor(`${obj.id}-rotate`);
           angle = points.map(([a]) => a); // one value to a line, not a triple
         } else {
           const total = kind.kind === 'linspace';
