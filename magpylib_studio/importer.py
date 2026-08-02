@@ -30,6 +30,12 @@ _PARAM_ATTRS = (
     "vertices",
     "faces",
     "current",
+    # TriangleSheet's current, and not optional: leaving it out built the
+    # object as TriangleSheet(vertices=..., faces=...), which magpylib rejects
+    # outright — so importing one lost it to `broken` while the import still
+    # reported ok. `meshing` and `magnetization` stay out on purpose: the
+    # first is a getFT parameter rather than state, the second is derived.
+    "current_densities",
     "moment",
     "pixel",
 )
@@ -168,7 +174,36 @@ def _document_from_named(named, names):
         _spec_from(obj, _unique_id(name, used_ids), used_ids, unnamed, names)
         for name, obj in unique_top
     ]
-    return {"objects": objects}, _flattening_warnings(unnamed)
+    return {"objects": objects}, _flattening_warnings(unnamed) + _inert_warnings(
+        objects
+    )
+
+
+def _inert_warnings(objects):
+    """What a CustomSource loses on the way in, said at the moment it happens.
+
+    Its physics is a Python function, and a document holds JSON — so the
+    object arrives with its geometry, its position and its style, and without
+    the only thing that made it a source. It used to arrive silently, draw in
+    the 3D view like anything else, and then end every field calculation in
+    the scene; the engine now leaves it out of those instead, which is only
+    honest if the import said so first.
+    """
+
+    def walk(specs):
+        for spec in specs:
+            if spec.get("type") == "misc.CustomSource":
+                yield spec["id"]
+            yield from walk(spec.get("children", ()))
+
+    names = list(walk(objects))
+    if not names:
+        return []
+    return [
+        f"{', '.join(names)}: a CustomSource's field function cannot be written "
+        "to a document, so it did not come across. The object is here, but it "
+        "contributes nothing and is left out of field calculations."
+    ]
 
 
 def _flattening_warnings(unnamed):

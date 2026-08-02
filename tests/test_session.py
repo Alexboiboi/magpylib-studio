@@ -2888,6 +2888,86 @@ def test_duplicate_around_needs_a_group():
     assert len(s._leaf_sources()) == 2
 
 
+def test_a_source_that_cannot_compute_does_not_take_the_scene_with_it(tmp_path):
+    """One imported CustomSource used to end every field in the scene.
+
+    Its physics is a Python function and the document holds JSON, so it comes
+    back without one. magpylib raises for the whole call when it meets such a
+    source, not just for that object — so a Cuboid that was perfectly well
+    defined lost its field too, and because the 3D view still drew, nothing
+    looked wrong until the Field view was opened.
+    """
+    path = tmp_path / "custom.py"
+    path.write_text(
+        "import numpy as np\n"
+        "import magpylib as magpy\n"
+        "\n"
+        "def f(field, observers):\n"
+        "    return np.tile([1.0, 2.0, 3.0], (len(observers), 1))\n"
+        "\n"
+        "cube1 = magpy.magnet.Cuboid(polarization=(0, 0, 1), dimension=(1, 1, 1))\n"
+        "c1 = magpy.misc.CustomSource(field_func=f)\n"
+        "sensor1 = magpy.Sensor(position=(2, 0, 0))\n"
+        "magpy.show(cube1, c1, sensor1)\n",
+        encoding="utf-8",
+    )
+    s = MagpylibStudioSession()
+    res = s.load_script(str(path))
+
+    # said at the moment it happens, not discovered later
+    assert res["ok"] is True
+    assert any("field function" in w and "c1" in w for w in res["warnings"])
+
+    # the Cuboid's field still computes, and the omission is named
+    field = s.get_field(points=[[1, 1, 1]])
+    assert field["skipped"] == ["CustomSource"]
+    assert any(abs(v) > 0 for v in field["values"][0])
+
+    # every field surface, not just the one that happened to be tested
+    assert s.get_field_map()["layout"]["title"]["text"].endswith(
+        "without CustomSource, which cannot compute a field"
+    )
+    s.get_field_figure()  # hands magpylib the scene itself; must not raise
+    s.get_figure()
+
+    # and a scene with nothing else in it says which of the two cases it is
+    only = MagpylibStudioSession()
+    only.load_script(str(path))
+    for oid in ("cube1", "sensor1"):
+        only.remove_object(oid)
+    with pytest.raises(ValueError, match="cannot compute a field"):
+        only.get_field(points=[[1, 1, 1]])
+
+
+def test_a_current_sheet_keeps_its_current_densities_through_an_import(tmp_path):
+    """The importer rebuilds an object from a fixed list of constructor
+    kwargs, and TriangleSheet's current was not on it. So it was rebuilt as
+    TriangleSheet(vertices=..., faces=...), which magpylib rejects outright —
+    the object went to `broken` while the import still reported ok, leaving
+    an empty scene behind a success."""
+    path = tmp_path / "sheet.py"
+    path.write_text(
+        "import magpylib as magpy\n"
+        "\n"
+        "t1 = magpy.current.TriangleSheet(\n"
+        "    current_densities=[(1, 0, 0)],\n"
+        "    vertices=[(0, 0, 0), (1, 0, 0), (0, 1, 0)],\n"
+        "    faces=[(0, 1, 2)],\n"
+        ")\n"
+        "magpy.show(t1)\n",
+        encoding="utf-8",
+    )
+    s = MagpylibStudioSession()
+    res = s.load_script(str(path))
+
+    assert res["ok"] is True
+    assert not res.get("broken")
+    assert [o["type"] for o in s.list_objects()] == ["current.TriangleSheet"]
+    # it is a source again: a sheet that carries no current has no field
+    assert s.get_field(points=[[0.2, 0.2, 0.5]])["magnitude"][0] > 0
+    assert "current_densities" in s.to_script()
+
+
 def test_jsonrpc_roundtrip():
     """Drive the stdio server end to end through pipes."""
     requests = [

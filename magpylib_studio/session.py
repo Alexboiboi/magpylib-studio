@@ -630,6 +630,32 @@ def _field_sources():
     ]
 
 
+def _computes_no_field(obj):
+    """A source that cannot produce a field at all, and must be left out of
+    every field calculation rather than allowed to end one.
+
+    Only a CustomSource can be in this state: its physics *is* its
+    `field_func`, and a Python function is not something a document can hold,
+    so one that arrives by script import is rebuilt without it. magpylib then
+    raises for the whole call rather than for that object, which meant a
+    single imported CustomSource took the field of every other source in the
+    scene with it — including magnets that were perfectly well defined. The
+    3D view still drew, so nothing looked wrong until the Field view was
+    opened. Skipping it is the only answer that yields a number at all; the
+    callers say which objects they skipped, because a field with a source
+    left out is only honest if it names the omission.
+    """
+    return isinstance(obj, magpy.misc.CustomSource) and obj.field_func is None
+
+
+def _skipped_note(skipped):
+    """The plot's own admission that a source is missing from it, for a
+    caller whose return value is a figure rather than a dict of numbers."""
+    if not skipped:
+        return ""
+    return f" — without {', '.join(skipped)}, which cannot compute a field"
+
+
 # Operations allowed inside batch() — mutating, per-object (plus clear).
 _BATCHABLE = {
     "apply_edit",
@@ -1973,8 +1999,40 @@ class MagpylibStudioSession:
         that nothing registered an id for. Asking magpylib what the scene
         contains is the only answer that stays true as the log grows ways to
         generate objects.
+
+        Sources that cannot compute a field are not among them — see
+        `_computes_no_field` — and `_inert_sources` is how a caller names what
+        it therefore left out.
         """
-        return list(self.scene.sources_all)
+        return [o for o in self.scene.sources_all if not _computes_no_field(o)]
+
+    def _inert_sources(self):
+        """The sources `_leaf_sources` leaves out, by label, for reporting."""
+        return [
+            o.style.label or type(o).__name__
+            for o in self.scene.sources_all
+            if _computes_no_field(o)
+        ]
+
+    def _sources_for_field(self):
+        """(sources to compute with, labels of any left out).
+
+        Raises when there is nothing left to compute with, telling the two
+        cases apart: "scene has no field sources" is a confusing thing to be
+        told about a scene you can see a source sitting in.
+        """
+        sources = self._leaf_sources()
+        skipped = self._inert_sources()
+        if not sources:
+            if skipped:
+                raise ValueError(
+                    "the only sources in the scene cannot compute a field ("
+                    + ", ".join(skipped)
+                    + "): a CustomSource is its field function, and importing "
+                    "one cannot carry a Python function into the document"
+                )
+            raise ValueError("scene has no field sources")
+        return sources, skipped
 
     def get_field(self, sensor_id=None, points=None, field="B"):
         """Total field of all sources, summed, at the given observers.
@@ -1985,9 +2043,7 @@ class MagpylibStudioSession:
         """
         if field not in _FIELDS:
             raise ValueError(f"field must be one of {sorted(_FIELDS)}, got {field!r}")
-        sources = self._leaf_sources()
-        if not sources:
-            raise ValueError("scene has no field sources")
+        sources, skipped = self._sources_for_field()
         if points is not None:
             observer = pts = np.atleast_2d(np.array(points, dtype=float))
         else:
@@ -2017,6 +2073,9 @@ class MagpylibStudioSession:
             **({} if points is not None else {"points": _wire(pts)}),
             "values": _wire(values),
             "magnitude": _wire(np.linalg.norm(values, axis=-1)),
+            # Named, not merely omitted: a reading that silently leaves out a
+            # source the caller can see in the scene is the wrong kind of quiet.
+            **({"skipped": skipped} if skipped else {}),
         }
 
     def _scene_extent(self):
@@ -2118,7 +2177,8 @@ class MagpylibStudioSession:
             log,
             template,
             labels=(f"{plane[0]} (m)", f"{plane[1]} (m)"),
-            subtitle=f"on {plane} at {'xyz'[inormal]} = {offset:g} m",
+            subtitle=f"on {plane} at {'xyz'[inormal]} = {offset:g} m"
+            + _skipped_note(data.get("skipped")),
         )
 
     def _sensor_field_map(
@@ -2137,9 +2197,7 @@ class MagpylibStudioSession:
             raise ValueError(
                 f"sensor {sensor_id!r} has no pixel grid — use set_pixel_grid first"
             )
-        sources = self._leaf_sources()
-        if not sources:
-            raise ValueError("scene has no field sources")
+        sources, skipped = self._sources_for_field()
         func = getattr(magpy, _FIELDS[field][0])
         values = np.array(func(sources, sensor, sumup=True), dtype=float)
         path_note = ""
@@ -2163,7 +2221,8 @@ class MagpylibStudioSession:
             template,
             labels=(f"sensor {'xyz'[iu]} (m)", f"sensor {'xyz'[iv]} (m)"),
             subtitle=f"over {sensor.style.label or sensor_id} "
-            f"({pixel.shape[0]}×{pixel.shape[1]} pixels{path_note})",
+            f"({pixel.shape[0]}×{pixel.shape[1]} pixels{path_note})"
+            + _skipped_note(skipped),
         )
 
     def _heatmap(
@@ -2229,8 +2288,19 @@ class MagpylibStudioSession:
         field at the scene's sensors along their paths. `output` is e.g.
         "B", "Bx", "Bxy", "H", or a list of those (magpylib semantics);
         animation animates the path like the 3D view."""
+        # magpylib computes this one itself, from whatever it is handed, so
+        # the scene cannot go in whole while it holds a source that cannot
+        # compute — that raises for the entire plot. Hand it the sources that
+        # can, plus the sensors this plot is *of*.
+        # Passed as loose arguments, not wrapped in a Collection: these
+        # objects already have a parent, and magpylib refuses to re-home them.
+        skipped = self._inert_sources()
+        subject = [self.scene]
+        if skipped:
+            sources, _ = self._sources_for_field()
+            subject = [*sources, *self.scene.sensors_all]
         fig = magpy.show(
-            self.scene,
+            *subject,
             backend="plotly",
             output=output,
             animation=animation,
@@ -2241,6 +2311,8 @@ class MagpylibStudioSession:
             fig.update_layout(
                 xaxis_title="path index", yaxis_title=f"{output} ({unit})"
             )
+        if skipped:
+            fig.update_layout(title=_skipped_note(skipped).lstrip(" —").strip())
         if template:
             fig.layout.template = template
         return json.loads(fig.to_json())
