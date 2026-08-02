@@ -7,15 +7,15 @@ All notable changes to the Magpylib Studio extension.
 ### Added
 
 - **Move By… and Rotate… ask how the path is described, not just how long it
-  is.** There was one shape of path on offer — a total, divided into equal
-  steps — and no way to say the two other things people were actually holding.
-  Three kinds now:
+  is.** There was one shape of path on offer — a total, divided into equal steps
+  — and no way to say the two other things people were actually holding. Three
+  kinds now:
   - **Even spread**, which is what the prompt always did: a total and a number
     of steps. Exports as `np.linspace`.
-  - **By increment**, which asks for one step and repeats it. "1 mm per step"
-    is often the physical quantity and the span is the derived one; typing the
-    span and dividing it back was arithmetic done in the wrong direction.
-    Exports as `np.arange`.
+  - **By increment**, which asks for one step and repeats it. "1 mm per step" is
+    often the physical quantity and the span is the derived one; typing the span
+    and dividing it back was arithmetic done in the wrong direction. Exports as
+    `np.arange`.
   - **Custom points**, which opens the path as a document, one step a line, and
     applies it when you save. A quick-pick chain cannot ask for twenty points
     and an input box cannot hold them legibly; an editor can, and brings undo,
@@ -25,24 +25,62 @@ All notable changes to the Magpylib Studio extension.
     numbers.
 
   Which call built a path is recorded, because the points cannot say: about a
-  quarter of increment-built paths are also reproduced exactly by a linspace,
-  so without it the same input would export two different ways depending on
-  whether the arithmetic happened to coincide. The `move` and `rotate` tools
-  take the same `spacing` argument, so a model can build these too.
+  quarter of increment-built paths are also reproduced exactly by a linspace, so
+  without it the same input would export two different ways depending on whether
+  the arithmetic happened to coincide. The `move` and `rotate` tools take the
+  same `spacing` argument, so a model can build these too.
 
+- **A run of points can be stated as the curve that draws it.** A parameter or a
+  path may now hold a formula and how often to sample it, rather than the points
+  it comes to:
+
+  ```
+  count: =round(per_turn * turns) + 1
+  of:    radius * cos(tau * turns * t)
+         radius * sin(tau * turns * t)
+         height * t - height / 2
+  ```
+
+  Held as points instead, a helix is sixty rows of that same expression with a
+  different number in each — which nobody writes, and which has nowhere to put
+  the one quantity such a curve most wants to vary: how finely it is drawn. A
+  list of rows can say how many points it _has_, never how many it _wants_, so
+  the resolution was the only quantity in a parametric scene that no variable
+  could reach. It now takes a slider like everything else.
+
+  The script says what a person would have written — one `np.linspace` for the
+  sample and one vectorised expression per column — because the document says
+  the same thing. `cos` becomes `np.cos` on the way out and `cos` again on the
+  way in. The Inspector shows the formula rather than the points it drew, and
+  read-only: handing sixty rows to the table editor would let one stray edit
+  replace a helix with the numbers it happened to make. `min` and `max` are
+  refused in a template, where they are refused at once rather than discovered
+  at export: over a whole sample neither is elementwise, and there is no
+  vectorised spelling that means the same thing.
+
+- **A "Helical winding" example**, which is the thing that needed it: every
+  other built-in scene is made of patterns — copies of one object — and a
+  continuous winding cannot be. The solenoid example stacks separate loops; this
+  is one wire, and what it is is a formula.
 - **A polyline's vertices are typed the same way, in the same editor.** Add
   Object… asked for them as a flat run of numbers in one box — nine for the
-  polyline's own default, forty-five for a real PCB trace — and reshaped them
-  by counting in threes, so a miscount by one silently shifted every vertex
-  after it. They now open as a document, one point to a line, prefilled with
-  the defaults. The Inspector had already concluded that a table of numbers on
-  one line "is not an editor, it is a wall" and given editing a proper widget;
+  polyline's own default, forty-five for a real PCB trace — and reshaped them by
+  counting in threes, so a miscount by one silently shifted every vertex after
+  it. They now open as a document, one point to a line, prefilled with the
+  defaults. The Inspector had already concluded that a table of numbers on one
+  line "is not an editor, it is a wall" and given editing a proper widget;
   creation is now the same. The tetrahedron's four corners go the same way, and
   a wrong count is caught while the editor is still open rather than by the
   engine after the whole creation.
 
 ### Changed
 
+- **The document format is version 2.** A scene saved by this release is refused
+  by an older one, with a message saying so, rather than opened and quietly
+  emptied: a run of points stated as a formula means nothing to version 1, which
+  read the template as expressions over an undefined `t`, reported the load as
+  fine and dropped the object. Scenes saved by older releases open here as
+  before and are stamped 2 when saved.
 - **Add Object… shows the shapes it is offering.** The menu named ten classes in
   words while the Scene tree drew each of them as a wireframe; picking a
   cylinder segment out of a list of nouns and then seeing what you got is a
@@ -96,10 +134,18 @@ All notable changes to the Magpylib Studio extension.
   without their origin are still written compactly, as the same call without its
   first point — they are exactly that, and re-deriving them instead would turn a
   stored `0.55` into `0.5499999999999999`.
+- **A constructor parameter that is a run of points is written as the call that
+  makes it.** A sensor walking twenty-five positions exported as twenty-five
+  triples, because the compact spelling was only ever offered to transform paths
+  — though a parameter can be just as long and made the same way. It now reads
+  `position=np.linspace((0, 0, -2.5), (0, 0, 2.5), 25)`. Only tables of points:
+  `dimension=(1, 1, 1)` is three numbers describing one box, and
+  `np.linspace(1.0, 1.0, 3)` reproduces it exactly while saying something absurd
+  about it.
 - **An exported script imports the maths its expressions use.** An expression
-  goes into the script verbatim, which is what keeps the script parametric —
-  but nothing imported what it called, so a scene using `sqrt`, `cos`, `pi` or
-  `tau` anywhere exported a script that raised `NameError` on its first line of
+  goes into the script verbatim, which is what keeps the script parametric — but
+  nothing imported what it called, so a scene using `sqrt`, `cos`, `pi` or `tau`
+  anywhere exported a script that raised `NameError` on its first line of
   geometry. That included `sqrt(2) * radius`, which is the worked example the
   expression help itself offers. The script now carries `from math import …`
   with exactly the names it uses, and nothing when it uses none; `abs`, `min`,

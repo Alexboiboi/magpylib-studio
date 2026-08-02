@@ -634,8 +634,8 @@ def test_load_example():
 
 
 def test_every_example_builds_and_is_worth_opening():
-    """Four scenes, each leaning on a different feature — an example is the
-    shortest documentation there is, so each has to show something."""
+    """Every scene leans on a different feature — an example is the shortest
+    documentation there is, so each has to show something."""
     import numpy as np
 
     from magpylib_studio.session import EXAMPLES
@@ -655,7 +655,7 @@ def test_every_example_builds_and_is_worth_opening():
         exec_script(s.to_script())  # and each exports as runnable magpylib
 
     # between them the examples show every way of generating objects, which
-    # is the reason for having four rather than one
+    # is the reason for having several rather than one
     assert {"duplicate_around", "duplicate_along", "mirror"} <= shown
 
     # the counts are what a variable changes, not what the document declares
@@ -1693,6 +1693,227 @@ def test_a_path_that_carries_its_own_origin_continues_from_minus_one():
     assert held(built({"start": -1})) == 0
     assert held(built({})) == 1  # "auto": the join is a repeated frame
     assert len(built({"start": -1})) == len(built({})) - 1
+
+
+def test_the_spiral_example_stays_a_helix_when_its_variables_move():
+    """Geometry no pattern step describes, and it is still parametric.
+
+    Every other example is built from patterns — copies of one object — and a
+    continuous helical winding cannot be. What it is is a formula, so the
+    document holds the formula: not sixty rows of the same expression with a
+    different number in each, which is what it would come to and which has
+    nowhere to put how finely the curve is drawn.
+
+    That is what this checks past the geometry — that the count follows its
+    variables like everything else. Twice the turns is twice the wire at the
+    same points per turn, and asking for more points per turn gets them.
+    """
+    import numpy as np
+
+    s = MagpylibStudioSession()
+    assert s.load_example("spiral") == {"ok": True}
+
+    def wire():
+        return np.array(s._objs["winding"].vertices, dtype=float)
+
+    assert len(wire()) == 61  # 20 a turn, 3 turns, and the point they share
+    assert np.allclose(np.hypot(wire()[:, 0], wire()[:, 1]), 1.2)
+
+    for name, value in (("radius", 2.0), ("turns", 6.0), ("height", 4.8)):
+        assert s.set_variable(name, value)["ok"]
+    height = 4.8
+    # a coil is wound to a length and a turn count; what that leaves between
+    # the turns is the answer, and it follows without being set
+    pitch = next(v for v in s.get_variables()["variables"] if v["name"] == "pitch")
+    assert pitch["value"] == pytest.approx(height / 6.0)
+    assert len(wire()) == 121  # twice the turns, so twice the wire
+    assert np.allclose(np.hypot(wire()[:, 0], wire()[:, 1]), 2.0)
+    assert np.allclose(
+        [wire()[:, 2].min(), wire()[:, 2].max()], [-height / 2, height / 2]
+    )
+    # and it is a helix, not a circle drawn six times: the sweep follows turns
+    angle = np.unwrap(np.arctan2(wire()[:, 1], wire()[:, 0]))
+    assert np.isclose(abs(angle[-1] - angle[0]), 6.0 * 2 * np.pi)
+
+    # the resolution is a variable, which is the thing rows could never hold
+    assert s.set_variable("per_turn", 40)["ok"]
+    assert len(wire()) == 241
+    # a whole count out of quantities that are not whole
+    assert s.set_variable("turns", 3.3)["ok"]
+    assert len(wire()) == 133
+
+
+def _sampled_helix(count="=per_turn * turns + 1"):
+    return {
+        "sampled": {
+            "count": count,
+            "of": [
+                "=radius * cos(tau * turns * t)",
+                "=radius * sin(tau * turns * t)",
+                "=pitch * turns * t",
+            ],
+        }
+    }
+
+
+def test_a_run_of_points_stated_as_a_formula_is_written_as_one(tmp_path):
+    """The script says what a person would have written, because so does the
+    document.
+
+    Held as points, a helix is sixty rows of one expression with a different
+    number in each: nobody writes that, and it exported as nobody writes it.
+    Held as the formula, it is one `np.linspace` and one vectorised expression
+    a column — and the scalar `cos` the document holds becomes the `np.cos`
+    that spans the whole sample, and comes back a `cos` on the way in.
+    """
+    s = MagpylibStudioSession()
+    for name, value in (
+        ("radius", 1.2),
+        ("turns", 3.0),
+        ("pitch", 0.5),
+        ("per_turn", 20),
+    ):
+        assert s.set_variable(name, value)["ok"]
+    assert s.add_object(
+        "coil",
+        "current.Polyline",
+        params={"current": 400, "vertices": _sampled_helix()},
+    ) == {"ok": True}
+
+    script = s.to_script()
+    assert "t = np.linspace(0, 1, int(per_turn * turns + 1))" in script
+    assert "np.column_stack([radius * np.cos(tau * turns * t)" in script
+    assert max(len(line) for line in script.splitlines()) < 250
+    assert "from math import tau" in script  # cos and sin went to numpy
+    assert len(exec_script(script)["coil"].vertices) == 61
+
+    written = tmp_path / "helix.py"
+    written.write_text(script + "\n", encoding="utf-8")
+    back = MagpylibStudioSession()
+    assert back.apply_script(str(written)) == {"ok": True, "mode": "parsed"}
+    assert back.to_dict() == s.to_dict()  # the formula, not the points it made
+    assert back.to_script() == script
+
+
+def test_the_count_of_a_sampled_run_is_a_variable_like_any_other():
+    """The reason for the node. A list of rows can say how many points it has
+    and never how many it wants, so the one quantity a curve most wants to
+    vary was the one a slider could not reach."""
+    s = MagpylibStudioSession()
+    for name, value in (("radius", 1.0), ("turns", 2.0), ("pitch", 0.5)):
+        s.set_variable(name, value)
+    s.set_variable("per_turn", 10)
+    s.add_object("coil", "current.Polyline", params={"vertices": _sampled_helix()})
+
+    assert len(s._objs["coil"].vertices) == 21
+    assert s.set_variable("per_turn", 30)["ok"]
+    assert len(s._objs["coil"].vertices) == 61
+    assert s.set_variable("turns", 4.0)["ok"]
+    assert len(s._objs["coil"].vertices) == 121
+
+
+def test_a_sampled_run_refuses_what_it_could_not_write_down():
+    """Refused where it is built, not discovered at export.
+
+    `min(a, b)` over a whole sample is not the smaller of each pair, so there
+    is no vectorised spelling that means the same thing — and a scene that can
+    be built but never written down is worse than one that says so at once.
+    A count that is not a whole number of points is the same kind of refusal.
+    """
+    s = MagpylibStudioSession()
+    s.set_variable("n", 8)
+    bad_call = s.add_object(
+        "coil",
+        "current.Polyline",
+        params={"vertices": {"sampled": {"count": "=n", "of": ["=min(t, 0.5)", "=t"]}}},
+    )
+    assert bad_call["ok"] is False
+    assert "min" in bad_call["error"]
+
+    bad_count = s.add_object(
+        "coil2", "current.Polyline", params={"vertices": _sampled_helix(count=1)}
+    )
+    assert bad_count["ok"] is False
+    assert "2 or more" in bad_count["error"]
+
+
+def test_a_script_that_names_its_own_linspace_is_not_read_as_a_formula(tmp_path):
+    """A hand-written script binding a run of points to a name.
+
+    `to_script` only ever assigns a linspace as the sample of a formula, so
+    the parser took every such assignment for one — and `pts = np.linspace(
+    (0,0,0), (1,1,1), 5)` became a template of itself. The object failed to
+    build and `apply_script` reported success over a scene that had lost it,
+    which is the worst way for an importer to be wrong.
+
+    A sample runs between two numbers. A pair of points is a script holding
+    its own vertices, and comes back as those.
+    """
+    script = tmp_path / "byhand.py"
+    script.write_text(
+        "import magpylib as magpy\n"
+        "import numpy as np\n\n"
+        "pts = np.linspace((0, 0, 0), (1, 1, 1), 5)\n"
+        "wire = magpy.current.Polyline(current=1, vertices=pts)\n\n"
+        "magpy.show(wire, backend='plotly')\n",
+        encoding="utf-8",
+    )
+    s = MagpylibStudioSession()
+    result = s.apply_script(str(script))
+    assert result["ok"] is True
+    assert not result.get("broken")
+    assert len(s.to_dict()["objects"]) == 1
+    assert len(s._objs["wire"].vertices) == 5
+
+
+def test_a_sample_does_not_take_a_name_the_script_is_using():
+    """A template always calls its sample `t`, and a scene may call something
+    else that too.
+
+    The sample is assigned in the script, so the two would collide and the one
+    written second would win. The script picks another name and rewrites the
+    template with it; reading it back puts it under `t` again, which is the
+    only name a template ever uses and therefore the only one to come back to.
+    """
+    import numpy as np
+
+    s = MagpylibStudioSession()
+    assert s.set_variable("t", 7.0)["ok"]  # a scene variable of that name
+    assert s.add_object(
+        "coil",
+        "current.Polyline",
+        params={"vertices": {"sampled": {"count": 5, "of": ["=t", "=t * 2", 0]}}},
+    ) == {"ok": True}
+
+    script = s.to_script()
+    assert "t_ = np.linspace(0, 1, 5)" in script
+    assert "t = 7.0" in script  # and the variable still says what it said
+    assert len(exec_script(script)["coil"].vertices) == 5
+    # the sample shadows the variable, so the wire runs 0..1, not 7..14
+    assert np.allclose(np.array(s._objs["coil"].vertices)[:, 1], [0, 0.5, 1, 1.5, 2])
+
+
+def test_a_sampled_node_stores_only_what_it_does_not_default():
+    """`normalized` promises a document is what reading its script back gives.
+
+    The script cannot say "over the unit interval, calling the sample t" —
+    those are what it means by saying nothing — so a document that spelled
+    them out came back without them and stopped being its own fixed point.
+    """
+    # a constant column too: it has to be as long as the sample, which the
+    # script says with np.full_like and the document says with the number
+    written = {
+        "sampled": {"count": 5, "over": [0.0, 1.0], "name": "t", "of": ["=t", 0, "=t"]}
+    }
+    s = MagpylibStudioSession()
+    assert s.load_scene(
+        {"objects": [{"id": "s", "type": "Sensor", "params": {"position": written}}]}
+    ) == {"ok": True}
+
+    stored = s.to_dict()["objects"][0]["params"]["position"]["sampled"]
+    assert "over" not in stored and "name" not in stored
+    assert stored == {"count": 5, "of": ["=t", 0, "=t"]}
+    assert "np.full_like(t, 0)" in s.to_script()
 
 
 def test_a_script_imports_the_maths_its_expressions_use(tmp_path):

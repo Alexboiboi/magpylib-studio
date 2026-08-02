@@ -345,14 +345,22 @@ function rowRule(request: PointRowsRequest): string {
  * reported by number and the document stays open, so saving again after a fix
  * is the whole correction.
  */
+/** Where the scratch document for one of these lives. One function, so the
+ *  editor closed afterwards is exactly the one that was opened. */
+function pointsUri(context: vscode.ExtensionContext, name: string): vscode.Uri {
+  const dir = context.storageUri ?? context.globalStorageUri;
+  return vscode.Uri.joinPath(dir, `${name}.points.txt`);
+}
+
 async function askPointRows(
   context: vscode.ExtensionContext,
   request: PointRowsRequest,
 ): Promise<(number | string)[][] | undefined> {
   const { name, width, min, max } = request;
-  const dir = context.storageUri ?? context.globalStorageUri;
-  await vscode.workspace.fs.createDirectory(dir);
-  const uri = vscode.Uri.joinPath(dir, `${name}.points.txt`);
+  await vscode.workspace.fs.createDirectory(
+    context.storageUri ?? context.globalStorageUri,
+  );
+  const uri = pointsUri(context, name);
   // The count rule and the save/cancel promise are the helper's own, so it
   // writes them: a caller repeating them is a caller that can contradict them.
   const header = [
@@ -417,14 +425,21 @@ async function askPointRows(
   });
 }
 
-/** Close the scratch document points were typed into, once they are read. */
-async function closePointEditor(name: string) {
+/** Close the scratch document points were typed into, once they are read.
+ *
+ * Matched on the whole uri, not on the end of it: `cube-move.points.txt` is
+ * the tail of `mycube-move.points.txt`, so a suffix test closed a second
+ * object's editor along with the first — which cancels the prompt still
+ * waiting on it and takes whatever was typed there with it.
+ */
+async function closePointEditor(context: vscode.ExtensionContext, name: string) {
+  const wanted = pointsUri(context, name).toString();
   const open = vscode.window.tabGroups.all
     .flatMap((group) => group.tabs)
     .filter(
       (tab) =>
         tab.input instanceof vscode.TabInputText &&
-        tab.input.uri.path.endsWith(`${name}.points.txt`),
+        tab.input.uri.toString() === wanted,
     );
   await vscode.window.tabGroups.close(open);
 }
@@ -2889,7 +2904,7 @@ export function activate(context: vscode.ExtensionContext): void {
             if (!points) {
               return; // cancelled: abandon the whole creation, as escape does
             }
-            await closePointEditor(`${id}-${name}`);
+            await closePointEditor(context, `${id}-${name}`);
             values[name] = points;
             continue;
           }
@@ -2976,7 +2991,7 @@ export function activate(context: vscode.ExtensionContext): void {
           if (!points) {
             return;
           }
-          await closePointEditor(`${obj.id}-move`);
+          await closePointEditor(context, `${obj.id}-move`);
           displacement = points;
         } else {
           const total = kind.kind === 'linspace';
@@ -3074,7 +3089,7 @@ export function activate(context: vscode.ExtensionContext): void {
           if (!points) {
             return;
           }
-          await closePointEditor(`${obj.id}-rotate`);
+          await closePointEditor(context, `${obj.id}-rotate`);
           angle = points.map(([a]) => a); // one value to a line, not a triple
         } else {
           const total = kind.kind === 'linspace';

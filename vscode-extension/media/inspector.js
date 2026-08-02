@@ -424,6 +424,44 @@ async function loadParams() {
       );
       row.append(label, wrap, document.createElement("span"));
       box.appendChild(row);
+    } else if (p.kind === "sampled") {
+      // A run of points stated as the curve that draws them. The points are
+      // what it comes to, not what it is: handing them to the table editor
+      // below would let one stray edit replace a helix with the sixty points
+      // it happened to draw, and the variables it followed with nothing. So
+      // the formula is what you see, and it is edited where it is written.
+      const spec = p.written.sampled;
+      const shown = document.createElement("details");
+      shown.className = "matrix";
+      const summary = document.createElement("summary");
+      summary.textContent =
+        p.name +
+        " — " +
+        shapeOf(p.value) +
+        ", sampled" +
+        (p.unit ? " (" + p.unit + ")" : "");
+      summary.title = p.doc;
+      const area = document.createElement("textarea");
+      area.readOnly = true;
+      area.spellcheck = false;
+      const terms = Array.isArray(spec.of) ? spec.of : [spec.of];
+      area.value = terms
+        .map((term) => String(term).replace(/^=/, ""))
+        .concat(
+          "for t in " +
+            JSON.stringify(spec.over || [0, 1]) +
+            ", " +
+            String(spec.count).replace(/^=/, "") +
+            " points",
+        )
+        .join("\n");
+      area.rows = Math.min(8, terms.length + 2);
+      const hint = document.createElement("div");
+      hint.className = "hint";
+      hint.textContent =
+        "Drag the variables it is written in terms of, or edit it in the script tab.";
+      shown.append(summary, area, hint);
+      box.appendChild(shown);
     } else {
       // Tables (vertices, faces, sensor pixels). A 12x12 pixel grid on
       // one line of JSON is not an editor, it is a wall — so the shape is
