@@ -24,8 +24,8 @@ Protocol surface (all JSON-serializable in/out):
   remove_object(object_id)             -> {"ok": bool, ...} (subtree if Collection)
   move_object(object_id, parent?)      -> {"ok": bool, "error"?: str}
   set_param(object_id, name, value)    -> {"ok": bool, "error"?: str}
-  move(object_id, displacement, start?)          -> {"ok": bool, ...} (list = path)
-  rotate(object_id, angle, axis?, anchor?, start?) -> {"ok": bool, ...} (list = path)
+  move(object_id, displacement, start?, spacing?)  -> {"ok": bool, ...} (list = path)
+  rotate(object_id, angle, axis?, anchor?, start?, spacing?) -> {"ok": ...} (list = path)
   set_transform(object_id, position?, orientation?) -> {"ok": bool, ...} (absolute)
   clear_path(object_id, index?)        -> {"ok": bool, "error"?: str}
   duplicate_around(object_id, count, axis?, anchor?, spin?) -> {"ok": bool, ...}
@@ -1033,6 +1033,72 @@ def _linspace_lit(value):
     return None
 
 
+def _arange_lit(value):
+    """`np.arange(n) * step` where that reproduces the path exactly, else None.
+
+    The other way an even ramp gets built: an increment per step, rather than
+    a total to divide up. Both calls make evenly spaced points and about a
+    quarter of the time both describe the very same ones, so which of them to
+    write is not a question the numbers can answer — the op says, in
+    `spacing`, and this writes what it says.
+
+    It earns its own spelling by being exact where the other cannot be:
+    `i * step` is one multiply, the same one in every language that has
+    doubles, so a path typed as an increment survives the trip through the
+    script bit for bit. A linspace has to recover the step by dividing, and
+    only agrees with whoever built the path if they divided the same way.
+    """
+    if not isinstance(value, list) or len(value) < 3:
+        return None
+    try:
+        path = np.asarray(value, dtype=float)
+    except (TypeError, ValueError):
+        return None  # holds expressions: it is parametric, leave it alone
+    if path.ndim not in (1, 2) or np.any(path[0]):
+        return None  # a ramp of increments starts from where the object is
+    count = len(path)
+    # A move is a path of points and a spin a path of angles; the increment
+    # broadcasts down the first axis either way, which for points means
+    # saying so — `arange(n) * (dx, dy, dz)` is a shape error, not a path.
+    tail = "" if path.ndim == 1 else "[:, None]"
+    index = np.arange(count).reshape(-1, *([1] * (path.ndim - 1)))
+    if not np.array_equal(index * path[1], path):
+        return None
+    return f"np.arange({count}){tail} * {_lit(path[1].tolist())}"
+
+
+#: How a path was built, where knowing changes how it is written back out.
+#: Absent means "a total spread over n steps", which is what everything
+#: before this recorded and what a hand-written script most often says.
+_SPACINGS = ("arange",)
+
+
+def _spacing_error(spacing):
+    """Refuse a `spacing` nobody writes, rather than silently ignoring it —
+    a caller who misspells it should hear so, not get a path that quietly
+    exports as something else."""
+    if spacing is None or spacing in _SPACINGS:
+        return None
+    return {"ok": False, "error": f"unknown spacing {spacing!r}, expected 'arange'"}
+
+
+def _path_call(op):
+    """The one call that spells this op's path, or None if none does.
+
+    The script writer and the question of whether the script needs numpy at
+    all are the same question, so they ask it in the same place.
+    """
+    value = op.get(_PATH_ARG.get(op.get("op"), ""))
+    if value is None:
+        return None
+    if op.get("spacing") == "arange":
+        # Recorded as built. The fallback is not politeness: editing the step
+        # of a past event can leave points no arange makes, and a path that
+        # has stopped being one kind of ramp may still be the other.
+        return _arange_lit(value) or _linspace_lit(value)
+    return _linspace_lit(value)
+
+
 def _op_source(op):
     """One recorded transform op -> the magpylib call that produced it."""
     kind = op.get("op", "rotate_from_angax")
@@ -1041,12 +1107,12 @@ def _op_source(op):
     if kind == "orientation":
         return f"orientation = R.from_rotvec({_lit(op['rotvec'])}, degrees=True)"
     if kind == "move":
-        args = _linspace_lit(op["displacement"]) or _lit(op["displacement"])
+        args = _path_call(op) or _lit(op["displacement"])
     elif kind == "rotate_from_angax":
-        angle = _linspace_lit(op["angle"]) or _lit(op["angle"])
+        angle = _path_call(op) or _lit(op["angle"])
         args = f"{angle}, {_lit(op['axis'])}"
     else:  # rotate_from_rotvec
-        rotvec = _linspace_lit(op["rotvec"]) or _lit(op["rotvec"])
+        rotvec = _path_call(op) or _lit(op["rotvec"])
         args = f"{rotvec}, degrees=True"
     anchor = op.get("anchor")
     if anchor is not None:
@@ -2452,20 +2518,34 @@ class MagpylibStudioSession:
 
         return self._mutate_doc(mutate, label)
 
-    def move(self, object_id, displacement, start="auto"):
+    def move(self, object_id, displacement, start="auto", spacing=None):
         """Move by `displacement` (relative), magpylib semantics: a list of
         displacements creates/extends a path, and a Collection carries its
-        children along."""
+        children along. `spacing="arange"` records that the path was built
+        from a per-step increment, so the script writes it as the
+        `np.arange` call it came from."""
         op = {"op": "move", "displacement": displacement}
+        error = _spacing_error(spacing)
+        if error:
+            return error
+        if spacing:
+            op["spacing"] = spacing
         if start != "auto":
             op["start"] = start
         return self._append_ops(object_id, [op], f"move {object_id}")
 
-    def rotate(self, object_id, angle, axis="z", anchor=None, start="auto"):
+    def rotate(
+        self, object_id, angle, axis="z", anchor=None, start="auto", spacing=None
+    ):
         """Rotate by `angle` degrees about `axis` (relative). `anchor` orbits
         that point (0 = origin); a list of angles creates/extends a path; on a
-        Collection the whole group rotates."""
+        Collection the whole group rotates. `spacing` is as in `move`."""
         op = {"op": "rotate_from_angax", "angle": angle, "axis": axis}
+        error = _spacing_error(spacing)
+        if error:
+            return error
+        if spacing:
+            op["spacing"] = spacing
         if anchor is not None:
             op["anchor"] = anchor
         if start != "auto":
@@ -3535,11 +3615,9 @@ class MagpylibStudioSession:
         events = [e for e in log if e.get("op") != "create"]
         mirrors = [e for e in events if e.get("op") == "mirror"]
         needs_scipy = mirrors or any(e.get("op") == "orientation" for e in events)
-        # np.linspace is how an evenly spaced path is written; the mirror
-        # helper needs numpy too, and either is enough to import it.
-        needs_numpy = mirrors or any(
-            _linspace_lit(e.get(_PATH_ARG.get(e.get("op"), ""))) for e in events
-        )
+        # np.linspace and np.arange are how an evenly spaced path is written;
+        # the mirror helper needs numpy too, and either is enough to import it.
+        needs_numpy = mirrors or any(_path_call(e) for e in events)
         lines = ["import magpylib as magpy"]
         if needs_numpy:
             lines.append("import numpy as np")

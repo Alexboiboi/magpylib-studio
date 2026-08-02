@@ -997,6 +997,13 @@
             },
             "start": {
               "description": "Path index to apply from; -1 appends to the current path."
+            },
+            "spacing": {
+              "type": "string",
+              "enum": [
+                "arange"
+              ],
+              "description": "Set to 'arange' when the path is a fixed increment repeated (angle[i] = i*step), so the exported script writes it as np.arange rather than np.linspace. Omit for a total spread over n steps."
             }
           },
           "required": [
@@ -1044,6 +1051,13 @@
             },
             "start": {
               "description": "Path index to apply from; -1 appends to the current path."
+            },
+            "spacing": {
+              "type": "string",
+              "enum": [
+                "arange"
+              ],
+              "description": "Set to 'arange' when the path is a fixed increment repeated (displacement[i] = i*step), so the exported script writes it as np.arange rather than np.linspace. Omit for a total spread over n steps."
             }
           },
           "required": [

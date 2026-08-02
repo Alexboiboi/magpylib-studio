@@ -4,6 +4,32 @@ All notable changes to the Magpylib Studio extension.
 
 ## [Unreleased]
 
+### Added
+
+- **Move By… and Rotate… ask how the path is described, not just how long it
+  is.** There was one shape of path on offer — a total, divided into equal
+  steps — and no way to say the two other things people were actually holding.
+  Three kinds now:
+  - **Even spread**, which is what the prompt always did: a total and a number
+    of steps. Exports as `np.linspace`.
+  - **By increment**, which asks for one step and repeats it. "1 mm per step"
+    is often the physical quantity and the span is the derived one; typing the
+    span and dividing it back was arithmetic done in the wrong direction.
+    Exports as `np.arange`.
+  - **Custom points**, which opens the path as a document, one step a line, and
+    applies it when you save. A quick-pick chain cannot ask for twenty points
+    and an input box cannot hold them legibly; an editor can, and brings undo,
+    paste and multiple cursors with it. This is also the only kind that keeps
+    expressions — nothing here is divided or scaled, so `0, 0, gap` goes in as
+    written and stays tied to the variable, where an even path still needs
+    numbers.
+
+  Which call built a path is recorded, because the points cannot say: about a
+  quarter of increment-built paths are also reproduced exactly by a linspace,
+  so without it the same input would export two different ways depending on
+  whether the arithmetic happened to coincide. The `move` and `rotate` tools
+  take the same `spacing` argument, so a model can build these too.
+
 ### Changed
 
 - **Add Object… shows the shapes it is offering.** The menu named ten classes in
@@ -59,6 +85,17 @@ All notable changes to the Magpylib Studio extension.
   without their origin are still written compactly, as the same call without its
   first point — they are exactly that, and re-deriving them instead would turn a
   stored `0.55` into `0.5499999999999999`.
+- **A path from Move By… or Rotate… is spaced the way the call that writes it
+  spaces it.** Both wrote `(c * i) / steps`; `np.linspace` divides first and
+  scales by the index, and where any component of that step is zero it scales
+  the total by the index fraction instead. The two agree in the last bit only
+  when the displacement is a clean 1 — which the prompt's own default is, so
+  every hand test passed while 93% of real displacements silently lost their
+  compact form. `0, 0, 1` over 20 steps came out as one `np.linspace` call;
+  `1, 2, 3` over 7, or `0, 0, 0.1` over 100, came out as a hundred triples on
+  one line. Both of numpy's branches are now mirrored exactly, and the values
+  numpy prints are pinned in a test, because this is one language implementing
+  another's arithmetic and nothing else would notice it drifting.
 - **Importing a script now says what running it flattened.** A loop of eight
   current loops became eight separate objects with no mention that anything had
   been lost, so the next edit changed one of eight where the script had one

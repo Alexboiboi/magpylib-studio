@@ -212,7 +212,7 @@ const OBJECT_TEMPLATES: {
  * (`any_step_zero`, numpy/_core/function_base.py). Both branches are here
  * because both are ordinary: `0, 0, 1` takes the second one.
  */
-function evenRamp(total: number[], steps: number): number[][] {
+export function evenRamp(total: number[], steps: number): number[][] {
   const step = total.map((c) => c / steps);
   const anyStepZero = step.some((s) => s === 0);
   const poses = Array.from({ length: steps + 1 }, (_, i) =>
@@ -223,23 +223,64 @@ function evenRamp(total: number[], steps: number): number[][] {
 }
 
 /**
- * Ask whether a transform applies once or builds an animation path; for a
- * path, the number of steps and magpylib's `start` (passed through verbatim:
- * "auto" appends the new path, an index applies from there).
+ * The poses of a ramp of increments: `i * step`, which is exactly what the
+ * `np.arange(n)[:, None] * step` the script writes computes.
+ *
+ * Unlike an even spread this needs no care to stay reproducible — one multiply
+ * by a whole number is the same multiply in every language that has doubles,
+ * so what is typed here is what numpy makes of it, bit for bit.
  */
-async function askPathOrSingle(title: string): Promise<{ steps: number } | undefined> {
+export function incrementRamp(step: number[], steps: number): number[][] {
+  return Array.from({ length: steps + 1 }, (_, i) => step.map((s) => s * i));
+}
+
+/** How a transform is applied: once, or spread over an animation path. */
+type PathChoice =
+  | { kind: 'scalar' }
+  | { kind: 'linspace' | 'arange'; steps: number }
+  | { kind: 'custom' };
+
+/**
+ * Ask whether a transform applies once or builds an animation path, and if a
+ * path, which way of describing one. For a path, also the number of steps and
+ * magpylib's `start` (passed through verbatim: "auto" appends the new path, an
+ * index applies from there).
+ *
+ * The two even kinds make the same sort of ramp from opposite ends — a total
+ * to divide up, or an increment to repeat — and which one was used is not a
+ * formatting preference: the script says whichever it was, because a quarter
+ * of the time both calls describe the identical points and only the choice
+ * tells them apart.
+ */
+async function askPathKind(title: string): Promise<PathChoice | undefined> {
   const pick = await vscode.window.showQuickPick(
     [
-      { label: 'Scalar', detail: 'apply once', path: false },
-      { label: 'Path', detail: 'spread over an animation path', path: true },
+      // `how`, not `kind`: a QuickPickItem's own `kind` is what makes it a
+      // separator, and setting it to a string of ours makes the item vanish.
+      { label: 'Scalar', detail: 'apply once', how: 'scalar' as const },
+      {
+        label: 'Path — even spread',
+        detail: 'a total, divided into equal steps · np.linspace',
+        how: 'linspace' as const,
+      },
+      {
+        label: 'Path — by increment',
+        detail: 'one step, repeated · np.arange',
+        how: 'arange' as const,
+      },
+      {
+        label: 'Path — custom points',
+        detail: 'every step typed out, in an editor',
+        how: 'custom' as const,
+      },
     ],
-    { placeHolder: `${title}: scalar or path?` },
+    { placeHolder: `${title}: applied how?` },
   );
   if (!pick) {
     return undefined;
   }
-  if (!pick.path) {
-    return { steps: 1 };
+  if (pick.how === 'scalar' || pick.how === 'custom') {
+    return { kind: pick.how };
   }
   const stepText = await vscode.window.showInputBox({
     prompt: 'Number of path steps',
@@ -249,7 +290,96 @@ async function askPathOrSingle(title: string): Promise<{ steps: number } | undef
         ? undefined
         : 'A whole number of steps, 1 or more',
   });
-  return stepText ? { steps: Number(stepText) } : undefined;
+  return stepText ? { kind: pick.how, steps: Number(stepText) } : undefined;
+}
+
+/**
+ * Collect a path by opening it as a document, one step to a line.
+ *
+ * A quick-pick chain cannot ask for twenty points and an input box cannot hold
+ * them legibly. An editor can, and it brings undo, paste and multiple cursors
+ * with it — which is most of what typing out a path by hand needs.
+ *
+ * It is backed by a real file in the extension's storage rather than by an
+ * untitled buffer, because saving an untitled buffer opens a file dialog: the
+ * gesture that means "apply this" would ask the user where to put a file they
+ * never asked to have. Here Ctrl+S applies and closing cancels, which is what
+ * the header says it does.
+ *
+ * A line that does not parse is not a reason to throw the rest away — it is
+ * reported and the document stays open, so saving again after a fix is the
+ * whole correction.
+ */
+async function askPathPoints(
+  context: vscode.ExtensionContext,
+  name: string,
+  header: string[],
+  example: string[],
+  width: number,
+): Promise<(number | string)[][] | undefined> {
+  const dir = context.storageUri ?? context.globalStorageUri;
+  await vscode.workspace.fs.createDirectory(dir);
+  const uri = vscode.Uri.joinPath(dir, `${name}.path.txt`);
+  const template = [...header.map((line) => `# ${line}`), '', ...example, ''];
+  await vscode.workspace.fs.writeFile(uri, Buffer.from(template.join('\n'), 'utf8'));
+  await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri), {
+    preview: false,
+  });
+
+  return new Promise((resolve) => {
+    const listeners: vscode.Disposable[] = [];
+    const finish = (points: (number | string)[][] | undefined) => {
+      listeners.forEach((l) => l.dispose());
+      resolve(points);
+    };
+    listeners.push(
+      vscode.workspace.onDidSaveTextDocument((saved) => {
+        if (saved.uri.toString() !== uri.toString()) {
+          return;
+        }
+        const points: (number | string)[][] = [];
+        for (const [n, raw] of saved.getText().split('\n').entries()) {
+          const line = raw.split('#')[0].trim();
+          if (!line) {
+            continue;
+          }
+          const point = parseVector(line, width);
+          if (!point) {
+            vscode.window.showErrorMessage(
+              `Magpylib Studio: line ${n + 1} is not ${width} ` +
+                `value${width === 1 ? '' : 's'} — "${line}". Fix it and save again.`,
+            );
+            return; // stay open: the document is the thing being corrected
+          }
+          points.push(point);
+        }
+        if (points.length < 2) {
+          vscode.window.showErrorMessage(
+            'Magpylib Studio: a path needs at least two steps.',
+          );
+          return;
+        }
+        finish(points);
+      }),
+      vscode.workspace.onDidCloseTextDocument((closed) => {
+        if (closed.uri.toString() === uri.toString()) {
+          finish(undefined); // closed without saving: cancelled
+        }
+      }),
+    );
+  });
+}
+
+/** Close the scratch document a path was typed into, once it has been read. */
+async function closePathEditor(name: string) {
+  const open = vscode.window.tabGroups.all
+    .flatMap((group) => group.tabs)
+    .filter(
+      (tab) =>
+        tab.input instanceof vscode.TabInputText &&
+        tab.input.uri.path.endsWith(`${name}.path.txt`),
+    );
+  await vscode.window.tabGroups.close(open);
 }
 
 /**
@@ -2726,44 +2856,79 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(
       'magpylib-studio.moveBy',
       async (obj: SceneObject) => {
-        const kind = await askPathOrSingle(`Move "${obj.label}"`);
+        const kind = await askPathKind(`Move "${obj.label}"`);
         if (!kind) {
           return;
         }
-        const text = await vscode.window.showInputBox({
-          prompt:
-            kind.steps === 1
-              ? 'Displacement dx, dy, dz (m)'
-              : `Total displacement dx, dy, dz (m) — spread over ${kind.steps} steps`,
-          value: '0, 0, 1',
-          validateInput: (v) =>
-            parseVector(v, 3)
-              ? undefined
-              : 'Three numbers or expressions, e.g. 0, 0, gap',
-        });
-        const d = text && parseVector(text, 3);
-        if (!d) {
-          return;
-        }
-        // A path is divided up here, which needs numbers; a single symbolic
-        // displacement is fine and stays tied to its variables.
-        const numeric = d.filter((c) => typeof c === 'number') as number[];
-        if (kind.steps > 1 && numeric.length !== d.length) {
-          vscode.window.showErrorMessage(
-            'Magpylib Studio: a multi-step path needs numbers, not expressions.',
+        let displacement: unknown;
+        if (kind.kind === 'custom') {
+          // The one kind that keeps expressions: nothing here is divided or
+          // scaled, so `0, 0, gap` goes in as written and stays tied to the
+          // variable it names.
+          const points = await askPathPoints(
+            context,
+            `${obj.id}-move`,
+            [
+              'One displacement per line — dx, dy, dz in metres, relative to',
+              `where "${obj.label}" is now.`,
+              '',
+              'Numbers or expressions: 0, 0, gap',
+              'Save to apply. Close without saving to cancel.',
+            ],
+            ['0, 0, 0', '0, 0, 0.5', '0, 0, 1'],
+            3,
           );
-          return;
+          if (!points) {
+            return;
+          }
+          await closePathEditor(`${obj.id}-move`);
+          displacement = points;
+        } else {
+          const total = kind.kind === 'linspace';
+          const text = await vscode.window.showInputBox({
+            prompt:
+              kind.kind === 'scalar'
+                ? 'Displacement dx, dy, dz (m)'
+                : total
+                  ? `Total displacement dx, dy, dz (m) — over ${kind.steps} steps`
+                  : `Displacement per step dx, dy, dz (m) — ${kind.steps} of them`,
+            value: kind.kind === 'arange' ? '0, 0, 0.05' : '0, 0, 1',
+            validateInput: (v) =>
+              parseVector(v, 3)
+                ? undefined
+                : 'Three numbers or expressions, e.g. 0, 0, gap',
+          });
+          const d = text && parseVector(text, 3);
+          if (!d) {
+            return;
+          }
+          // A path is arithmetic on what was typed, which needs numbers; a
+          // single symbolic displacement is fine and stays tied to its
+          // variables. Custom points, above, are neither.
+          const numeric = d.filter((c) => typeof c === 'number') as number[];
+          if (kind.kind !== 'scalar' && numeric.length !== d.length) {
+            vscode.window.showErrorMessage(
+              'Magpylib Studio: an even path needs numbers, not expressions — ' +
+                'use custom points to keep a variable.',
+            );
+            return;
+          }
+          // A path of `steps` movements is steps + 1 poses, and the first of
+          // them is where the object already is. Leaving it out — which is what
+          // this did — meant the animation never showed the starting position,
+          // and made the path one that no single call describes: `move` would
+          // export as a wall of literal triples, because the only exact
+          // spelling of "evenly spaced but missing its origin" is a sliced
+          // linspace. Including it costs one pose and gains both.
+          displacement =
+            kind.kind === 'scalar'
+              ? d
+              : total
+                ? evenRamp(numeric, kind.steps)
+                : incrementRamp(numeric, kind.steps);
         }
-        // A path of `steps` movements is steps + 1 poses, and the first of
-        // them is where the object already is. Leaving it out — which is what
-        // this did — meant the animation never showed the starting position,
-        // and made the path one that no single call describes: `move` would
-        // export as a wall of literal triples, because the only exact
-        // spelling of "evenly spaced but missing its origin" is a sliced
-        // linspace. Including it costs one pose and gains both.
-        const displacement = kind.steps === 1 ? d : evenRamp(numeric, kind.steps);
         let startArg: { start?: number } = {};
-        if (kind.steps > 1) {
+        if (kind.kind !== 'scalar') {
           const chosen = await askStart();
           if (!chosen) {
             return;
@@ -2773,6 +2938,9 @@ export function activate(context: vscode.ExtensionContext): void {
         await mutateFromTree('move', {
           object_id: obj.id,
           displacement,
+          // recorded so the script writes the call that was actually used;
+          // the points alone cannot say which
+          ...(kind.kind === 'arange' ? { spacing: 'arange' } : {}),
           ...startArg,
         });
       },
@@ -2780,7 +2948,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(
       'magpylib-studio.rotateBy',
       async (obj: SceneObject) => {
-        const kind = await askPathOrSingle(`Rotate "${obj.label}"`);
+        const kind = await askPathKind(`Rotate "${obj.label}"`);
         if (!kind) {
           return;
         }
@@ -2792,27 +2960,55 @@ export function activate(context: vscode.ExtensionContext): void {
         if (anchor === undefined) {
           return;
         }
-        const text = await vscode.window.showInputBox({
-          prompt:
-            kind.steps === 1
-              ? 'Angle in degrees'
-              : `Total angle in degrees — spread over ${kind.steps} steps (360 = full turn)`,
-          value: kind.steps === 1 ? '45' : '360',
-          validateInput: (v) =>
-            Number.isFinite(Number(v)) && v.trim() ? undefined : 'A number, e.g. 45',
-        });
-        if (text === undefined || !text.trim()) {
-          return;
+        let angle: unknown;
+        if (kind.kind === 'custom') {
+          const points = await askPathPoints(
+            context,
+            `${obj.id}-rotate`,
+            [
+              `One angle per line, in degrees, relative to how "${obj.label}"`,
+              'is turned now.',
+              '',
+              'Numbers or expressions: 90, 180, turn',
+              'Save to apply. Close without saving to cancel.',
+            ],
+            ['0', '45', '90'],
+            1,
+          );
+          if (!points) {
+            return;
+          }
+          await closePathEditor(`${obj.id}-rotate`);
+          angle = points.map(([a]) => a); // one value to a line, not a triple
+        } else {
+          const total = kind.kind === 'linspace';
+          const text = await vscode.window.showInputBox({
+            prompt:
+              kind.kind === 'scalar'
+                ? 'Angle in degrees'
+                : total
+                  ? `Total degrees — over ${kind.steps} steps (360 = full turn)`
+                  : `Degrees per step — ${kind.steps} of them`,
+            value: kind.kind === 'scalar' ? '45' : total ? '360' : '10',
+            validateInput: (v) =>
+              Number.isFinite(Number(v)) && v.trim() ? undefined : 'A number, e.g. 45',
+          });
+          if (text === undefined || !text.trim()) {
+            return;
+          }
+          const typed = Number(text);
+          // Same as Move By…: the turn starts from where the object is, so the
+          // path carries its own zero and exports as the call that makes it.
+          angle =
+            kind.kind === 'scalar'
+              ? typed
+              : (total
+                  ? evenRamp([typed], kind.steps)
+                  : incrementRamp([typed], kind.steps)
+                ).map(([a]) => a);
         }
-        const total = Number(text);
-        // Same as Move By…: the turn starts from where the object is, so the
-        // path carries its own zero and exports as one np.linspace call.
-        const angle =
-          kind.steps === 1
-            ? total
-            : evenRamp([total], kind.steps).map(([a]) => a);
         let startArg: { start?: number } = {};
-        if (kind.steps > 1) {
+        if (kind.kind !== 'scalar') {
           const chosen = await askStart();
           if (!chosen) {
             return;
@@ -2824,6 +3020,7 @@ export function activate(context: vscode.ExtensionContext): void {
           angle,
           axis,
           ...(anchor.value !== undefined ? { anchor: anchor.value } : {}),
+          ...(kind.kind === 'arange' ? { spacing: 'arange' } : {}),
           ...startArg,
         });
       },

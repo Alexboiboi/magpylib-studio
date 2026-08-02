@@ -8,7 +8,11 @@ import tempfile
 import pytest
 
 from magpylib_studio.rpc import serve
-from magpylib_studio.session import DOC_VERSION, MagpylibStudioSession
+from magpylib_studio.session import (
+    DOC_VERSION,
+    MagpylibStudioSession,
+    _linspace_lit,
+)
 
 # Small fixed scene for tests (sessions start empty by default).
 TEST_SCENE = {
@@ -1556,6 +1560,94 @@ def test_a_path_without_its_origin_is_still_one_call(tmp_path):
     assert back.to_dict() == s.to_dict()
     # the point of the whole exercise: the stored numbers are untouched
     assert back.to_dict()["events"][1]["displacement"][10][2] == 0.55
+
+
+def _increment_path(step, count):
+    """A path built the way an increment builds one: `i * step`, exactly."""
+    return [[c * i for c in step] for i in range(count)]
+
+
+def test_a_path_built_from_an_increment_is_written_as_one(tmp_path):
+    """A ramp typed as "1 mm per step" comes back out as `np.arange`.
+
+    Not a cosmetic choice. About a quarter of increment-built paths are also
+    exactly reproduced by a linspace, so the points cannot say which call
+    made them — the op does, and both writer and parser go by that. Without
+    it the same input would export two different ways depending on whether
+    the arithmetic happened to coincide.
+    """
+    s = MagpylibStudioSession()
+    s.add_object(
+        "cube",
+        "magnet.Cuboid",
+        params={"dimension": [1, 1, 1], "polarization": [0, 0, 1]},
+    )
+    s.move("cube", _increment_path([0, 0, 0.001], 101), spacing="arange", start=0)
+    s.rotate("cube", [1.5 * i for i in range(25)], axis="z", spacing="arange", start=0)
+
+    script = s.to_script()
+    assert "np.arange(101)[:, None] * (0.0, 0.0, 0.001)" in script
+    assert "np.arange(25) * 1.5" in script
+    assert max(len(line) for line in script.splitlines()) < 120
+
+    written = tmp_path / "increments.py"
+    written.write_text(script + "\n", encoding="utf-8")
+    back = MagpylibStudioSession()
+    assert back.apply_script(str(written)) == {"ok": True, "mode": "parsed"}
+    assert back.to_dict() == s.to_dict()  # including the spacing that made it
+    assert back.to_script() == script
+
+
+def test_an_increment_path_that_a_linspace_would_also_make_stays_an_arange():
+    """The collision case, which is the whole reason `spacing` is recorded.
+
+    `0, 0, 0.25` over eight steps is reproduced exactly by both calls. The
+    one that gets written is the one the path was built with, not whichever
+    the writer tries first.
+    """
+    s = MagpylibStudioSession()
+    s.add_object(
+        "cube",
+        "magnet.Cuboid",
+        params={"dimension": [1, 1, 1], "polarization": [0, 0, 1]},
+    )
+    path = _increment_path([0, 0, 0.25], 9)
+    assert _linspace_lit(path) is not None  # a linspace would do it too
+    s.move("cube", path, spacing="arange", start=0)
+
+    assert "np.arange(9)[:, None] * (0.0, 0.0, 0.25)" in s.to_script()
+
+
+def test_an_increment_path_still_imports_numpy(tmp_path):
+    """`needs_numpy` asks the same question the writer does, or a script
+    calls np.arange without importing it."""
+    s = MagpylibStudioSession()
+    s.add_object(
+        "cube",
+        "magnet.Cuboid",
+        params={"dimension": [1, 1, 1], "polarization": [0, 0, 1]},
+    )
+    s.move("cube", _increment_path([0, 0, 0.003], 40), spacing="arange", start=0)
+
+    script = s.to_script()
+    assert "np.arange" in script
+    assert "import numpy as np" in script
+    # the real check: it runs. A missing import is a NameError, not a diff.
+    assert len(exec_script(script)["cube"].position) == 40
+
+
+def test_a_spacing_nobody_writes_is_refused():
+    """A misspelling is not silently a different path."""
+    s = MagpylibStudioSession()
+    s.add_object(
+        "cube",
+        "magnet.Cuboid",
+        params={"dimension": [1, 1, 1], "polarization": [0, 0, 1]},
+    )
+    result = s.move("cube", [[0, 0, 1]], spacing="arrange")
+    assert result["ok"] is False
+    assert "arange" in result["error"]
+    assert not [e for e in s.to_dict()["events"] if e.get("op") == "move"]
 
 
 def test_an_uneven_path_is_written_out_in_full(tmp_path):
