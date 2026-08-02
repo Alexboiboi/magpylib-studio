@@ -1181,8 +1181,17 @@ function confirmation(
 }
 
 function registerLmTools(context: vscode.ExtensionContext): void {
-  /** Read-only tool: forward input as RPC params, return the result. */
-  const queryTool = (toolName: string, method: string) =>
+  /** Read-only tool: forward input as RPC params, return the result.
+   *
+   *  `fixed` params are added after the model's own and win over them — they
+   *  are how the caller is answered in the shape a *reader* wants rather than
+   *  the shape a tree view wants, without putting a knob in the schema for
+   *  the model to get wrong. */
+  const queryTool = (
+    toolName: string,
+    method: string,
+    fixed: Record<string, unknown> = {},
+  ) =>
     vscode.lm.registerTool(toolName, {
       prepareInvocation(options: vscode.LanguageModelToolInvocationPrepareOptions<object>) {
         return {
@@ -1194,10 +1203,10 @@ function registerLmTools(context: vscode.ExtensionContext): void {
       },
       async invoke(options: vscode.LanguageModelToolInvocationOptions<object>) {
         return toolResult(
-          await (await getEngine(context)).request(
-            method,
-            options.input as Record<string, unknown>,
-          ),
+          await (await getEngine(context)).request(method, {
+            ...(options.input as Record<string, unknown>),
+            ...fixed,
+          }),
         );
       },
     });
@@ -1222,7 +1231,9 @@ function registerLmTools(context: vscode.ExtensionContext): void {
       },
     });
   context.subscriptions.push(
-    queryTool('magpylib-studio_listObjects', 'list_objects'),
+    // Copies counted, not listed: a patterned ring is one object and a number
+    // to a reader, and 60 unaddressable entries to nobody's benefit.
+    queryTool('magpylib-studio_listObjects', 'list_objects', { copies: 'count' }),
     queryTool('magpylib-studio_getSchema', 'get_schema'),
     queryTool('magpylib-studio_getField', 'get_field'),
     queryTool('magpylib-studio_getVariables', 'get_variables'),

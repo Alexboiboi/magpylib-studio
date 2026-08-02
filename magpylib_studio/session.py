@@ -7,12 +7,15 @@ magpylib object and the document, so `to_dict()` / `to_script()` always reflect
 the current state and can be versioned in git.
 
 Protocol surface (all JSON-serializable in/out):
-  list_objects()                       -> [{id, type, label}]
+  list_objects(copies?)                -> [{id, type, label, parent, source, ...}]
+                                          copies="count": patterned copies are
+                                          counted on their source, not listed
   get_schema(object_id)                -> JSON Schema of the object's style
   get_values(object_id)                -> {"set": {...}, "resolved": {...}} (style)
   get_params(object_id)                -> [{name, value, kind, doc}] (physics)
   get_figure(animation?, template?)    -> plotly figure JSON (frames if animated)
-  get_field(sensor_id?, points?, field?) -> {field, unit, points, values, magnitude}
+  get_field(sensor_id?, points?, field?) -> {field, unit, values, magnitude, points?}
+                                          6 s.f.; "points" only when read off a sensor
   get_field_figure(output?, animation?, template?) -> 2D plotly JSON (magpylib-rendered)
   get_field_map(plane?, offset?, component?, log?, sensor_id?, …) -> heatmap JSON
   set_pixel_grid(object_id, plane?, size?, resolution?, offset?) -> {"ok": bool}
@@ -594,6 +597,27 @@ _FIELDS = {
     "J": ("getJ", "T"),
     "M": ("getM", "A/m"),
 }
+
+
+def _wire(values, digits=6):
+    """Field numbers on their way out, at six significant figures.
+
+    A reading carries the precision of the model, not of the float that holds
+    it, and `repr` spends 17 characters saying so: -0.00774833764161989. Over
+    a 400-point map that is 43% of the response, and the reader of it — a
+    person, a plot, a language model paying by the token — can use none of
+    those digits.
+
+    Significant figures rather than decimals, because a field is 1e-15 in one
+    place and 1e6 in another and both have to survive.
+
+    Results only. Anything that goes *back* into the document — a position, a
+    dimension, a transform — keeps every digit it came with, because that one
+    is not a reading, it is the value itself.
+    """
+    array = np.asarray(values, dtype=float)
+    flat = [float(f"{value:.{digits}g}") for value in array.ravel()]
+    return np.asarray(flat).reshape(array.shape).tolist()
 
 
 def _field_sources():
@@ -1686,7 +1710,22 @@ class MagpylibStudioSession:
         return found
 
     # --- introspection -----------------------------------------------------
-    def list_objects(self):
+    def list_objects(self, copies="all"):
+        """The scene's objects, depth-first.
+
+        `copies` decides what a pattern's generated copies cost to read:
+
+        - "all" — one entry each. What a tree view wants: they are real
+          objects in the 3D scene and a ring of twelve should read as twelve.
+        - "count" — omitted, and the object they came from carries
+          `"copies": n` instead. What a reader with a budget wants: at n=60
+          the halbach example is 124 entries of which 118 are copies that
+          carry no information a caller can act on — they cannot be edited,
+          which the entry itself says, 118 times. Counting them says the
+          same thing in one field and costs a tenth of the tokens.
+        """
+        if copies not in ("all", "count"):
+            raise ValueError(f"copies must be 'all' or 'count', got {copies!r}")
         objects = []
         creates = {
             e["target"]: e
@@ -1717,21 +1756,29 @@ class MagpylibStudioSession:
                     # a sensor carrying a measuring grid is a field source a UI
                     # can offer to read off, so say so where it is listed
                     **self._pixel_shape(self._objs[spec["id"]]),
+                    # the copies this object's pattern made, when they are
+                    # being counted rather than listed
+                    **(
+                        {"copies": len(self._derived[spec["id"]])}
+                        if copies == "count" and self._derived.get(spec["id"])
+                        else {}
+                    ),
                 }
             )
             # copies made by a duplicate event: real objects in the field and
             # the 3D view, but generated, so they have no spec to edit
-            for copy_id in self._derived.get(spec["id"], []):
-                objects.append(
-                    {
-                        "id": copy_id,
-                        "type": spec["type"],
-                        "label": self._objs[copy_id].style.label or spec["type"],
-                        "parent": parent["id"] if parent else None,
-                        "visible": spec.get("visible", True),
-                        "derived": spec["id"],
-                    }
-                )
+            if copies == "all":
+                for copy_id in self._derived.get(spec["id"], []):
+                    objects.append(
+                        {
+                            "id": copy_id,
+                            "type": spec["type"],
+                            "label": self._objs[copy_id].style.label or spec["type"],
+                            "parent": parent["id"] if parent else None,
+                            "visible": spec.get("visible", True),
+                            "derived": spec["id"],
+                        }
+                    )
         return objects
 
     @staticmethod
@@ -1903,9 +1950,13 @@ class MagpylibStudioSession:
         return {
             "field": field,
             "unit": _FIELDS[field][1],
-            "points": pts.tolist(),
-            "values": values.tolist(),
-            "magnitude": np.linalg.norm(values, axis=-1).tolist(),
+            # Echoed only when the caller did not supply them: reading a
+            # sensor's path, they are the answer to "where was this measured";
+            # given as `points`, they are the caller's own input handed back,
+            # and on a 400-point map that is a third of the response.
+            **({} if points is not None else {"points": _wire(pts)}),
+            "values": _wire(values),
+            "magnitude": _wire(np.linalg.norm(values, axis=-1)),
         }
 
     def _scene_extent(self):

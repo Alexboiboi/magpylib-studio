@@ -76,6 +76,46 @@ def test_list_objects(session):
     assert objs[0]["type"] == "magnet.Cuboid"
 
 
+def test_list_objects_can_count_copies_instead_of_listing_them():
+    """A reader with a budget should not pay per generated copy.
+
+    The tree view wants one row each — a ring of twelve should read as twelve.
+    Anything reading the scene to reason about it wants the opposite: the
+    copies cannot be edited, cannot be addressed, and saying so sixty times
+    is sixty times the cost of saying it once.
+    """
+    s = MagpylibStudioSession()
+    s.load_example("halbach")
+    s.set_variable("n", 20)
+
+    listed = s.list_objects()
+    counted = s.list_objects(copies="count")
+
+    generated = [o for o in listed if o.get("derived")]
+    assert generated, "the halbach example should carry generated copies"
+    assert not [o for o in counted if o.get("derived")]
+    # every copy is accounted for, on the object that produced it
+    assert sum(o.get("copies", 0) for o in counted) == len(generated)
+    # and the declared objects are all still there, unchanged
+    declared = [o for o in listed if not o.get("derived")]
+    assert [o["id"] for o in counted] == [o["id"] for o in declared]
+
+    # What it is for: an extra copy costs the listing a row and the count
+    # nothing. n 20 -> 60 is 80 more copies across the two rings; each is
+    # over a hundred characters listed, and none of them is a character
+    # counted — only the digits of the number itself can move.
+    s.set_variable("n", 60)
+    listed_cost = len(json.dumps(s.list_objects())) - len(json.dumps(listed))
+    counted_cost = len(json.dumps(s.list_objects(copies="count"))) - len(
+        json.dumps(counted)
+    )
+    assert listed_cost > 100 * 80
+    assert abs(counted_cost) < 10
+
+    with pytest.raises(ValueError, match="copies must be"):
+        s.list_objects(copies="some")
+
+
 def test_get_schema_is_json_and_has_paths(session):
     schema = session.get_schema("cube")
     props = schema["properties"]
@@ -1006,6 +1046,37 @@ def test_get_field_from_example_sensor_path():
     assert h["unit"] == "A/m"
 
 
+def test_get_field_answers_without_repeating_the_question(session):
+    """Six significant figures, and no echo of points the caller supplied.
+
+    Both are about what a reading is worth saying: the seventh digit of a
+    field value is the float's precision rather than the model's, and points
+    handed back to whoever just sent them are a third of a large response.
+    Read off a sensor they are the answer to "measured where", so they stay.
+    """
+    import magpylib as magpy
+    import numpy as np
+
+    asked = [[0, 0, 2], [0, 0, 3]]
+    res = session.get_field(points=asked)
+    assert "points" not in res
+    # still the right answer, to the precision it now claims
+    direct = magpy.getB(
+        [session._objs["cube"], session._objs["cyl"]], asked, sumup=True
+    )
+    assert np.allclose(res["values"], direct, rtol=1e-6)
+    # and it is *at* that precision: six significant figures survives a
+    # round trip through the formatter, seventeen would not
+    for row in res["values"]:
+        for value in row:
+            assert float(f"{value:.6g}") == value
+
+    s = MagpylibStudioSession()
+    s.load_example()
+    read = s.get_field()  # off the sensor path: where it measured is news
+    assert len(read["points"]) == len(read["values"])
+
+
 def test_get_field_errors():
     s = MagpylibStudioSession()
     with pytest.raises(ValueError, match="no field sources"):
@@ -1368,6 +1439,39 @@ def test_load_script_captures_show_call(tmp_path):
     assert np.allclose(ns["halbach"].children[2].position, m.position)
 
     assert s.load_captured(5)["ok"] is False  # out of range
+
+
+def test_load_script_says_what_running_it_flattened(tmp_path):
+    """A loop is gone the moment the script has run, so say so.
+
+    Executing a script keeps what it built and loses how it was built. The
+    objects survive; the loop that made eight of them does not, and the
+    difference matters to whoever edits next — there is no longer one thing
+    to change. The importer collected these warnings all along and never
+    filled them in, so the promise in the README was never kept.
+    """
+    path = tmp_path / "coil.py"
+    path.write_text(
+        "import numpy as np\n"
+        "import magpylib as magpy\n"
+        "\n"
+        "coil = magpy.Collection()\n"
+        "for z in np.linspace(-2, 2, 8):\n"
+        "    coil.add(magpy.current.Circle(current=100, diameter=4,\n"
+        "                                  position=(0, 0, z)))\n"
+        "solo = magpy.magnet.Sphere(polarization=(0, 0, 1), diameter=1)\n"
+        "magpy.show(coil, solo)\n",
+        encoding="utf-8",
+    )
+    res = MagpylibStudioSession().load_script(str(path))
+
+    assert res["ok"] is True
+    assert len(res["warnings"]) == 1
+    warning = res["warnings"][0]
+    assert "8 current.Circle" in warning
+    assert "loop" in warning
+    # the named objects are not complained about, and one-offs are not a loop
+    assert "Collection" not in warning and "Sphere" not in warning
 
 
 def test_load_script_orientation_paths(tmp_path):

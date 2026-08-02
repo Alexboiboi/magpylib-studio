@@ -4,6 +4,29 @@ All notable changes to the Magpylib Studio extension.
 
 ## [Unreleased]
 
+### Changed
+
+- **Reading the scene from chat costs a tenth of what it did.** `#magpyObjects`
+  listed every copy a pattern had made — at n=60 the Halbach example was 124
+  entries, 118 of them generated copies that say, one by one, that they cannot
+  be edited. They are now counted on the object that made them (`"copies": 59`),
+  which is the same fact in one field: 3,880 tokens down to 356, and an extra
+  copy now costs nothing to read instead of a row. The Scene tree still lists
+  them one by one, because a ring of twelve should look like twelve.
+- **Field results are six significant figures, and do not repeat the question.**
+  A reading carried all 17 digits of the float holding it, and every response
+  handed back the points the caller had just sent. A 400-point map goes from
+  10,734 tokens to 4,413. Values that go back into the document — positions,
+  dimensions — keep every digit, because those are not readings.
+
+### Fixed
+
+- **Importing a script now says what running it flattened.** A loop of eight
+  current loops became eight separate objects with no mention that anything had
+  been lost, so the next edit changed one of eight where the script had one
+  thing to change. The importer collected these warnings from the first release
+  and never filled any in — the promise was in the README the whole time.
+
 ## [0.1.3]
 
 ### Fixed

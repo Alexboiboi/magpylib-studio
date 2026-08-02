@@ -73,7 +73,15 @@ def _unique_id(base, used):
     return candidate
 
 
-def _spec_from(obj, object_id, used_ids, warnings, names):
+def _spec_from(obj, object_id, used_ids, unnamed, names):
+    # An object the script never bound to a variable was built inline — in a
+    # loop, a comprehension, a helper. Executing the script keeps what it
+    # built and loses how, so this is the one trace of the structure that went
+    # missing, and the caller is told rather than left to notice.
+    if id(obj) not in names:
+        unnamed.append(
+            "Collection" if isinstance(obj, magpy.Collection) else _dotted_type(obj)
+        )
     if isinstance(obj, magpy.Collection):
         spec = {
             "id": object_id,
@@ -85,7 +93,7 @@ def _spec_from(obj, object_id, used_ids, warnings, names):
                         names.get(id(child)) or child.style.label or "obj", used_ids
                     ),
                     used_ids,
-                    warnings,
+                    unnamed,
                     names,
                 )
                 for child in obj.children
@@ -142,12 +150,34 @@ def _document_from_named(named, names):
             unique_top.append((name, obj))
     if not unique_top:
         raise ValueError("script produced no magpylib objects")
-    used_ids, warnings = set(), []
+    used_ids, unnamed = set(), []
     objects = [
-        _spec_from(obj, _unique_id(name, used_ids), used_ids, warnings, names)
+        _spec_from(obj, _unique_id(name, used_ids), used_ids, unnamed, names)
         for name, obj in unique_top
     ]
-    return {"objects": objects}, warnings
+    return {"objects": objects}, _flattening_warnings(unnamed)
+
+
+def _flattening_warnings(unnamed):
+    """What executing the script cost, in the words of what it built.
+
+    Reported per type and only from two upwards: one inline object is how
+    anybody writes a one-off, while eight unnamed Circles are a loop that no
+    longer exists. Saying so matters most to a caller that is about to edit
+    them — they are eight separate objects now, and changing one changes one.
+    """
+    warnings = []
+    for type_name in dict.fromkeys(unnamed):  # first-seen order, deduplicated
+        count = unnamed.count(type_name)
+        if count > 1:
+            warnings.append(
+                f"{count} {type_name} objects were built without a variable of "
+                "their own — a loop or comprehension, which running the script "
+                "cannot preserve. They are separate objects here: editing one "
+                "does not change the others. Pattern them instead to get that "
+                "back."
+            )
+    return warnings
 
 
 def _name_map(namespace):
