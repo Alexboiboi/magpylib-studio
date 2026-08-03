@@ -1406,6 +1406,24 @@ def _event_source(event):
     return f"{target}.{_op_source(event)}"
 
 
+def _uncreated(events):
+    """The first object an ordering would act on before creating it, or None.
+
+    Reordering the log is a real edit and mostly a free one — transforms do
+    not commute, so any order of them is *an* answer. A `create` is the one
+    event that is not a step in an object's story but the fact that there is
+    one, and nothing can happen to an object above that line.
+    """
+    created = {}
+    for i, event in enumerate(events):
+        if event.get("op") == "create":
+            created.setdefault(event["target"], i)
+    for i, event in enumerate(events):
+        if event.get("op") != "create" and i < created.get(event["target"], -1):
+            return event["target"]
+    return None
+
+
 def _resolve_type(type_str):
     """'magnet.Cuboid' -> magpylib.magnet.Cuboid."""
     obj = magpy
@@ -3745,6 +3763,17 @@ class MagpylibStudioSession:
         events = self.doc["events"]
         if not 0 <= index < len(events):
             return {"ok": False, "error": f"index must be 0..{len(events) - 1}"}
+        reordered = list(events)
+        reordered.insert(index, reordered.pop(current))
+        stranded = _uncreated(reordered)
+        if stranded:
+            return {
+                "ok": False,
+                "error": (
+                    f"that would put steps on {stranded} before it is created. "
+                    f"An object has to exist before anything can happen to it."
+                ),
+            }
 
         def mutate(doc):
             moved = doc["events"].pop(current)

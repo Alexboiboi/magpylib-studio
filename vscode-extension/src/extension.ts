@@ -3026,10 +3026,16 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand(
       'magpylib-studio.removeObject',
-      (obj?: SceneObject) => {
-        const target = obj ?? treeSelection();
+      (node?: SceneNode) => {
+        // Also on a `created` row, where removing has two meanings and both
+        // are offered: "Remove Step" drops the create, so the object never
+        // existed and the steps that needed it are flagged as broken, while
+        // this deletes it as a step of its own — recorded, like every other
+        // thing that happened to the scene, and undone by dropping that step.
+        const target =
+          node && isOperation(node) ? node.target : (node ?? treeSelection())?.id;
         return target
-          ? mutateFromTree('remove_object', { object_id: target.id })
+          ? mutateFromTree('remove_object', { object_id: target })
           : undefined;
       },
     ),

@@ -682,6 +682,11 @@
           "group": "0_step@2"
         },
         {
+          "command": "magpylib-studio.removeObject",
+          "when": "view == magpylib-studio.sceneView && viewItem == magpyOperationCreate",
+          "group": "0_step@3"
+        },
+        {
           "command": "magpylib-studio.editOperation",
           "when": "view == magpylib-studio.sceneView && viewItem =~ /^magpyOperation/",
           "group": "inline@0"

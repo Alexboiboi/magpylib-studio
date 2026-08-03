@@ -22,6 +22,25 @@ All notable changes to the Magpylib Studio extension.
   name, a range, the kind, or clear the limits, and answer one box. Each entry
   shows what it currently holds.
 
+### Fixed
+
+- **An object shows the steps that built it, not just the ones that contain
+  other objects.** The scene view gave a row its chevron by counting child
+  objects alone, so a magnet's own history was there but unreachable — only
+  collections, which happen to contain something, ever showed their steps.
+
+- **An object the scene no longer has still shows its history**, under a dimmed
+  row saying why it is missing: deleted, rolled back past, or no longer built.
+  Deleting is recorded rather than erased, but the tree had nowhere to hang
+  those steps, which made deleting the one step it could not undo.
+
+- **Move Step Later on a "created" step is refused** instead of leaving the
+  object gone and its whole story broken. Nothing can happen to an object
+  before it exists.
+
+- **Pattern-along and mirror steps have their own glyph** instead of the
+  anonymous dot that means "no icon for this".
+
 ## [0.2.0]
 
 ### Added

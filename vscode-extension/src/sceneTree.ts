@@ -10,7 +10,16 @@ export interface SceneObject {
    *  from. Generated objects have no document entry to edit, so the tree
    *  shows them and stops there. */
   derived?: string;
+  /** Set on a row the tree makes up for an object the built scene does not
+   *  have, and why it does not: the log still records everything that
+   *  happened to it, and steps you cannot see are steps you cannot undo. */
+  absent?: AbsentReason;
 }
+
+/** Why an object with a history is missing from the scene: it was deleted,
+ *  the history is rolled back to before it existed, or the log no longer
+ *  builds it (its `create` was dropped or reordered away). */
+export type AbsentReason = 'removed' | 'not applied' | 'not built';
 
 /** One step of the construction, shown under the object it happened to. */
 export interface SceneOperation {
@@ -67,6 +76,20 @@ export function iconFor(
 
 const TREE_MIME = 'application/vnd.code.tree.magpylib-studio.sceneview';
 
+/** What a headstone row says it is, in the terms that make it fixable. */
+const ABSENT_TOOLTIP: Record<AbsentReason, (id: string) => string> = {
+  removed: (id) =>
+    `${id} was deleted. Deleting is recorded, not erased, so its steps are ` +
+    `still here — drop the "removed" step to have it back.`,
+  'not applied': (id) =>
+    `${id} is created after the step the history is rolled back to, so the ` +
+    `scene does not have it yet. Clear the rollback to build it.`,
+  'not built': (id) =>
+    `${id} is never created by the log as it now stands — its "created" ` +
+    `step was dropped or moved after the steps that need it. Undo, or move ` +
+    `a "created" step back to the front.`,
+};
+
 /** A glyph per kind of step, so the shape of a history reads at a glance. */
 const OPERATION_ICONS: Record<string, string> = {
   create: 'add',
@@ -78,6 +101,8 @@ const OPERATION_ICONS: Record<string, string> = {
   rotate_from_angax: 'sync',
   rotate_from_rotvec: 'sync',
   duplicate_around: 'circuit-board',
+  duplicate_along: 'symbol-array',
+  mirror: 'split-horizontal',
 };
 
 /**
@@ -97,6 +122,7 @@ export class SceneTreeProvider
   readonly dropMimeTypes = [TREE_MIME];
   private objects: SceneObject[] = [];
   private operations: SceneOperation[] = [];
+  private absent: SceneObject[] = [];
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -130,6 +156,10 @@ export class SceneTreeProvider
         '\n\n$(edit) Edit Step… shows its values in the Inspector.',
     );
     item.tooltip.supportThemeIcons = true;
+    // The `Create` suffix earns a row of its own: on the step that brought an
+    // object into being, "remove" has two readings — drop the step, so it was
+    // never created, or delete the object, which is a step in its own right —
+    // and only that row can offer both.
     item.contextValue = 'magpyOperation' + (operation.op === 'create' ? 'Create' : '');
     item.iconPath = operation.error
       ? new vscode.ThemeIcon('error', new vscode.ThemeColor('errorForeground'))
@@ -151,14 +181,40 @@ export class SceneTreeProvider
   }
 
   private objectItem(obj: SceneObject): vscode.TreeItem {
-    const hasChildren = this.objects.some((o) => o.parent === obj.id);
+    // Both halves of what getChildren returns: an object with no children of
+    // its own still has the steps that built it, and a row with no chevron is
+    // a row those steps cannot be reached from. Only what contains objects
+    // opens on its own — steps wait to be asked for, so a ring of twelve does
+    // not arrive as twenty-four rows.
+    const contains = this.objects.some((o) => o.parent === obj.id);
+    const steps = this.operations.some((op) => op.target === obj.id);
     const item = new vscode.TreeItem(
       obj.label,
-      hasChildren
+      contains
         ? vscode.TreeItemCollapsibleState.Expanded
-        : vscode.TreeItemCollapsibleState.None,
+        : steps
+          ? vscode.TreeItemCollapsibleState.Collapsed
+          : vscode.TreeItemCollapsibleState.None,
     );
     item.id = obj.id;
+    if (obj.absent) {
+      // A headstone: the object is not in the scene, but its steps are still
+      // in the log, and every one of them can be selected, edited, reordered
+      // or dropped from here. Deleting an object is recorded rather than
+      // erased, so without this row the step that deleted it — and the whole
+      // story before it — could be neither seen nor undone.
+      item.description = obj.absent;
+      item.tooltip = ABSENT_TOOLTIP[obj.absent](obj.id);
+      // outside the magpy* namespace, like a generated copy: the object
+      // commands act on something the scene has, and this row is the
+      // absence of one. Its steps carry their own menus.
+      item.contextValue = 'absentObject';
+      item.iconPath = new vscode.ThemeIcon(
+        obj.absent === 'removed' ? 'circle-slash' : 'circle-outline',
+        new vscode.ThemeColor('disabledForeground'),
+      );
+      return item;
+    }
     if (obj.derived) {
       // A generated copy: real geometry, real field source, but no spec, so
       // no edit command can act on it — hence no context value (every menu
@@ -201,13 +257,47 @@ export class SceneTreeProvider
     return item;
   }
 
+  /**
+   * Rows for the objects the log has a history for and the scene does not:
+   * deleted, rolled back past, or no longer built. In log order, after the
+   * scene proper — they are what the scene used to have, or does not have
+   * yet, and either way not part of reading what is in front of you.
+   */
+  private absentObjects(): SceneObject[] {
+    const live = new Set(this.objects.map((o) => o.id));
+    const steps = new Map<string, SceneOperation[]>();
+    for (const op of this.operations) {
+      if (!live.has(op.target)) {
+        const own = steps.get(op.target) ?? [];
+        own.push(op);
+        steps.set(op.target, own); // insertion order is log order
+      }
+    }
+    return [...steps].map(([id, own]) => ({
+      id,
+      type: '',
+      label: id,
+      parent: null,
+      visible: false,
+      // A `remove` that has itself been applied is the one that says why.
+      // Everything else is a scene that has not been built that far: either
+      // on purpose (rolled back) or not (the create no longer applies).
+      absent: own.some((op) => op.op === 'remove' && !op.pending)
+        ? ('removed' as const)
+        : own.every((op) => op.pending)
+          ? ('not applied' as const)
+          : ('not built' as const),
+    }));
+  }
+
   async getChildren(element?: SceneNode): Promise<SceneNode[]> {
     if (!element) {
       [this.objects, this.operations] = await Promise.all([
         this.listObjects(),
         this.listOperations(),
       ]);
-      return this.objects.filter((o) => o.parent === null);
+      this.absent = this.absentObjects();
+      return [...this.objects.filter((o) => o.parent === null), ...this.absent];
     }
     if (isOperation(element)) {
       return [];
@@ -222,10 +312,11 @@ export class SceneTreeProvider
 
   handleDrag(source: readonly SceneNode[], dataTransfer: vscode.DataTransfer): void {
     // Generated copies cannot be reparented: they are not in the document.
-    // Steps are not dragged either - they are reordered from their own menu,
-    // where "earlier"/"later" says what moving one actually means.
+    // Nor can headstones: there is nothing in the scene to move. Steps are
+    // not dragged either - they are reordered from their own menu, where
+    // "earlier"/"later" says what moving one actually means.
     const movable = source.filter(
-      (o): o is SceneObject => !isOperation(o) && !o.derived,
+      (o): o is SceneObject => !isOperation(o) && !o.derived && !o.absent,
     );
     if (movable.length) {
       dataTransfer.set(TREE_MIME, new vscode.DataTransferItem(movable));
@@ -237,7 +328,9 @@ export class SceneTreeProvider
     dataTransfer: vscode.DataTransfer,
   ): Promise<void> {
     const source = dataTransfer.get(TREE_MIME)?.value as SceneObject[] | undefined;
-    if (!source?.length || (target && isOperation(target))) {
+    // Dropping *onto* a headstone would read as "put it where that used to
+    // be", which is not a place: the scene has no such parent to join.
+    if (!source?.length || (target && (isOperation(target) || target.absent))) {
       return;
     }
     const parent =

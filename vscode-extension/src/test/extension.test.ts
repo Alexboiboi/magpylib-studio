@@ -11,6 +11,7 @@ import {
   sceneFileState,
   stopEngineForTest,
 } from '../extension';
+import { SceneObject, SceneOperation, SceneTreeProvider } from '../sceneTree';
 
 /**
  * End-to-end through the real vscode API: activation, the engine subprocess,
@@ -504,6 +505,95 @@ suite('magpylib-studio', () => {
     assert.deepStrictEqual(
       incrementRamp([1.5], 4).map(([a]) => a),
       [0, 1.5, 3, 4.5, 6],
+    );
+  });
+
+  test('every object opens on the steps that built it, in the scene or not', async () => {
+    // The provider against canned data: what the tree does with a history is
+    // its own logic, and driving the engine to produce one says nothing more
+    // about it than saying it here does.
+    const objects: SceneObject[] = [
+      { id: 'ring', type: 'Collection', label: 'ring', parent: null, visible: true },
+      { id: 'm', type: 'magnet.Cuboid', label: 'm', parent: 'ring', visible: true },
+    ];
+    const step = (
+      id: string,
+      target: string,
+      op: string,
+      extra: Partial<SceneOperation> = {},
+    ): SceneOperation => ({
+      kind: 'operation',
+      index: Number(id.slice(1)) - 1,
+      id,
+      target,
+      op,
+      label: op,
+      source: `${target}.${op}()`,
+      ...extra,
+    });
+    const operations: SceneOperation[] = [
+      step('e1', 'ring', 'create'),
+      step('e2', 'm', 'create'),
+      step('e3', 'm', 'rotate_from_angax'),
+      step('e4', 'gone', 'create'),
+      step('e5', 'gone', 'rotate_from_angax'),
+      step('e6', 'gone', 'remove'),
+      step('e7', 'stranded', 'rotate_from_angax', { error: 'targets unknown object' }),
+      step('e8', 'later', 'create', { pending: true }),
+    ];
+    const tree = new SceneTreeProvider(
+      vscode.Uri.file('/'),
+      async () => objects,
+      async () => {},
+      async () => operations,
+    );
+
+    const roots = await tree.getChildren();
+    assert.deepStrictEqual(
+      roots.map((n) => n.id),
+      ['ring', 'gone', 'stranded', 'later'],
+      'the scene, then what it no longer has, in log order',
+    );
+
+    // the bug this all started from: a leaf with a history and no chevron
+    const inRing = await tree.getChildren(roots[0]);
+    assert.deepStrictEqual(inRing.map((n) => n.id), [
+      'e1',
+      'm',
+    ]);
+    const magnet = inRing[1] as SceneObject;
+    assert.strictEqual(
+      tree.getTreeItem(magnet).collapsibleState,
+      vscode.TreeItemCollapsibleState.Collapsed,
+      'a magnet with steps has to be openable',
+    );
+    assert.deepStrictEqual(
+      (await tree.getChildren(magnet)).map((n) => n.id),
+      ['e2', 'e3'],
+    );
+    assert.strictEqual(
+      tree.getTreeItem(roots[0]).collapsibleState,
+      vscode.TreeItemCollapsibleState.Expanded,
+      'what holds objects still opens by itself',
+    );
+
+    // a deleted object keeps its story, including the step that deleted it —
+    // which is the only way to put it back short of undo
+    const [, gone, stranded, later] = roots as SceneObject[];
+    assert.deepStrictEqual(
+      [gone.absent, stranded.absent, later.absent],
+      ['removed', 'not built', 'not applied'],
+    );
+    assert.deepStrictEqual(
+      (await tree.getChildren(gone)).map((n) => n.id),
+      ['e4', 'e5', 'e6'],
+    );
+    const item = tree.getTreeItem(gone);
+    assert.strictEqual(item.description, 'removed');
+    assert.strictEqual(
+      item.contextValue,
+      'absentObject',
+      'the object menus act on objects the scene has; this is the absence of one',
     );
   });
 

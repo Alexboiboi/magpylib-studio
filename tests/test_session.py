@@ -2607,15 +2607,42 @@ def test_event_edits_that_cannot_replay_roll_back():
     assert s.move_event(events[1]["id"], orbit_at) == {"ok": True}
     assert np.allclose(s._objs["cube"].position, [0, 1, 0])
 
-    # but nothing can be dragged above the object it acts on
+    # but nothing can be dragged above the object it acts on — refused before
+    # it is applied, and in those terms, rather than by letting it fail and
+    # handing back whatever the rebuild happened to raise
     refused = s.move_event(events[1]["id"], 0)
-    assert refused["ok"] is False and "unknown object 'cube'" in refused["error"]
+    assert refused["ok"] is False and "before it is created" in refused["error"]
     assert np.allclose(s._objs["cube"].position, [0, 1, 0])
 
     assert s.remove_event(events[0]["id"]) == {"ok": True}
     assert [e["op"] for e in s.get_events()["events"] if e["op"] != "create"] == [
         "move"
     ]
+
+
+def test_a_create_cannot_be_reordered_below_its_own_steps():
+    """The mirror of "nothing can be dragged above the object it acts on",
+    and the direction the rebuild does not catch: the moved event is the
+    create, which replays perfectly well wherever it lands — it is the *other*
+    events that fall over, and those are reported rather than refused. So a
+    Move Step Later on a create used to leave the object gone and its whole
+    story broken, one click, no warning."""
+    s = MagpylibStudioSession()
+    s.add_object("a", "magnet.Cuboid", {"polarization": [1, 0, 0], "dimension": [1] * 3})
+    s.add_object("b", "magnet.Cuboid", {"polarization": [1, 0, 0], "dimension": [1] * 3})
+    s.rotate("a", 45, "z", anchor=[0, 0, 0])
+    events = s.get_events()["events"]
+    create_a = next(e for e in events if e["op"] == "create" and e["target"] == "a")
+
+    refused = s.move_event(create_a["id"], 2)
+    assert refused["ok"] is False and "before it is created" in refused["error"]
+    assert [o["id"] for o in s.list_objects()] == ["a", "b"]  # untouched
+    assert [e["id"] for e in s.get_events()["events"]] == [e["id"] for e in events]
+
+    # a create still moves freely where nothing of its own is in the way
+    create_b = next(e for e in events if e["op"] == "create" and e["target"] == "b")
+    assert s.move_event(create_b["id"], 0) == {"ok": True}
+    assert [e["target"] for e in s.get_events()["events"]] == ["b", "a", "a"]
 
 
 def test_editing_history_reports_what_it_broke_instead_of_refusing():
