@@ -4,6 +4,8 @@ All notable changes to the Magpylib Studio extension.
 
 ## [Unreleased]
 
+## [0.3.0]
+
 ### Added
 
 - **A variable can be renamed** — under `⋯` in the Variables panel,

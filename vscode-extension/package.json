@@ -2,7 +2,7 @@
   "name": "magpylib-studio-vscode",
   "displayName": "Magpylib Studio",
   "description": "VS Code extension shell for the magpylib-studio headless engine.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "magpylib",
   "license": "BSD-3-Clause",
   "icon": "media/icon.png",
