@@ -12,8 +12,10 @@ imports as 10 concrete objects).
 from __future__ import annotations
 
 import ast
+import io
 import keyword
 import re
+import tokenize
 
 import magpylib as magpy
 import numpy as np
@@ -669,6 +671,130 @@ def _duplicate_from_loop(node, objects, variables):
     }
 
 
+def _number_text(value):
+    """A number as a script would write it, so what the comment says and what
+    the assignment says are the same number."""
+    return repr(value)
+
+
+def _number(text):
+    """The number a piece of a comment states, or None if it is not one."""
+    try:
+        value = ast.literal_eval(text.strip())
+    except (ValueError, SyntaxError):
+        return None
+    return (
+        value
+        if isinstance(value, int | float) and not isinstance(value, bool)
+        else None
+    )
+
+
+def _span(low, high, prefix=""):
+    """The two ends of a range, said the way a person would: both of them, or
+    whichever one exists."""
+    if low is not None and high is not None:
+        return f"{prefix}{_number_text(low)} to {_number_text(high)}"
+    if low is not None:
+        return f"{prefix}min {_number_text(low)}"
+    return None if high is None else f"{prefix}max {_number_text(high)}"
+
+
+def bounds_comment(limits):
+    """What a variable's limits look like at the end of its line in a script:
+
+        n = 10  # 4 to 20, whole
+        radius = 2.3  # min 1.6, slider 1.6 to 4
+        tilt_axis = 'z'  # one of 'x', 'y', 'z'
+
+    Limits used to be editor-only metadata, dropped by every script the studio
+    wrote — so a script said less about a variable than the panel beside it
+    did, and a scene that travelled as a script arrived with its sliders gone.
+    Read back by `bounds_from_comment`, which is why the two live together.
+    """
+    if not limits:
+        return ""
+    parts = [
+        part
+        for part in (
+            _span(limits.get("min"), limits.get("max")),
+            _span(limits.get("soft_min"), limits.get("soft_max"), "slider "),
+        )
+        if part
+    ]
+    if limits.get("integer"):
+        parts.append("whole")
+    # Last, because it is the one part that runs to the end of the line: a
+    # list of choices contains the commas that separate everything else.
+    if limits.get("options"):
+        parts.append("one of " + ", ".join(repr(o) for o in limits["options"]))
+    return f"  # {', '.join(parts)}" if parts else ""
+
+
+def bounds_from_comment(text):
+    """The limits a comment states, or None when it states none.
+
+    Read as strictly as it is written: a comment that is not exactly one of
+    these phrases is somebody's own note about their scene, and inventing a
+    bound out of "the outer ring, 4 to 8 magnets" would be worse than reading
+    nothing at all.
+    """
+    limits = {}
+    rest = text.strip()
+    head, marker, listed = rest.partition("one of ")
+    if marker:
+        if head and not head.endswith(", "):
+            return None  # part of a sentence, not the phrase
+        try:
+            options = [ast.literal_eval(item) for item in listed.split(",")]
+        except (ValueError, SyntaxError):
+            return None
+        if not options or any(
+            not isinstance(o, str | int | float) or isinstance(o, bool) for o in options
+        ):
+            return None
+        limits["options"] = options
+        rest = head[:-2] if head else ""
+    for part in [p.strip() for p in rest.split(",") if p.strip()]:
+        if part == "whole":
+            limits["integer"] = True
+            continue
+        soft = part.startswith("slider ")
+        low_key, high_key = ("soft_min", "soft_max") if soft else ("min", "max")
+        span = part[len("slider ") :] if soft else part
+        if span.startswith(("min ", "max ")):
+            end = _number(span[4:])
+            if end is None:
+                return None
+            limits[low_key if span.startswith("min ") else high_key] = end
+            continue
+        low, sep, high = span.partition(" to ")
+        if not sep:
+            return None
+        low, high = _number(low), _number(high)
+        if low is None or high is None:
+            return None
+        limits[low_key], limits[high_key] = low, high
+    return limits or None
+
+
+def _trailing_comments(source):
+    """line number -> the comment ending that line.
+
+    `ast` drops comments, so they come off the token stream instead. A script
+    that will not tokenize is one `ast.parse` is about to reject anyway, so a
+    failure here just means no comments were found.
+    """
+    comments = {}
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(source).readline):
+            if token.type == tokenize.COMMENT:
+                comments[token.start[0]] = token.string.lstrip("#").strip()
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        pass
+    return comments
+
+
 def parse_script(source):
     """A script in the shape `to_script` emits -> (document, None), or
     (None, reason) when it is anything else and has to be executed."""
@@ -678,6 +804,8 @@ def parse_script(source):
         return None, f"{type(e).__name__}: {e.msg}"
 
     variables, objects, events = {}, {}, []
+    bounds = {}  # what the comment on a variable's line says about its limits
+    comments = _trailing_comments(source)
     nested = set()  # object names that became a Collection's children
     creates = {}  # object name -> its create event, so `.add()` can parent it
     samples = {}  # name -> (start, stop, count) of a hoisted np.linspace
@@ -846,6 +974,11 @@ def parse_script(source):
                     creates[child["id"]]["parent"] = name
             else:
                 variables[name] = value(stmt.value)
+                # end_lineno, not lineno: the comment sits after the last line
+                # of the value, which is the same line only when it is short.
+                limits = bounds_from_comment(comments.get(stmt.end_lineno, ""))
+                if limits:
+                    bounds[name] = limits
     except (_Unparseable, ValueError, AttributeError, IndexError) as e:
         return None, f"not in the studio's own script shape ({e})"
 
@@ -866,6 +999,8 @@ def parse_script(source):
     }
     if variables:
         doc["variables"] = variables
+    if bounds:
+        doc["variable_bounds"] = bounds
     if not doc["objects"]:
         return None, "no magpylib objects"
     return doc, None

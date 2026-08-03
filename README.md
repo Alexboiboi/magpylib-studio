@@ -154,20 +154,20 @@ line — no ports, no framework.
 <- {"id": 2, "error": {"type": "KeyError", "message": "..."}}
 ```
 
-| group     | methods                                                                                                                                      |
-| --------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| inspect   | `list_objects` · `get_schema` · `get_values` (style) · `get_params` (physics) · `get_transform` · `get_history`                              |
-| structure | `add_object` · `remove_object` · `copy_object` · `move_object` (reparent) · `set_visible`                                                    |
-| edit      | `apply_edit` (style) · `set_param` · `reset_style`                                                                                           |
-| transform | `move` · `rotate` · `set_transform` · `clear_path` · `set_pixel_grid`                                                                        |
-| patterns  | `duplicate_around` (circular) · `duplicate_along` (linear; twice = a grid) · `mirror`                                                        |
-| variables | `get_variables` · `set_variable` · `set_variable_bounds` · `remove_variable` · `unknown_variables` · `expression_help` · `check_expression`  |
-| history   | `get_events` · `edit_event` · `move_event` · `remove_event` · `set_rollback`                                                                 |
-| view      | `get_figure` (3D) · `get_field_figure` (along a sensor path) · `get_field_map` (plane heatmap) · `get_sweep_figure`                          |
-| field     | `get_field` — summed B/H at points or along a sensor · `sweep` — the field against a variable                                                |
-| undo      | `undo` · `redo` · `goto_history`                                                                                                             |
-| I/O       | `load_scene` · `load_script` · `apply_script` · `load_captured` · `list_examples` · `load_example` · `clear_scene` · `to_dict` · `to_script` |
-| bulk      | `batch` — many mutating ops in one call, one undo step                                                                                       |
+| group     | methods                                                                                                                                                         |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| inspect   | `list_objects` · `get_schema` · `get_values` (style) · `get_params` (physics) · `get_transform` · `get_history`                                                 |
+| structure | `add_object` · `remove_object` · `copy_object` · `move_object` (reparent) · `set_visible`                                                                       |
+| edit      | `apply_edit` (style) · `set_param` · `reset_style`                                                                                                              |
+| transform | `move` · `rotate` · `set_transform` · `clear_path` · `set_pixel_grid`                                                                                           |
+| patterns  | `duplicate_around` (circular) · `duplicate_along` (linear; twice = a grid) · `mirror`                                                                           |
+| variables | `get_variables` · `set_variable` · `set_variable_bounds` · `rename_variable` · `remove_variable` · `unknown_variables` · `expression_help` · `check_expression` |
+| history   | `get_events` · `edit_event` · `move_event` · `remove_event` · `set_rollback`                                                                                    |
+| view      | `get_figure` (3D) · `get_field_figure` (along a sensor path) · `get_field_map` (plane heatmap) · `get_sweep_figure`                                             |
+| field     | `get_field` — summed B/H at points or along a sensor · `sweep` — the field against a variable                                                                   |
+| undo      | `undo` · `redo` · `goto_history`                                                                                                                                |
+| I/O       | `load_scene` · `load_script` · `apply_script` · `load_captured` · `list_examples` · `load_example` · `clear_scene` · `to_dict` · `to_script`                    |
+| bulk      | `batch` — many mutating ops in one call, one undo step                                                                                                          |
 
 Mutating methods return `{"ok": bool, "error"?: str}`. Everything is
 JSON-serializable in both directions.

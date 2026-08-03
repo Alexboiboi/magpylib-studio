@@ -201,7 +201,10 @@ async function load() {
     const acts = document.createElement("div");
     acts.className = "acts";
     acts.append(
-      button("⋯", "Set bounds…", "bounds", v.name),
+      // Everything about the variable except its value, which is the box
+      // beside this: one menu rather than a button each, because the row is
+      // as wide as a sidebar and the slider is what should have the space.
+      button("⋯", "Edit " + v.name + "…", "edit", v.name),
       button("✕", "Remove " + v.name, "remove", v.name),
     );
     row.append(name, slot, text, acts);

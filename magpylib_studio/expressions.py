@@ -341,6 +341,75 @@ def normalized(value):
     return value
 
 
+class _Rename(ast.NodeTransformer):
+    """One name for another, wherever it is used *as a variable*."""
+
+    def __init__(self, old, new):
+        self.old, self.new = old, new
+        self.hit = False
+
+    def visit_Call(self, node):
+        # A call's target comes from the allow-list, not from the document:
+        # `sqrt` in `sqrt(radius)` is the one Name here that is not a variable.
+        node.args = [self.visit(arg) for arg in node.args]
+        return node
+
+    def visit_Name(self, node):
+        if node.id == self.old:
+            node.id = self.new
+            self.hit = True
+        return node
+
+
+def renamed(value, old, new):
+    """Every expression inside a document value, with `old` spelled `new`.
+
+    Rewritten through the AST rather than through the text, because a variable
+    is a name and not a substring: `n` occurs inside `turns`, inside `min(`
+    and inside the literal `"n"`, and none of those three is the variable.
+
+    A template's `t` belongs to the sampled node that binds it, so it is left
+    alone in there — and it is not available as a destination either. Renaming
+    a variable to `t` would quietly hand every use of it inside a template to
+    the sample, and a rename has to leave the scene drawing what it drew, so
+    that one is refused instead.
+    """
+
+    def rewrite(item, bound=()):
+        if is_sampled(item):
+            spec = item[SAMPLED]
+            return {
+                SAMPLED: {
+                    key: rewrite(entry, (*bound, SAMPLE) if key == "of" else bound)
+                    for key, entry in spec.items()
+                }
+            }
+        if is_expression(item):
+            if old in bound:
+                return item  # the node's own sample, not the scene's variable
+            try:
+                tree = ast.parse(source_of(item), mode="eval")
+            except SyntaxError:
+                return item  # the build will report it
+            rename = _Rename(old, new)
+            tree = rename.visit(tree)
+            if not rename.hit:
+                return item
+            if new in bound:
+                raise ValueError(
+                    f"a sampled run calls its own points {new!r}, so {old!r} "
+                    f"would stop meaning the variable inside a template"
+                )
+            return PREFIX + ast.unparse(tree)
+        if isinstance(item, list):
+            return [rewrite(entry, bound) for entry in item]
+        if isinstance(item, dict):
+            return {key: rewrite(entry, bound) for key, entry in item.items()}
+        return item
+
+    return rewrite(value)
+
+
 def resolve_variables(variables):
     """{name: number | "=expr"} -> {name: number}, expressions last.
 

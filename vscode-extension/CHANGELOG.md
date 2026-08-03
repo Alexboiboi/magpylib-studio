@@ -4,6 +4,24 @@ All notable changes to the Magpylib Studio extension.
 
 ## [Unreleased]
 
+### Added
+
+- **A variable can be renamed** — under `⋯` in the Variables panel,
+  `rename_variable` on the engine. Everything written in terms of it is
+  rewritten through the syntax tree, so the scene is unchanged and the bounds
+  follow the name.
+
+- **A script says what its variables are allowed to be**, in the comment on
+  each one's line (`n = 10  # 2 to 60, slider 4 to 20, whole`), and reads them
+  back. Limits used to be editor-only, so a scene that travelled as a script
+  arrived with its sliders gone.
+
+### Changed
+
+- **`⋯` on a variable opens a menu instead of a three-step wizard.** Pick the
+  name, a range, the kind, or clear the limits, and answer one box. Each entry
+  shows what it currently holds.
+
 ## [0.2.0]
 
 ### Added

@@ -50,6 +50,7 @@ Protocol surface (all JSON-serializable in/out):
   check_expression(text)               -> {"ok": bool, "error"?: str}
   set_variable(name, value)            -> {"ok": bool, "error"?: str}
   set_variable_bounds(name, min?, max?, soft_min?, soft_max?) -> {"ok": bool, ...}
+  rename_variable(old, new)            -> {"ok": bool, "error"?: str}
   remove_variable(name)                -> {"ok": bool, "error"?: str}
   sweep(variable, values, sensor_id?, points?, field?) -> {"ok", "steps": [...]}
   get_sweep_figure(variable, values, …) -> plotly line-plot JSON
@@ -3206,9 +3207,11 @@ class MagpylibStudioSession:
             except Exception as e:  # noqa: BLE001 - report errors, don't crash
                 return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
-        # Bounds are editor metadata: a script has nowhere to put them, so
-        # they are carried across for the variables that survived the edit
-        # rather than being silently dropped on every save.
+        # A script states a variable's limits in the comment on its line, and
+        # what it states wins — that is the point of writing them down. This
+        # carries the rest: a hand-written script says nothing about limits,
+        # and neither does one whose comment somebody deleted, and neither is
+        # a script asking for the sliders to go.
         carried = {
             name: limits
             for name, limits in (before.get("variable_bounds") or {}).items()
@@ -3494,6 +3497,47 @@ class MagpylibStudioSession:
             doc.setdefault("variables", {})[name] = expressions.normalized(value)
 
         return self._mutate_doc(mutate, f"set {name}")
+
+    def rename_variable(self, old, new):
+        """Rename a variable, rewriting every expression that names it.
+
+        A name is part of what a scene says — `n` turns out to mean `magnets`,
+        `gap` to mean `clearance` — and until this existed the only route was
+        to define the new one, repoint by hand every value written in terms of
+        the old one, and only then be allowed to remove it. Nothing else
+        changes: the variables keep their order, the limits follow the name
+        they belong to, and every expression means what it meant.
+        """
+        variables = self.doc.get("variables") or {}
+        if old not in variables:
+            return {"ok": False, "error": f"unknown variable {old!r}"}
+        if new == old:
+            return {"ok": True}  # nothing to do, and nothing to record
+        if not isinstance(new, str) or not new.isidentifier():
+            return {"ok": False, "error": f"{new!r} is not a valid variable name"}
+        if new in expressions._CONSTANTS or new in expressions._FUNCTIONS:
+            return {"ok": False, "error": f"{new!r} is a built-in expression name"}
+        if new in variables:
+            return {"ok": False, "error": f"{new!r} is already a variable"}
+
+        def mutate(doc):
+            # The whole document in one pass, so the log, the variables' own
+            # expressions and their limits cannot end up disagreeing about
+            # what the variable is called.
+            doc["variables"] = {
+                (new if name == old else name): expressions.renamed(value, old, new)
+                for name, value in doc["variables"].items()
+            }
+            bounds = doc.get("variable_bounds")
+            if bounds and old in bounds:
+                doc["variable_bounds"] = {
+                    (new if name == old else name): limits
+                    for name, limits in bounds.items()
+                }
+            if doc.get("events"):
+                doc["events"] = expressions.renamed(doc["events"], old, new)
+
+        return self._mutate_doc(mutate, f"rename {old} to {new}")
 
     def remove_variable(self, name):
         """Drop a variable. Fails if anything still refers to it."""
@@ -3788,6 +3832,8 @@ class MagpylibStudioSession:
         constructor arguments — it is written before they exist — so they join
         with `.add()`, which parse_script reads back.
         """
+        from magpylib_studio import importer
+
         # Only what happened to objects the log still holds. An object that
         # was removed leaves no definition behind, so a step naming it would
         # be a NameError in the exported file — the removal is expressed by
@@ -3850,8 +3896,15 @@ class MagpylibStudioSession:
         variables = self.doc.get("variables") or {}
         if variables:
             # Real Python variables: the script stays parametric, and reading
-            # it back recovers them (see importer.parse_script).
-            lines += [f"{name} = {_lit(value)}" for name, value in variables.items()]
+            # it back recovers them (see importer.parse_script). Their limits
+            # ride along in a comment — a slider is part of what a variable is,
+            # and a script that dropped it said less than the panel beside it.
+            var_bounds = self.doc.get("variable_bounds") or {}
+            lines += [
+                f"{name} = {_lit(value)}"
+                + importer.bounds_comment(var_bounds.get(name))
+                for name, value in variables.items()
+            ]
             lines.append("")
 
         # What the script already binds. The sample is assigned in it, so a

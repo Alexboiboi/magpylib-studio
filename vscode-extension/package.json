@@ -201,6 +201,10 @@
         "title": "Edit Variable..."
       },
       {
+        "command": "magpylib-studio.renameVariable",
+        "title": "Rename Variable..."
+      },
+      {
         "command": "magpylib-studio.removeVariable",
         "title": "Remove Variable",
         "icon": "$(trash)"
@@ -216,7 +220,7 @@
       },
       {
         "command": "magpylib-studio.setVariableBounds",
-        "title": "Set Bounds..."
+        "title": "Variable Properties..."
       },
       {
         "command": "magpylib-studio.selectOperation",
@@ -735,6 +739,10 @@
         },
         {
           "command": "magpylib-studio.editVariable",
+          "when": "false"
+        },
+        {
+          "command": "magpylib-studio.renameVariable",
           "when": "false"
         },
         {

@@ -7,6 +7,7 @@ import tempfile
 
 import pytest
 
+from magpylib_studio import importer
 from magpylib_studio.rpc import serve
 from magpylib_studio.session import (
     DOC_VERSION,
@@ -2201,6 +2202,82 @@ def test_apply_script_keeps_variables_through_the_round_trip(tmp_path):
     assert list(s._objs["cube"].position) == [0, 0, 2.0]
 
 
+def test_a_script_says_what_a_variable_is_allowed_to_be(tmp_path):
+    """Limits were editor-only metadata: the panel knew `n` was a whole number
+    between 2 and 60 and every script the studio wrote said `n = 10`. A scene
+    that travelled as a script arrived with its sliders gone."""
+    s = MagpylibStudioSession()
+    s.load_example("halbach")
+    bounds = s.to_dict()["variable_bounds"]
+    script = s.to_script()
+    assert "n = 10  # 2 to 60, slider 4 to 20, whole" in script
+    assert "tilt_axis = 'z'  # one of 'x', 'y', 'z'" in script
+
+    # read back by a session that has nothing of this scene to carry over
+    path = tmp_path / "scene.py"
+    path.write_text(script, encoding="utf-8")
+    fresh = MagpylibStudioSession()
+    assert fresh.apply_script(str(path))["mode"] == "parsed"
+    assert fresh.to_dict()["variable_bounds"] == bounds
+    assert fresh.to_script() == script  # and it is still a fixed point
+
+    # the limits are the script's to state, so editing one there lands
+    path.write_text(script.replace("# 2 to 60, slider 4 to 20", "# 2 to 24"), "utf-8")
+    assert fresh.apply_script(str(path))["ok"] is True
+    assert fresh.to_dict()["variable_bounds"]["n"] == {
+        "min": 2,
+        "max": 24,
+        "integer": True,
+    }
+
+
+def test_a_comment_that_is_not_about_limits_is_left_alone(tmp_path):
+    """The one hazard of reading metadata out of comments: a note somebody
+    wrote about their own scene must not become a bound. Read strictly, so
+    what is not one of these phrases is not read at all."""
+    for note, expected in (
+        ("4 to 20", {"min": 4, "max": 20}),
+        ("min 1.6", {"min": 1.6}),
+        ("max 8", {"max": 8}),
+        ("slider 1 to 5, whole", {"soft_min": 1, "soft_max": 5, "integer": True}),
+        ("one of 'x', 'y', 'z'", {"options": ["x", "y", "z"]}),
+        ("one of 4, 8, 16", {"options": [4, 8, 16]}),
+        ("gap between the magnets", None),
+        ("the outer to inner ratio", None),
+        ("one of the two rings", None),
+        ("TODO: tune this", None),
+        ("", None),
+    ):
+        assert importer.bounds_from_comment(note) == expected, note
+
+    # what is written is what is read, for every shape of limit
+    for limits in (
+        {"min": 0, "max": 10},
+        {"min": 0.5},
+        {"max": -2.5},
+        {"soft_min": 1, "soft_max": 5},
+        {"soft_max": 5},
+        {"min": 2, "max": 60, "soft_min": 4, "soft_max": 20, "integer": True},
+        {"integer": True},
+        {"options": ["x", "y", "z"]},
+        {"options": [4, 8, 16], "integer": True},
+    ):
+        comment = importer.bounds_comment(limits)
+        assert importer.bounds_from_comment(comment.lstrip(" #")) == limits, comment
+
+    # a scene whose script carries a note of someone's own still loads, and
+    # keeps the limits it had rather than the ones the note does not state
+    s = MagpylibStudioSession(make_scene())
+    s.set_variable("gap", 2.0)
+    s.set_variable_bounds("gap", min=0, max=10)
+    path = tmp_path / "scene.py"
+    path.write_text(
+        s.to_script().replace("# 0 to 10", "# the space between the rings"), "utf-8"
+    )
+    assert s.apply_script(str(path))["ok"] is True
+    assert s.to_dict()["variable_bounds"]["gap"] == {"min": 0, "max": 10}
+
+
 def test_apply_script_applies_edits_as_one_undo_step(tmp_path):
     s = MagpylibStudioSession(make_scene())
     path = tmp_path / "scene.py"
@@ -2902,6 +2979,103 @@ def test_variables_drive_the_scene():
     # and one nothing refers to goes cleanly
     assert s.set_variable("spare", 1) == {"ok": True}
     assert s.remove_variable("spare") == {"ok": True}
+
+
+def test_a_variable_can_be_renamed_and_the_scene_follows():
+    """A name is part of what a scene says, and it is the one part of a
+    variable that used to be fixed at creation: the route to `gap` meaning
+    `clearance` was to define the second, repoint by hand every value written
+    in terms of the first, and only then be allowed to remove it."""
+    s = MagpylibStudioSession()
+    s.set_variable("gap", 2.0)
+    s.set_variable("twice", "=gap * 2")
+    s.set_variable_bounds("gap", min=0, max=10, soft_max=5)
+    s.add_object(
+        "m",
+        "magnet.Sphere",
+        {"polarization": [0, 0, 1], "diameter": "=gap", "position": [0, 0, "=twice"]},
+    )
+    s.move("m", [0, 0, "=gap + 1"])  # an event of its own, not a create param
+    before = list(s._objs["m"].position)
+
+    assert s.rename_variable("gap", "clearance") == {"ok": True}
+    assert list(s._objs["m"].position) == before  # the scene is untouched
+
+    doc = s.to_dict()
+    assert list(doc["variables"]) == ["clearance", "twice"]  # in its old place
+    assert doc["variables"]["twice"] == "=clearance * 2"
+    assert doc["variable_bounds"]["clearance"] == {"min": 0, "max": 10, "soft_max": 5}
+    assert "gap" not in json.dumps(doc)
+    # and the new name is the live one: the slider still drives the scene
+    assert s.set_variable("clearance", 3.0) == {"ok": True}
+    assert s._objs["m"].diameter == 3.0
+
+    assert s.undo()["ok"] is True  # back to gap = 3, one step
+    assert s.undo()["ok"] is True  # and the rename itself is one more
+    assert list(s.to_dict()["variables"]) == ["gap", "twice"]
+    assert s._objs["m"].diameter == 2.0
+
+
+def test_a_rename_touches_the_variable_and_nothing_that_merely_looks_like_it():
+    """A variable is a name, not a substring. `n` occurs inside `turns`,
+    inside `min(` and inside the axis name `"n"`, and none of the three is
+    the variable — which is why this goes through the AST."""
+    s = MagpylibStudioSession()
+    s.set_variable("n", 4)
+    s.set_variable("turns", 2.0)
+    s.set_variable("angle", "=360 / n + turns")
+    s.set_variable("axis", "n")  # a name-valued variable that spells it too
+    s.set_variable_bounds("axis", options=["n", "s"])
+
+    assert s.rename_variable("n", "magnets") == {"ok": True}
+    variables = {v["name"]: v["expression"] for v in s.get_variables()["variables"]}
+    assert variables["angle"] == "=360 / magnets + turns"
+    assert variables["turns"] == 2.0
+    assert variables["axis"] == "n"  # a literal, not an expression
+    assert variables["magnets"] == 4
+
+
+def test_a_rename_leaves_a_template_saying_what_it_said():
+    """`t` inside a sampled template is the node's own sample, not a variable:
+    a scene that happens to define one is not what the template is drawn
+    against, and renaming a variable *to* `t` would hand every use of it
+    inside the template to the sample — silently, and drawing something
+    else. Refused rather than done."""
+    s = MagpylibStudioSession()
+    for name, value in (("radius", 1.0), ("turns", 2.0), ("pitch", 0.5), ("t", 3.0)):
+        s.set_variable(name, value)
+    s.set_variable("per_turn", 10)
+    s.add_object("coil", "current.Polyline", params={"vertices": _sampled_helix()})
+    drawn = [list(v) for v in s._objs["coil"].vertices]
+
+    # the variable `t` is not the sample: renaming it leaves the template alone
+    assert s.rename_variable("t", "thickness") == {"ok": True}
+    assert [list(v) for v in s._objs["coil"].vertices] == drawn
+    assert s.to_dict()["objects"][0]["params"]["vertices"]["sampled"]["of"][0] == (
+        "=radius * cos(tau * turns * t)"
+    )
+
+    captured = s.rename_variable("radius", "t")
+    assert (
+        captured["ok"] is False
+        and "sampled run calls its own points" in (captured["error"])
+    )
+    assert [list(v) for v in s._objs["coil"].vertices] == drawn
+
+
+def test_a_rename_says_why_it_will_not_happen():
+    s = MagpylibStudioSession()
+    s.set_variable("gap", 2.0)
+    s.set_variable("size", 1.0)
+    assert s.rename_variable("nope", "gap")["error"] == "unknown variable 'nope'"
+    assert s.rename_variable("gap", "size")["error"] == "'size' is already a variable"
+    assert (
+        s.rename_variable("gap", "pi")["error"] == "'pi' is a built-in expression name"
+    )
+    assert "not a valid variable name" in s.rename_variable("gap", "2big")["error"]
+    assert s.rename_variable("gap", "gap") == {"ok": True}  # a no-op, not an error
+    assert [v["name"] for v in s.get_variables()["variables"]] == ["gap", "size"]
+    assert s.get_history()["undo"] == ["set gap", "set size"]  # nothing recorded
 
 
 def test_variable_bounds_are_hard_or_only_advisory(tmp_path):

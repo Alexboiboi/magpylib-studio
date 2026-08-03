@@ -63,6 +63,7 @@ _PUBLIC = {
     "check_expression",
     "set_variable",
     "set_variable_bounds",
+    "rename_variable",
     "remove_variable",
     "get_events",
     "set_rollback",

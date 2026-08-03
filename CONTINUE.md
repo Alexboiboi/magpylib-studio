@@ -145,8 +145,11 @@ and drives it.
   functions, `pi`/`e`/`tau`), never `eval` — a document is something you open
   from someone else. Expressions are stored in canonical spacing so the script
   tab is a fixed point from the first save. API: `get_variables`,
-  `set_variable`, `remove_variable`; a definition that cycles, is unknown, or
-  that some object rejects rolls back. `to_script` emits them as real Python
+  `set_variable`, `rename_variable`, `remove_variable`; a definition that
+  cycles, is unknown, or that some object rejects rolls back. A rename rewrites
+  every expression that names it through the AST and not the text — `n` occurs
+  inside `turns` and inside the axis name `"n"`, and neither is the variable —
+  so the name is as editable as the value and the scene comes out unchanged. `to_script` emits them as real Python
   assignments, so the exported script is parametric too.
 - **The rule is visible, and says so as you type.** `expression_help()` returns
   the operators, functions and constants **read off the allow-list that enforces
