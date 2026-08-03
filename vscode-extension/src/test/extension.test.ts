@@ -250,7 +250,11 @@ suite('magpylib-studio', () => {
 
     // Saving it rebuilds the scene from what it says: change a variable in
     // the text, save, and the document should come back with the new value.
-    const edited = tab.getText().replace(/^radius = [\d.]+$/m, 'radius = 3.25');
+    // The number only: a variable's line now carries its limits in a trailing
+    // comment, and that comment is where they are read back from — replacing
+    // the whole line would quietly strip the bounds off radius and test a
+    // different thing than it says it does.
+    const edited = tab.getText().replace(/^radius = [\d.]+/m, 'radius = 3.25');
     assert.notStrictEqual(edited, tab.getText(), 'radius assignment not found');
     const editor = await vscode.window.showTextDocument(tab);
     await editor.edit((builder) => {
