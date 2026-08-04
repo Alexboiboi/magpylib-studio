@@ -4,6 +4,8 @@ All notable changes to the Magpylib Studio extension.
 
 ## [Unreleased]
 
+## [0.3.1]
+
 ### Fixed
 
 - **A numeral handed over as a string is a number.** A caller that sent `10` as
