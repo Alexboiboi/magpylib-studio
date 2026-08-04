@@ -913,7 +913,7 @@
         "displayName": "Set magpylib object parameter",
         "toolReferenceName": "magpyParam",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "Set a constructor parameter of a magpylib scene object - position, dimension, diameter, polarization, ... Use this to move or resize objects (style edits use the apply edit tool instead). On failure the result contains the error - fix and retry. VALUES MAY BE EXPRESSIONS: any number here can instead be a string starting with '=' naming the scene's variables, e.g. \"=gap\" or [0, 0, \"=gap*2\"] - use one whenever the user describes a quantity as a parameter or repeats it across objects, so changing it later moves everything at once. The variable must already exist (set variable tool). Strings without '=' stay literal, so an axis is still 'z'.",
+        "modelDescription": "Set a constructor parameter of a magpylib scene object - position, dimension, diameter, polarization, ... Use this to move or resize objects (style edits use the apply edit tool instead). On failure the result contains the error - fix and retry. VALUES MAY BE EXPRESSIONS: any number here can instead be a string starting with '=' naming the scene's variables, e.g. \"=gap\" or [0, 0, \"=gap*2\"] - use one whenever the user describes a quantity as a parameter or repeats it across objects, so changing it later moves everything at once. The variable must already exist (set variable tool). Strings without '=' stay literal, so an axis is still 'z'. Setting 'position' says where the object starts, so on an object carrying a path it REPLACES that path with the single point given - pass the whole path ([[x,y,z], ...]) to keep one, or use the move tool to extend it.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1152,7 +1152,7 @@
         "displayName": "Clear magpylib scene",
         "toolReferenceName": "magpyClear",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "Remove ALL objects from the Magpylib Studio scene in one call. Always use this instead of removing objects one by one when the user wants to clear/clean/empty the scene.",
+        "modelDescription": "Empty the Magpylib Studio scene in one call: every object, every step AND every variable go together, leaving a blank document. Always use this instead of removing objects one by one when the user wants to clear/clean/empty the scene. If the user wants to keep their variables and only drop the geometry, remove the objects individually instead. Undo restores the whole document.",
         "inputSchema": {
           "type": "object",
           "properties": {}
@@ -1163,7 +1163,7 @@
         "displayName": "Batch magpylib operations",
         "toolReferenceName": "magpyBatch",
         "canBeReferencedInPrompt": true,
-        "modelDescription": "Apply several Magpylib Studio scene operations in ONE call - always prefer this over chaining single tool calls when creating, editing, or removing multiple objects (e.g. building an array of magnets). Operations run in order; failures don't stop the rest. The result lists per-operation outcomes ({ok, error?}) - fix failed ones and retry only those. Batchable methods: add_object, remove_object, move_object (reparent into/out of Collections: {object_id, parent?}), apply_edit, set_param, move, rotate, set_transform, clear_path, reset_style, clear_scene (their params match the corresponding single tools). Batchable methods now also include set_variable, remove_variable and duplicate_around, so a whole parametric scene - variables, the objects written in terms of them, then the arrangements - can be built in one undoable call.",
+        "modelDescription": "Apply several Magpylib Studio scene operations in ONE call - always prefer this over chaining single tool calls when creating, editing, or removing multiple objects (e.g. building an array of magnets). Operations run in order; failures don't stop the rest. The result lists per-operation outcomes ({ok, error?}) - fix failed ones and retry only those. Batchable methods: add_object, remove_object, move_object (reparent into/out of Collections: {object_id, parent?}), apply_edit, set_param, move, rotate, set_transform, clear_path, reset_style, clear_scene, set_variable, remove_variable, duplicate_around, duplicate_along, mirror (their params match the corresponding single tools). That covers a whole parametric scene - variables, the objects written in terms of them, then the arrangements - in one undoable call. remove_variable ({\"name\": \"gap\"}) is the only way to delete a variable, and fails while anything still refers to it.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1186,7 +1186,12 @@
                       "set_transform",
                       "clear_path",
                       "reset_style",
-                      "clear_scene"
+                      "clear_scene",
+                      "set_variable",
+                      "remove_variable",
+                      "duplicate_around",
+                      "duplicate_along",
+                      "mirror"
                     ]
                   },
                   "params": {

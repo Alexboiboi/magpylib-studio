@@ -10,6 +10,7 @@ import pytest
 from magpylib_studio import importer
 from magpylib_studio.rpc import serve
 from magpylib_studio.session import (
+    _BATCHABLE,
     DOC_VERSION,
     MagpylibStudioSession,
     _linspace_lit,
@@ -2628,8 +2629,12 @@ def test_a_create_cannot_be_reordered_below_its_own_steps():
     Move Step Later on a create used to leave the object gone and its whole
     story broken, one click, no warning."""
     s = MagpylibStudioSession()
-    s.add_object("a", "magnet.Cuboid", {"polarization": [1, 0, 0], "dimension": [1] * 3})
-    s.add_object("b", "magnet.Cuboid", {"polarization": [1, 0, 0], "dimension": [1] * 3})
+    s.add_object(
+        "a", "magnet.Cuboid", {"polarization": [1, 0, 0], "dimension": [1] * 3}
+    )
+    s.add_object(
+        "b", "magnet.Cuboid", {"polarization": [1, 0, 0], "dimension": [1] * 3}
+    )
     s.rotate("a", 45, "z", anchor=[0, 0, 0])
     events = s.get_events()["events"]
     create_a = next(e for e in events if e["op"] == "create" and e["target"] == "a")
@@ -3103,6 +3108,142 @@ def test_a_rename_says_why_it_will_not_happen():
     assert s.rename_variable("gap", "gap") == {"ok": True}  # a no-op, not an error
     assert [v["name"] for v in s.get_variables()["variables"]] == ["gap", "size"]
     assert s.get_history()["undo"] == ["set gap", "set size"]  # nothing recorded
+
+
+def test_a_numeral_handed_over_as_a_string_is_a_number():
+    """A caller that serialises `10` as `"10"` used to get a string variable,
+    and Python has an answer for every wrong thing you can then do with one:
+    `n * 2` was `"1010"`, `a + b` concatenated two lengths, and the exported
+    script said `range(1, '10')`. None of them raised."""
+    s = MagpylibStudioSession()
+    assert s.set_variable("n", "10") == {"ok": True}
+    assert s.set_variable("gap", "0.002") == {"ok": True}
+    assert s.set_variable("length", "8e-2") == {"ok": True}
+    assert s.set_variable("direction", "-1") == {"ok": True}
+    assert [v["value"] for v in s.get_variables()["variables"]] == [10, 0.002, 0.08, -1]
+    # what a variable was written as, not just what it resolves to
+    assert s.to_dict()["variables"] == {
+        "n": 10,
+        "gap": 0.002,
+        "length": 8e-2,
+        "direction": -1,
+    }
+
+    assert s.set_variable("twice", "=n * 2") == {"ok": True}
+    assert s.set_variable("total", "=gap + length") == {"ok": True}
+    assert s.set_variable("half", "=total / 2") == {"ok": True}
+    assert s.set_variable("signed", "=n * direction") == {"ok": True}
+    resolved = {v["name"]: v["value"] for v in s.get_variables()["variables"]}
+    assert resolved["twice"] == 20
+    assert resolved["total"] == pytest.approx(0.082)
+    assert resolved["half"] == pytest.approx(0.041)
+    assert resolved["signed"] == -10
+
+    # a numeral is a number in a parameter and in an event too, so the script
+    # it exports is Python that runs
+    s.add_object("c", "Collection")
+    s.add_object(
+        "m",
+        "magnet.Cuboid",
+        {"dimension": [1, 1, 1], "polarization": [0, 0, "0.5"]},
+        parent="c",
+    )
+    assert s.duplicate_along("m", count="10", step=["0.005", 0, 0])["ok"] is True
+    script = s.to_script()
+    assert "range(1, 10)" in script and "'10'" not in script
+    assert "polarization=(0, 0, 0.5)" in script
+    compile(script, "<scene>", "exec")  # and it is not merely quote-free
+
+    # bounds are for numbers, and a variable that arrived as "10" is one
+    assert s.set_variable_bounds("n", min=1, max=100) == {"ok": True}
+
+
+def test_a_name_is_never_quietly_arithmetic():
+    """Not every variable is a quantity — an axis is a name — and `"z" * 2`
+    has a Python answer that no scene wants. Only bare numerals are read as
+    numbers; the rest is refused rather than concatenated."""
+    s = MagpylibStudioSession()
+    s.set_variable("axis", "z")
+    s.set_variable("plane", "xy")
+    assert s.to_dict()["variables"] == {"axis": "z", "plane": "xy"}
+    failed = s.set_variable("bad", "=axis * 2")
+    assert failed["ok"] is False and "is a name, not a number" in failed["error"]
+    # and the scene still says what it said before the attempt
+    assert s.to_dict()["variables"] == {"axis": "z", "plane": "xy"}
+
+    # a numeral that is a label stays the text it is: style names, it does not
+    # measure, so nothing under it is read as a number
+    s.add_object("m", "magnet.Sphere", {"polarization": [0, 0, 1], "diameter": 1})
+    assert s.apply_edit("m", "label", "10") == {"ok": True}
+    assert s._objs["m"].style.label == "10"
+    reloaded = MagpylibStudioSession(json.loads(json.dumps(s.to_dict())))
+    assert reloaded._objs["m"].style.label == "10"
+
+
+def test_running_an_edited_script_keeps_the_variables_it_cannot_state(tmp_path):
+    """A script that has to be *run* comes back as the object graph it left
+    behind, and a scene's parametrisation is not a thing one of those has. It
+    used to be read as "the user deleted them": one `for` loop in the script
+    and every variable in the document was gone, mentioned by nothing."""
+    s = MagpylibStudioSession()
+    s.set_variable("n", 3)
+    s.set_variable("gap", 0.01)
+    s.set_variable_bounds("n", min=1, max=20, integer=True)
+    s.add_object("c", "Collection")
+
+    script = tmp_path / "scene.py"
+    script.write_text(
+        "import magpylib as magpy\n\n"
+        "n = 5\n"
+        "gap = 0.01\n\n"
+        "c = magpy.Collection()\n"
+        "for i in range(n):\n"
+        "    m = magpy.magnet.Cuboid(dimension=(1, 1, 1), polarization=(0, 0, 1))\n"
+        "    m.move((0, 0, i * gap))\n"
+        "    c.add(m)\n\n"
+        "magpy.show(c, backend='plotly')\n",
+        encoding="utf-8",
+    )
+    result = s.apply_script(str(script))
+    assert result["ok"] is True and result["mode"] == "executed"
+
+    kept = {v["name"]: v["value"] for v in s.get_variables()["variables"]}
+    assert kept == {"n": 5, "gap": 0.01}  # the script's own value for n, not 3
+    assert s.to_dict()["variable_bounds"]["n"] == {"min": 1, "max": 20, "integer": True}
+    # kept, but no longer wired to anything — and that is said out loud, which
+    # is the whole difference from the sliders simply going missing
+    assert any("nothing in the scene refers to" in w for w in result["warnings"])
+
+    # undo puts back the document the edit replaced
+    assert s.undo() == {"ok": True}
+    assert {v["name"]: v["value"] for v in s.get_variables()["variables"]} == {
+        "n": 3,
+        "gap": 0.01,
+    }
+
+
+def test_every_batchable_method_is_offered_to_the_model():
+    """The batch tool's schema is a copy of `_BATCHABLE`, and a copy drifts:
+    `remove_variable` was batchable, and described as batchable, for a release
+    in which the enum next to that description would not let anyone call it."""
+    manifest = os.path.join(
+        os.path.dirname(__file__), "..", "vscode-extension", "package.json"
+    )
+    with open(manifest, encoding="utf-8") as f:
+        package = json.load(f)
+    batch = next(
+        tool
+        for tool in package["contributes"]["languageModelTools"]
+        if tool["name"] == "magpylib-studio_batch"
+    )
+    offered = batch["inputSchema"]["properties"]["operations"]["items"]["properties"][
+        "method"
+    ]["enum"]
+    assert set(offered) == _BATCHABLE
+    assert len(offered) == len(set(offered))
+    # and what the description promises is what the enum accepts
+    for method in _BATCHABLE:
+        assert method in batch["modelDescription"]
 
 
 def test_variable_bounds_are_hard_or_only_advisory(tmp_path):

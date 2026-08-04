@@ -153,6 +153,21 @@ def evaluate(source, lookup, functions=None):
 
     walk(tree)
 
+    def number(value):
+        """An operand that arithmetic can mean something by.
+
+        A variable may hold a name rather than a quantity — an axis `"z"`, a
+        plane `"xy"` — and Python has an answer for `"z" * 2` that no scene
+        wants. Refused here rather than left to produce `"zz"`, silently, in
+        a field that was asked for a length.
+        """
+        if isinstance(value, str):
+            raise ValueError(
+                f"{value!r} is a name, not a number, so {source!r} has no "
+                f"arithmetic to do with it"
+            )
+        return value
+
     def eval_node(node):
         if isinstance(node, ast.Expression):
             return eval_node(node.body)
@@ -165,10 +180,10 @@ def evaluate(source, lookup, functions=None):
                 return _CONSTANTS[node.id]
             return lookup(node.id)
         if isinstance(node, ast.UnaryOp):
-            value = eval_node(node.operand)
+            value = number(eval_node(node.operand))
             return -value if isinstance(node.op, ast.USub) else +value
         if isinstance(node, ast.BinOp):
-            left, right = eval_node(node.left), eval_node(node.right)
+            left, right = number(eval_node(node.left)), number(eval_node(node.right))
             try:
                 return _BINOPS[type(node.op)](left, right)
             except ZeroDivisionError as e:
@@ -317,17 +332,64 @@ def contains_expression(value):
     return False
 
 
-def normalized(value):
+def as_number(value):
+    """A string that spells a number *is* that number; anything else is itself.
+
+    A caller that declares a field as "a number or an expression" hands over
+    the number as `"10"` often enough — a tool boundary that serialises a
+    union type, a form field, a hand-written document — that the document has
+    to be the one to decide. Storing the string instead is how `n * 2` came
+    out as `"1010"` rather than `20`, how `total + gap` concatenated two
+    lengths, and how an exported script came out saying `range(1, '10')`.
+    None of those raised: Python has an answer for every one of them, and
+    every answer is wrong.
+
+    Only a bare numeral changes. `"z"` is still an axis, `"=n*2"` is still an
+    expression, and `"nan"`/`"inf"` stay the words a document may have meant,
+    since no scene is a not-a-number wide.
+    """
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if "_" in text:
+        return value  # int("1_0") is 10, and "1_0" is far likelier to be a name
+    try:
+        return int(text)
+    except ValueError:
+        pass
+    try:
+        number = float(text)
+    except ValueError:
+        return value
+    return number if math.isfinite(number) else value
+
+
+#: Keys whose value names something rather than measures it. A numeral under
+#: one of these is an id or a label — `as_number` would rename the object
+#: rather than fix its arithmetic — and `style` covers a whole subtree of
+#: them, so it carries down to everything inside.
+_NAMING_KEYS = frozenset({"id", "target", "parent", "op", "type", "path", "style"})
+
+
+def normalized(value, naming=False):
     """Rewrite expressions in their canonical spacing, so that what a document
     stores is what reading its script back would produce — the script tab is a
-    fixed point from the first save, not the second."""
+    fixed point from the first save, not the second.
+
+    Numerals arriving as strings are read as the numbers they spell, in every
+    position but the ones that name things: this is the single funnel a
+    document value passes through on its way in, so it is the one place that
+    can hold the line for variables, parameters and events at once.
+    """
     if is_expression(value):
         try:
             return PREFIX + ast.unparse(ast.parse(source_of(value), mode="eval"))
         except SyntaxError:
             return value  # let the build report it
     if is_sampled(value):
-        spec = {k: normalized(v) for k, v in value[SAMPLED].items() if k != "name"}
+        spec = {
+            k: normalized(v, naming) for k, v in value[SAMPLED].items() if k != "name"
+        }
         # A default written out is a default the script does not write, and
         # reading it back would drop it — which is the fixed point above
         # failing on a document that only said what it meant.
@@ -335,10 +397,10 @@ def normalized(value):
             del spec["over"]
         return {SAMPLED: spec}
     if isinstance(value, list):
-        return [normalized(v) for v in value]
+        return [normalized(v, naming) for v in value]
     if isinstance(value, dict):
-        return {k: normalized(v) for k, v in value.items()}
-    return value
+        return {k: normalized(v, naming or k in _NAMING_KEYS) for k, v in value.items()}
+    return value if naming else as_number(value)
 
 
 class _Rename(ast.NodeTransformer):

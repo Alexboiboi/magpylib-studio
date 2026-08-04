@@ -3217,13 +3217,44 @@ class MagpylibStudioSession:
             return {"ok": False, "error": str(e)}
 
         doc, why_not = importer.parse_script(source)
-        warnings = []
+        warnings, namespace = [], None
         if doc is None:
             try:
                 namespace, _ = importer.run_script(path)
                 doc, warnings = importer.document_from_namespace(namespace)
             except Exception as e:  # noqa: BLE001 - report errors, don't crash
                 return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+        # A script that had to be *run* cannot state its variables: what comes
+        # back is the object graph it left behind, and a scene's
+        # parametrisation is not a thing one of those has. No variables there
+        # means "this route could not tell", not "the user deleted them" — so
+        # they are carried, each taking whatever the script's own module-level
+        # binding gives it, since editing `n = 4` in the file is how you would
+        # expect to change it. Until this existed, adding one `for` loop to a
+        # generated script dropped every variable in the scene, and the only
+        # thing said about it was that there had been a loop.
+        if namespace is not None and before.get("variables"):
+            kept = {}
+            for name, was in before["variables"].items():
+                now = _plain(namespace.get(name))
+                stated = isinstance(now, int | float) and not isinstance(now, bool)
+                kept[name] = now if stated else was
+            doc["variables"] = {**kept, **(doc.get("variables") or {})}
+            # Carried, but no longer wired to anything: the objects written in
+            # terms of them came back as the numbers they evaluated to. Saying
+            # so is the difference between a scene whose sliders went missing
+            # and one whose sliders are visibly waiting to be reconnected.
+            used = expressions.referenced_names(doc.get("events") or [])
+            orphaned = [name for name in kept if name not in used]
+            if orphaned:
+                warnings = [
+                    *warnings,
+                    f"nothing in the scene refers to {_id_list(orphaned)} any "
+                    "more — running the script replaced what did with the "
+                    "values they worked out to. The variables are kept, so "
+                    "you can point the rebuilt objects back at them.",
+                ]
 
         # A script states a variable's limits in the comment on its line, and
         # what it states wins — that is the point of writing them down. This
@@ -3292,7 +3323,14 @@ class MagpylibStudioSession:
         return result
 
     def clear_scene(self):
-        """Remove every object at once."""
+        """Empty the document: every object, every step and every variable.
+
+        The variables go with the objects rather than outliving them, because
+        what they parameterise is gone — and a variable nothing refers to
+        cannot be removed by name while anything still does, so leaving them
+        would leave a scene that reads as empty and a sidebar that does not.
+        Undo brings the whole document back.
+        """
         result = self.load_scene({"objects": []})
         if result["ok"] and not self._history_paused and self._undo:
             self._undo[-1]["label"] = "clear scene"

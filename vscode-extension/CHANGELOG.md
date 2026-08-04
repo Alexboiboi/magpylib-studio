@@ -4,6 +4,31 @@ All notable changes to the Magpylib Studio extension.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A numeral handed over as a string is a number.** A caller that sent `10` as
+  `"10"` got a string variable, and Python has an answer for every wrong thing
+  you can then do with one: `n * 2` was `"1010"`, adding two lengths
+  concatenated them, and the exported script said `range(1, '10')`. Nothing
+  raised. Bare numerals are now read as the numbers they spell, in variables,
+  parameters and steps alike — `"z"` is still an axis and a label reading `"10"`
+  is still text.
+
+- **A name is never quietly arithmetic.** A variable holding `"z"` used in a sum
+  now says so, rather than resolving to `"zz"` in a field asked for a length.
+
+- **Running an edited script keeps the variables it cannot state.** Adding one
+  `for` loop to the generated script dropped every variable in the scene. They
+  are carried across now, taking any new value the script's own `n = 5` line
+  gives them, and the import says when nothing refers to them any more.
+
+- **`remove_variable` can actually be called.** It was batchable, and described
+  as batchable, while the enum next to that description rejected it.
+  `duplicate_along` and `mirror` were missing there too; a test now compares the
+  schema against the engine's own list.
+
+- **Clearing the scene says it clears the variables**, which it always did.
+
 ## [0.3.0]
 
 ### Added
@@ -13,10 +38,10 @@ All notable changes to the Magpylib Studio extension.
   rewritten through the syntax tree, so the scene is unchanged and the bounds
   follow the name.
 
-- **A script says what its variables are allowed to be**, in the comment on
-  each one's line (`n = 10  # 2 to 60, slider 4 to 20, whole`), and reads them
-  back. Limits used to be editor-only, so a scene that travelled as a script
-  arrived with its sliders gone.
+- **A script says what its variables are allowed to be**, in the comment on each
+  one's line (`n = 10  # 2 to 60, slider 4 to 20, whole`), and reads them back.
+  Limits used to be editor-only, so a scene that travelled as a script arrived
+  with its sliders gone.
 
 ### Changed
 
@@ -37,8 +62,8 @@ All notable changes to the Magpylib Studio extension.
   those steps, which made deleting the one step it could not undo.
 
 - **Move Step Later on a "created" step is refused** instead of leaving the
-  object gone and its whole story broken. Nothing can happen to an object
-  before it exists.
+  object gone and its whole story broken. Nothing can happen to an object before
+  it exists.
 
 - **Pattern-along and mirror steps have their own glyph** instead of the
   anonymous dot that means "no icon for this".
